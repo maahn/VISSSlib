@@ -954,6 +954,9 @@ def getEvents(fnames0, config, fname0status=None):
 def createEvent(
     case, camera, config, skipExisting=True, quiet=False, version=__version__
 ):
+    # case is always daily for events!
+    case = case.split("-")[0]
+
     fn = files.FindFiles(case, camera, config, version)
     fnames0 = fn.listFiles("level0txt")
 
@@ -987,14 +990,15 @@ def createEvent(
                 )
                 nFiles = int(nFiles.values)
 
-            if (not quiet) and (nFiles == len(fnames0)):
-                log.info(tools.concat("Skipping", case, eventFile))
+            if nFiles == len(fnames0):
+                if not quiet:
+                    log.info(tools.concat("Skipping", case, eventFile))
                 eventDat.close()
                 return None
             else:
                 log.info(
                     tools.concat(
-                        "redoing event file, missing",
+                        "redoing event file, so far we had only",
                         nFiles,
                         "of",
                         len(fnames0),

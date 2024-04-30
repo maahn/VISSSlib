@@ -23,6 +23,21 @@ log = logging.getLogger(__name__)
 
 
 def loopLevel0Quicklook(settings, version=__version__, skipExisting=True, nDays=0):
+    """
+    loop through days to create level0 quicklooks to show camera blockage
+
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    """
     config = tools.readSettings(settings)
     instruments = config["instruments"]
     computers = config["computers"]
@@ -42,6 +57,20 @@ def loopLevel0Quicklook(settings, version=__version__, skipExisting=True, nDays=
 
 
 def loopMetaFramesQuicklooks(settings, version=__version__, skipExisting=True, nDays=0):
+    """
+    loop through days to create metaFrames quicklooks
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    """
     config = tools.readSettings(settings)
     instruments = config["instruments"]
     computers = config["computers"]
@@ -67,6 +96,20 @@ def loopMetaFramesQuicklooks(settings, version=__version__, skipExisting=True, n
 def loopMetaRotationQuicklooks(
     settings, version=__version__, skipExisting=True, nDays=0
 ):
+    """
+    loop through days to create metaRotation quicklooks
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    """
     config = tools.readSettings(settings)
     instruments = config["instruments"]
     computers = config["computers"]
@@ -98,6 +141,20 @@ def loopMetaRotationQuicklooks(
 def loopLevel1detectQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True
 ):
+    """
+    loop through days to create level1detect quicklooks
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    """
     config = tools.readSettings(settings)
     instruments = config["instruments"]
     computers = config["computers"]
@@ -130,6 +187,22 @@ def loopLevel1detectQuicklooks(
 def loopLevel1matchQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True, plotCompleteOnly=True
 ):
+    """
+    loop through days to create level1match quicklooks
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    plotCompleteOnly : bool, optional
+        plot only days that are completely processed (the default is True)
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -159,6 +232,20 @@ def loopLevel1matchQuicklooks(
 def loopLevel1matchParticlesQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True
 ):
+    """
+    loop through days to create level1match quicklooks showing observed particle pairs
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    """
     config = tools.readSettings(settings)
     days = tools.getDateRange(nDays, config, endYesterday=False)
 
@@ -186,6 +273,20 @@ def loopLevel1matchParticlesQuicklooks(
 def loopLevel2matchQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True
 ):
+    """
+    loop through days to create level2match quicklooks
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -214,6 +315,21 @@ def loopLevel2matchQuicklooks(
 def loopLevel2trackQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True
 ):
+    """
+    loop through days to create level2track quicklooks
+
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -240,6 +356,19 @@ def loopLevel2trackQuicklooks(
 
 
 def loopMetaCoefQuicklooks(settings, version=__version__, skipExisting=True):
+    """
+    loop through days to create meta coefficients quicklooks
+
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    """
     config = tools.readSettings(settings)
 
     if config["end"] == "today":
@@ -273,6 +402,18 @@ def loopMetaCoefQuicklooks(settings, version=__version__, skipExisting=True):
 
 
 def loopCreateEvents(settings, skipExisting=True, nDays=0):
+    """
+    loop through days to create event product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -287,37 +428,27 @@ def loopCreateEvents(settings, skipExisting=True, nDays=0):
             metadata.createEvent(case, camera, config, skipExisting=skipExisting)
 
 
-# def loopCreateLevel2match(settings, skipExisting=True, nDays = 0, doPlot=True):
-
-
-#     config = tools.readSettings(settings)
-
-#     days = tools.getDateRange(nDays, config, endYesterday=False)
-
-#     for dd in days:
-
-#         year = str(dd.year)
-#         month = "%02i" % dd.month
-#         day = "%02i" % dd.day
-#         case = f"{year}{month}{day}"
-
-#         distributions.createLevel2match(case, config, skipExisting=skipExisting)
-
-#         if doPlot:
-#             fname, fig = quicklooks.createLevel2matchQuicklook(
-#                 case,
-#                 config,
-#                 skipExisting=skipExisting,
-#                 )
-#             try:
-#                 fig.close()
-#             except AttributeError:
-#                 pass
-
-
 def loopCreateLevel2match(
     settings, skipExisting=True, nDays=0, useWorker=True, nCPU=None, doPlot=True
 ):
+    """
+    loop through days to create level2match product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    useWorker : bool, optional
+        use  workers to run multiple file sin parallel (the default is True)
+    nCPU : int, optional
+        number of workers to use (the default is None, which corresponds to the number of cores)
+    doPlot : bool, optional
+        do quicklooks? (the default is True)
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -326,11 +457,11 @@ def loopCreateLevel2match(
 
     if useWorker and len(days) > 1:
         if nCPU is None:
-            nCPU = os.cpu_count() // 2
+            nCPU = os.cpu_count()
         daysStr = [str(day).split(" ")[0].replace("-", "") for day in days]
 
         doWork = partial(
-            loopCreateLevel2Worker,
+            _loopCreateLevel2Worker,
             matchTrack="match",
             settings=settings,
             skipExisting=skipExisting,
@@ -368,16 +499,34 @@ def loopCreateLevel2match(
 def loopCreateLevel2track(
     settings, skipExisting=True, nDays=0, useWorker=True, nCPU=None, doPlot=True
 ):
+    """
+    loop through days to create level2track product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    useWorker : bool, optional
+        use  workers to run multiple file sin parallel (the default is True)
+    nCPU : int, optional
+        number of workers to use (the default is None, which corresponds to the number of cores)
+    doPlot : bool, optional
+        do quicklooks? (the default is True)
+    """
     config = tools.readSettings(settings)
     days = tools.getDateRange(nDays, config, endYesterday=False)
 
     if useWorker and len(days) > 1:
         if nCPU is None:
-            nCPU = os.cpu_count() // 2
+            nCPU = os.cpu_count()
         daysStr = [str(day).split(" ")[0].replace("-", "") for day in days]
 
         doWork = partial(
-            loopCreateLevel2Worker,
+            _loopCreateLevel2Worker,
             matchTrack="track",
             settings=settings,
             skipExisting=skipExisting,
@@ -412,7 +561,7 @@ def loopCreateLevel2track(
     return
 
 
-def loopCreateLevel2Worker(
+def _loopCreateLevel2Worker(
     day, matchTrack="match", settings=None, skipExisting=True, nCPU=1
 ):
     log = logging.getLogger()
@@ -457,6 +606,22 @@ def loopCreateLevel2Worker(
 def loopCreateMetaFrames(
     settings, skipExisting=True, nDays=0, cameras="all", doPlot=True
 ):
+    """
+    loop through days to create metaFrames product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    cameras : list or "all", optional
+        list of camera names to process (the default is "all", which means leader and follower)
+    doPlot : bool, optional
+        do quicklooks? (the default is True)
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -484,11 +649,27 @@ def loopCreateMetaFrames(
     return
 
 
-def loopCreateMetaRotation(settings, skipExisting=True, nDays=0, doPlot=True):
+def loopCreateMetaRotation(
+    settings, skipExisting=True, nDays=0, doPlot=True, stopOnFailure=False
+):
+    """
+    Lopp thourgh days to create metaRotation product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    doPlot : bool, optional
+        do quicklooks? (the default is True)
+    stopOnFailure : bool, optional
+        stop when metaRotation fails? (the default is False)
+    """
     config = tools.readSettings(settings)
-
     days = tools.getDateRange(nDays, config, endYesterday=False)
-
     years = []
 
     for dd in days:
@@ -497,8 +678,10 @@ def loopCreateMetaRotation(settings, skipExisting=True, nDays=0, doPlot=True):
         month = "%02i" % dd.month
         day = "%02i" % dd.day
         case = f"{year}{month}{day}"
-
-        matching.createMetaRotation(case, config, skipExisting=skipExisting)
+        print("createMetaRotation", case)
+        matching.createMetaRotation(
+            case, config, skipExisting=skipExisting, stopOnFailure=stopOnFailure
+        )
         if doPlot:
             fOut, fig = quicklooks.metaRotationQuicklook(
                 case, config, skipExisting=skipExisting
@@ -517,7 +700,7 @@ def loopCreateMetaRotation(settings, skipExisting=True, nDays=0, doPlot=True):
     return
 
 
-def loopCreateLevel1detectWorker(fname, settings, skipExisting=True, nCPU=1):
+def _loopCreateLevel1detectWorker(fname, settings, skipExisting=True, nCPU=1):
     """
     We need this worker function becuase  we want to do the detection by indipendent
     processes in parallel
@@ -565,7 +748,7 @@ def loopCreateLevel1detectWorker(fname, settings, skipExisting=True, nCPU=1):
     return 0
 
 
-def loopCreateLevel1matchWorker(fnameL1detect, settings, skipExisting=True, nCPU=1):
+def _loopCreateLevel1matchWorker(fnameL1detect, settings, skipExisting=True, nCPU=1):
     """
     We need this worker function becuase  we want to do the matching by indipendent
     processes in parallel
@@ -622,7 +805,7 @@ def loopCreateLevel1matchWorker(fnameL1detect, settings, skipExisting=True, nCPU
     return 0
 
 
-def loopCreateLevel1trackWorker(fnameL1detect, settings, skipExisting=True, nCPU=1):
+def _loopCreateLevel1trackWorker(fnameL1detect, settings, skipExisting=True, nCPU=1):
     """
     We need this worker function becuase  we want to do the matching by indipendent
     processes in parallel
@@ -739,6 +922,22 @@ def _runCommand(command, tmpFile, fOut, stdout=subprocess.DEVNULL):
 def loopCreateLevel1detect(
     settings, skipExisting=True, nDays=0, cameras="all", nCPU=None
 ):
+    """
+    loop through days to create level1detect product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    cameras : list or "all", optional
+        list of camera names to process (the default is "all", which means leader and follower)
+    nCPU : int, optional
+        number of workers to use (the default is None, which corresponds to the number of cores)
+    """
     config = tools.readSettings(settings)
     log = logging.getLogger()
 
@@ -773,9 +972,9 @@ def loopCreateLevel1detect(
     else:
         log.info(f"found {len(fnames)} files, lets do it:")
 
-        # p.map(partial(loopCreateLevel1detectWorker, settings=settings, skipExisting=skipExisting), fnames)
+        # p.map(partial(_loopCreateLevel1detectWorker, settings=settings, skipExisting=skipExisting), fnames)
         doWork = partial(
-            loopCreateLevel1detectWorker, settings=settings, skipExisting=skipExisting
+            _loopCreateLevel1detectWorker, settings=settings, skipExisting=skipExisting
         )
         with multiprocessing.Pool(nCPU) as p:
             for i, r in enumerate(p.imap(doWork, fnames)):
@@ -786,6 +985,20 @@ def loopCreateLevel1detect(
 
 
 def loopCreateLevel1match(settings, skipExisting=True, nDays=0, nCPU=None):
+    """
+    loop through days to create level1match product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    nCPU : int, optional
+        number of workers to use (the default is None, which corresponds to the number of cores)
+    """
     config = tools.readSettings(settings)
     log = logging.getLogger()
 
@@ -822,9 +1035,9 @@ def loopCreateLevel1match(settings, skipExisting=True, nDays=0, nCPU=None):
         log.info(f"found {len(fnames)} files, lets do it:")
 
         doWork = partial(
-            loopCreateLevel1matchWorker, settings=settings, skipExisting=skipExisting
+            _loopCreateLevel1matchWorker, settings=settings, skipExisting=skipExisting
         )
-        # p.map(partial(loopCreateLevel1matchWorker, settings=settings, skipExisting=skipExisting), fnames)
+        # p.map(partial(_loopCreateLevel1matchWorker, settings=settings, skipExisting=skipExisting), fnames)
         with multiprocessing.Pool(nCPU) as p:
             for i, r in enumerate(p.imap(doWork, fnames)):
                 log.info(f"done {i} of {len(fnames)} files with result {r}")
@@ -833,6 +1046,20 @@ def loopCreateLevel1match(settings, skipExisting=True, nDays=0, nCPU=None):
 
 
 def loopCreateLevel1track(settings, skipExisting=True, nDays=0, nCPU=None):
+    """
+    loop through days to create level1track product
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    nCPU : int, optional
+        number of workers to use (the default is None, which corresponds to the number of cores)
+    """
     config = tools.readSettings(settings)
     log = logging.getLogger()
 
@@ -869,9 +1096,9 @@ def loopCreateLevel1track(settings, skipExisting=True, nDays=0, nCPU=None):
         log.info(f"found {len(fnames)} files, lets do it:")
 
         doWork = partial(
-            loopCreateLevel1trackWorker, settings=settings, skipExisting=skipExisting
+            _loopCreateLevel1trackWorker, settings=settings, skipExisting=skipExisting
         )
-        # p.map(partial(loopCreateLevel1trackWorker, settings=settings, skipExisting=skipExisting), fnames)
+        # p.map(partial(_loopCreateLevel1trackWorker, settings=settings, skipExisting=skipExisting), fnames)
         with multiprocessing.Pool(nCPU) as p:
             for i, r in enumerate(p.imap(doWork, fnames)):
                 log.info(f"done {i} of {len(fnames)} files with result {r}")
@@ -895,6 +1122,24 @@ def loopCheckCompleteness(
         "level2track",
     ],
 ):
+    """
+    loop through days to check whether products have been completely processed
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    cameras : str, optional
+        list of camera names to process (the default is "all", which means leader and follower)
+    listDuplicates : bool, optional
+        list duplicates (the default is True)
+    listMissing : bool, optional
+        list missing files (the default is False)
+    products : list, optional
+        products to list (the default is [ "metaFrames", "level1detect", "metaRotation", "level1match", "level1track", "level2match", "level2track", ])
+    """
     config = tools.readSettings(settings)
 
     days = tools.getDateRange(nDays, config)
@@ -994,6 +1239,21 @@ def reportLastFiles(
         "level2track",
     ],
 ):
+    """
+    report last available files for various processing levels
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    writeFile : bool, optional
+        write output to file (the default is True)
+    nameFile : bool, optional
+        name last files (the default is False)
+    products : list, optional
+        list of products to be summarized (the default is [ "level0txt", "level0", "metaFrames", "level1detect", "metaRotation", "level1match", "level1track", "level2match", "level2track", ])
+
+    """
     config = tools.readSettings(settings)
     days = tools.getDateRange(0, config, endYesterday=False)[::-1]
 
@@ -1080,6 +1340,27 @@ def loopCreateBatch(
     ],
     doPlot=True,
 ):  #
+    """
+    loop through days to create all products that require significant processing
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    cameras : list or "all", optional
+        list of camera names to process (the default is "all", which means leader and follower)
+    nCPU : int, optional
+        number of workers to use (the default is None, which corresponds to the number of cores)
+    products : list, optional
+        list of products to process (the default is [ "level1detect", "level1match", "level2match", "level1track", "level2track", ])
+    doPlot : bool, optional
+        do quicklooks? (the default is True)
+
+    """
     config = tools.readSettings(settings)
     log = logging.getLogger()
 
@@ -1134,7 +1415,7 @@ def loopCreateBatch(
             else:
                 log.info(f"found {len(fnamesL1D)} files for level1detect, lets do it:")
                 doWorkL1D = partial(
-                    loopCreateLevel1detectWorker,
+                    _loopCreateLevel1detectWorker,
                     settings=settings,
                     skipExisting=skipExisting,
                 )
@@ -1167,7 +1448,7 @@ def loopCreateBatch(
                 log.info(f"found {len(fnamesL1M)} files for level1match, lets do it:")
 
                 doWorkL1M = partial(
-                    loopCreateLevel1matchWorker,
+                    _loopCreateLevel1matchWorker,
                     settings=settings,
                     skipExisting=skipExisting,
                 )
@@ -1200,7 +1481,7 @@ def loopCreateBatch(
                 log.info(f"found {len(fnamesL1T)} files for level1track, lets do it:")
 
                 doWorkL1T = partial(
-                    loopCreateLevel1trackWorker,
+                    _loopCreateLevel1trackWorker,
                     settings=settings,
                     skipExisting=skipExisting,
                 )
@@ -1209,7 +1490,7 @@ def loopCreateBatch(
         if "level2match" in products:
             nJobs += len(daysStr)
             doWorkL2M = partial(
-                loopCreateLevel2Worker,
+                _loopCreateLevel2Worker,
                 matchTrack="match",
                 settings=settings,
                 skipExisting=skipExisting,
@@ -1219,7 +1500,7 @@ def loopCreateBatch(
         if "level2track" in products:
             nJobs += len(daysStr)
             doWorkL2T = partial(
-                loopCreateLevel2Worker,
+                _loopCreateLevel2Worker,
                 matchTrack="track",
                 settings=settings,
                 skipExisting=skipExisting,

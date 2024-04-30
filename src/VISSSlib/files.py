@@ -15,7 +15,7 @@ from addict import Dict
 
 log = logging.getLogger(__name__)
 
-from . import __version__
+from . import __version__, metadata
 from .tools import nicerNames, otherCamera
 
 dailyLevels = [
@@ -261,6 +261,39 @@ class FindFiles(object):
             self.quicklookCurrent[
                 qL
             ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_current.png"
+
+    @functools.cache
+    def getEvents(self, skipExisting=True):
+        """Get (and create of necessary) event dataset.
+
+        Parameters
+        ----------
+        skipExisting : bool, optional
+            skip processing exisiting files (the default is True)
+
+        Returns
+        -------
+        str
+            event filename
+
+        xr.Dataset
+            event Dataset
+        """
+
+        eventFile = self.listFiles("metaEvents")[0]
+        # just in case it is missing
+        metadata.createEvent(
+            self.case,
+            self.camera,
+            self.config,
+            skipExisting=skipExisting,
+            quiet=True,
+        )
+        eventDat = xr.open_dataset(eventFile).load()
+        # opening it several times can cause segfaults
+        eventDat.close()
+
+        return eventFile, eventDat
 
     @functools.cache
     def listFiles(self, level):
@@ -810,6 +843,39 @@ class Filenames(object):
             return FindFiles(neighborTimestamp, self.camera, self.config).listFiles(
                 level
             )[0]
+
+    @functools.cache
+    def getEvents(self, skipExisting=True):
+        """Get (and create of necessary) event dataset.
+
+        Parameters
+        ----------
+        skipExisting : bool, optional
+            skip processing exisiting files (the default is True)
+
+        Returns
+        -------
+        str
+            event filename
+
+        xr.Dataset
+            event Dataset
+        """
+
+        eventFile = self.fname.metaEvents
+        # just in case it is missing
+        metadata.createEvent(
+            self.case,
+            self.camera,
+            self.config,
+            skipExisting=skipExisting,
+            quiet=True,
+        )
+        eventDat = xr.open_dataset(eventFile).load()
+        # opening it several times can cause segfaults
+        eventDat.close()
+
+        return eventFile, eventDat
 
 
 class FilenamesFromLevel(Filenames):

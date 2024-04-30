@@ -493,6 +493,7 @@ def estimateCaptureIdDiffCore(
             dict(zip(vals[np.argsort(counts)[::-1]], counts[np.argsort(counts)[::-1]])),
             timeDim,
         )
+
         if ratioSame > 0.7:
             print(
                 f"capture_id determined {idDiff}, {ratioSame*100}% have the same value"
@@ -500,7 +501,7 @@ def estimateCaptureIdDiffCore(
             return idDiff, nIdDiffs
         else:
             raise RuntimeError(
-                f"capture_id varies too much, only {ratioSame*100}% of {len(vals)} samples have the same value {idDiff}, 2n place: {vals[np.argsort(counts)[-2]]}"
+                f"capture_id varies too much, only {ratioSame*100}% of {nIdDiffs} samples have the same value {idDiff}, 2n place: {vals[np.argsort(counts)[-2]]}"
             )
 
     else:
@@ -717,6 +718,21 @@ def finishNc(dat, site, visssGen, extra={}):
     return dat
 
 
+def getPrevRotationEstimates(datetime64, config):
+    """
+    Extract reotation first guess from config structure
+    """
+    rotate, rotate_time = getPrevRotationEstimate(datetime64, "transformation", config)
+    assert len(rotate) != 0
+    rotate_err, rotate_err_time = getPrevRotationEstimate(
+        datetime64, "transformation_err", config
+    )
+    assert len(rotate_err) != 0
+    assert rotate_time == rotate_err_time
+
+    return rotate, rotate_err, rotate_time
+
+
 def getPrevRotationEstimate(datetime64, key, config):
     """
     Extract reotation first guess from config structure
@@ -743,6 +759,7 @@ def getPrevRotationEstimate(datetime64, key, config):
 
 
 def rotXr2dict(dat, config=None):
+    """convert rotation structure into config dictionary"""
     if config is None:
         config = {}
         config["rotate"] = {}
@@ -760,6 +777,26 @@ def rotXr2dict(dat, config=None):
         }
 
     return config
+
+
+def rotDict2Xr(rotate, rotate_err, prevTime):
+    if rotate is np.nan:
+        rotate = {"camera_Ofz": np.nan, "camera_phi": np.nan, "camera_theta": np.nan}
+    if rotate_err is np.nan:
+        rotate_err = {
+            "camera_Ofz": np.nan,
+            "camera_phi": np.nan,
+            "camera_theta": np.nan,
+        }
+
+    metaRotationDf = {}
+    for k in rotate.keys():
+        metaRotationDf[k] = xr.DataArray(
+            np.ones((1, 2)) * np.array([rotate[k], rotate_err[k]]),
+            dims=["file_starttime", "camera_rotation"],
+            coords=[[prevTime], np.array(["mean", "err"])],
+        )
+    return xr.Dataset(metaRotationDf)
 
 
 def execute_stdout(command):

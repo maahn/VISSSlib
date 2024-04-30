@@ -589,11 +589,11 @@ def createLevel1detectQuicklook(
     width = draw.textlength(title, font=font)
     # Call textbbox to get the bounding box
     bbox = draw.textbbox((0, 0), title, font=font)
-    
+
     # Extract top and bottom values from the returned tuple
     left, top, right, bottom = bbox
-    height=top-bottom
-    #width, height = draw.textsize(title, font=font)##Depricated 
+    height = top - bottom
+    # width, height = draw.textsize(title, font=font)##Depricated
     draw.line((width + 15, 30, width + 15 + round(tenmm), 30), fill=0, width=5)
 
     new_im.save(ffOut)
@@ -1573,7 +1573,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
         return None, None
 
     rotFiles = ff.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
-    rotDat = xr.open_mfdataset(rotFiles, combine="by_coords")
+    rotDat = xr.open_mfdataset(rotFiles, combine="nested")
 
     # handle current year a bit differently
     if int(year) == int(datetime.datetime.utcnow().year):
@@ -1629,6 +1629,35 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
         alpha=0.5,
     )
 
+    resets = [
+        np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
+        for d in config.rotate.keys()
+    ]
+
+    ofz = rotDat.camera_Ofz.sel(camera_rotation="mean")
+    cond = ofz.where(np.isnan(ofz))
+    for ax in [ax1, ax2, ax3]:
+        ylim = ax.get_ylim()
+        if cond.notnull().any():
+            ax.fill_between(
+                cond,
+                [ylim[0]] * len(rotDat.file_starttime),
+                [ylim[1]] * len(rotDat.file_starttime),
+                color="pink",
+                alpha=0.25,
+                label="rotation failed",
+            )
+
+        firstReset = True
+        for reset in resets:
+            if firstReset:
+                ax.axvline(reset, color="k", label="rotation from config", alpha=0.2)
+            else:
+                ax.axvline(reset, color="k", alpha=0.2)
+            firstReset = False
+
+    ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
+
     ax1.grid()
     ax1.set_title(None)
     ax1.set_ylabel("phi rotation [°]", fontsize=20)
@@ -1669,6 +1698,22 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.metaRotation
 
+    fnames1D = {}
+    fnames1D["leader"] = ff.listFiles("level1detect")
+    ff2 = files.FindFiles(case, config.follower, config, version)
+    fnames1D["follower"] = ff2.listFiles("level1detect")
+
+    nParticles = {}
+    for camera in fnames1D.keys():
+        nParticles[camera] = {}
+        for fname in fnames1D[camera]:
+            d1 = xr.open_dataset(fname)
+            nP = len(d1.pid)
+            d1.close()
+            tt = files.FilenamesFromLevel(fname, config).datetime64
+            nParticles[camera][tt] = nP
+        nParticles[camera] = pd.Series(nParticles[camera])
+
     if skipExisting and os.path.isfile(fOut):
         if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
             print("file exists but older than event file, redoing", fOut)
@@ -1693,9 +1738,17 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         print(f'{ff.listFiles("metaEvents")[0]} broken')
         return None, None
 
-    print("todo: read follower events!")
+    try:
+        events2 = xr.open_dataset(ff2.listFiles("metaEvents")[0])
+    except:
+        print(f'{ff2.listFiles("metaEvents")[0]} broken')
+        return None, None
 
     if len(events.data_vars) == 0:
+        print(f'{ff.listFiles("metaEvents")[0]} empty')
+        return None, None
+
+    if len(events2.data_vars) == 0:
         print(f'{ff.listFiles("metaEvents")[0]} empty')
         return None, None
 
@@ -1716,12 +1769,17 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ts = events.file_starttime.where(
         (events.event == "sleep-trigger") | (events.event == "stop-trigger")
     )
+    ts2 = events2.file_starttime.where(
+        (events2.event == "sleep-trigger") | (events2.event == "stop-trigger")
+    )
 
     print("plotting")
     # plotting
     fig, (ax1, ax2, ax3) = plt.subplots(
         3, figsize=(20, 15), gridspec_kw={"hspace": 0.0}, sharex=True
     )
+    ax3.set_yscale("log")
+
     # plt.rcParams['text.usetex'] = False
     # plt.rcParams['lines.linewidth'] = 1.5
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
@@ -1737,9 +1795,30 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         x=mid,
     )
 
-    rotDat.camera_phi.sel(camera_rotation="mean").plot(ax=ax1, marker="x")
-    rotDat.camera_theta.sel(camera_rotation="mean").plot(ax=ax2, marker="x")
-    rotDat.camera_Ofz.sel(camera_rotation="mean").plot(ax=ax3, marker="x")
+    rotDat.camera_phi.sel(camera_rotation="mean").plot(ax=ax1, marker="x", label="phi")
+    rotDat.camera_theta.sel(camera_rotation="mean").plot(
+        ax=ax1, marker="x", label="theta"
+    )
+    rotDat.camera_Ofz.sel(camera_rotation="mean").plot(ax=ax2, marker="x")
+
+    for camera in nParticles.keys():
+        # try:
+        xr.DataArray(nParticles[camera]).plot(ax=ax3, marker="x", label=camera)
+        # except IndexError:
+        # pass
+
+    ofz = rotDat.camera_Ofz.sel(camera_rotation="mean")
+    cond = ofz.file_starttime.where(np.isnan(ofz))
+    for ax in [ax1, ax2, ax3]:
+        ylim = ax.get_ylim()
+        if cond.notnull().any():
+            ax.fill_between(
+                cond,
+                [ylim[0]] * len(rotDat.file_starttime),
+                [ylim[1]] * len(rotDat.file_starttime),
+                color="red",
+                label="rotation failed",
+            )
 
     ax1.fill_between(
         rotDat.file_starttime,
@@ -1758,7 +1837,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         + rotDat.camera_theta.sel(camera_rotation="err"),
         alpha=0.5,
     )
-    ax3.fill_between(
+    ax2.fill_between(
         rotDat.file_starttime,
         rotDat.camera_Ofz.sel(camera_rotation="mean")
         - rotDat.camera_Ofz.sel(camera_rotation="err"),
@@ -1769,89 +1848,83 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     isBlocked = events.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
     isBlocked = isBlocked.file_starttime.where(isBlocked).values
     isBlocked = isBlocked[~np.isnan(isBlocked)]
+    isBlocked2 = (
+        events2.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
+    )
+    isBlocked2 = isBlocked2.file_starttime.where(isBlocked2).values
+    isBlocked2 = isBlocked2[~np.isnan(isBlocked2)]
 
-    ylim = ax1.get_ylim()
-    if isBlocked.any():
-        ax1.fill_between(
-            isBlocked,
-            [ylim[0]] * len(isBlocked),
-            [ylim[1]] * len(isBlocked),
-            color="red",
-            alpha=0.25,
-            label="blocked",
-        )
-    if ts.notnull().sum() > 0:
-        ax1.fill_between(
-            ts,
-            [ylim[0]] * len(ts),
-            [ylim[1]] * len(ts),
-            color="orange",
-            alpha=0.5,
-            label="idle",
-        )
-    ax1.set_ylim(ylim)
+    resets = [
+        np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
+        for d in config.rotate.keys()
+    ]
 
-    ax1.grid()
+    for ax in [ax1, ax2, ax3]:
+        ylim = ax.get_ylim()
+        if isBlocked.any():
+            ax.fill_between(
+                isBlocked,
+                [ylim[0]] * len(isBlocked),
+                [ylim[1]] * len(isBlocked),
+                color="red",
+                alpha=0.25,
+                label="leader blocked",
+            )
+        if isBlocked2.any():
+            ax.fill_between(
+                isBlocked,
+                [ylim[0]] * len(isBlocked),
+                [ylim[1]] * len(isBlocked),
+                color="blue",
+                alpha=0.25,
+                label="follower blocked",
+            )
+        if ts.notnull().sum() > 0:
+            ax.fill_between(
+                ts,
+                [ylim[0]] * len(ts),
+                [ylim[1]] * len(ts),
+                color="orange",
+                alpha=0.5,
+                label="idle",
+            )
+        if ts2.notnull().sum() > 0:
+            ax.fill_between(
+                ts2,
+                [ylim[0]] * len(ts),
+                [ylim[1]] * len(ts),
+                color="orange",
+                alpha=0.5,
+                label="idle",
+            )
+        firstReset = True
+        for reset in resets:
+            if firstReset:
+                ax.axvline(reset, color="k", label="rotation from config")
+            else:
+                ax.axvline(reset, color="k")
+            firstReset = False
+        ax.set_ylim(ylim)
+
+        ax.grid()
+
     ax1.set_title(None)
-    ax1.set_ylabel("phi rotation [°]", fontsize=20)
+    ax1.set_ylabel("angular rotation [°]", fontsize=20)
     ax1.set_xlabel(None)
 
-    ylim = ax2.get_ylim()
-    if isBlocked.any():
-        ax2.fill_between(
-            isBlocked,
-            [ylim[0]] * len(isBlocked),
-            [ylim[1]] * len(isBlocked),
-            color="red",
-            alpha=0.25,
-            label="blocked",
-        )
-    if ts.notnull().sum() > 0:
-        ax2.fill_between(
-            ts,
-            [ylim[0]] * len(ts),
-            [ylim[1]] * len(ts),
-            color="orange",
-            alpha=0.5,
-            label="idle",
-        )
-    ax2.set_ylim(ylim)
     ax2.set_title(None)
-    ax2.set_ylabel("theta rotation [°]", fontsize=20)
-
-    ax2.grid()
+    ax2.set_ylabel("z offset [px]", fontsize=20)
     ax2.set_xlabel(None)
 
-    ylim = ax3.get_ylim()
-    if isBlocked.any():
-        ax3.fill_between(
-            isBlocked,
-            [ylim[0]] * len(isBlocked),
-            [ylim[1]] * len(isBlocked),
-            color="red",
-            alpha=0.25,
-            label="blocked",
-        )
-    if ts.notnull().sum() > 0:
-        ax3.fill_between(
-            ts,
-            [ylim[0]] * len(ts),
-            [ylim[1]] * len(ts),
-            color="orange",
-            alpha=0.5,
-            label="idle",
-        )
-    ax3.set_ylim(ylim)
     ax3.set_xlim(
         np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
         np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
         + np.timedelta64(1, "D"),
     )
     ax3.set_title(None)
-    ax3.set_ylabel("z offset [px]", fontsize=20)
+    ax3.set_ylabel("# particles in lv1detect", fontsize=20)
     ax3.tick_params(axis="both", labelsize=15)
     ax3.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-    ax3.grid()
     ax3.set_xlabel("time")
 
     firstEvent = True
@@ -1861,19 +1934,33 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         ):
             for bx in [ax1, ax2, ax3]:
                 if firstEvent:
-                    label = "restarted"
+                    label = "leader restarted"
                     firstEvent = False
                 else:
                     label = None
                 bx.axvline(
                     event.file_starttime.values, color="red", ls=":", label=label
                 )
+    firstEvent = True
+    for event in events2.event:
+        if str(event.values).startswith("start") or str(event.values).startswith(
+            "launch"
+        ):
+            for bx in [ax1, ax2, ax3]:
+                if firstEvent:
+                    label = "follower restarted"
+                    firstEvent = False
+                else:
+                    label = None
+                bx.axvline(
+                    event.file_starttime.values, color="red", ls="--", label=label
+                )
 
-    ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
+    ax1.legend(fontsize=15)
+    ax3.legend(fontsize=15)
 
     tools.createParentDir(fOut)
     fig.savefig(fOut)
-
     rotDat.close()
     events.close()
 

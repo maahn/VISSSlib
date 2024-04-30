@@ -57,11 +57,6 @@ API
     :show-inheritance:
     :member-order: bysource
 
-.. automodule:: VISSSlib.scripts
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
 
 .. automodule:: VISSSlib.tools
     :members:

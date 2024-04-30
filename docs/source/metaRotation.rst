@@ -1,5 +1,5 @@
-metaRotation
-============
+metaRotation - retrieve camera rotation
+=======================================
 
 
 Motivation
@@ -39,7 +39,7 @@ Mathematically, we need to transform the follower coordinate system
 our leader reference coordinate system
 (:math:`x_\textrm{L}`,\ :math:`y_\textrm{L}`,\ :math:`z_\textrm{L}`)
 using rotation and shear matrices. In the appendix
-`4 (see VISSS paper Maahn et al. 2024), we show how the transformation matrices can be
+`4` (see VISSS paper Maahn et al. 2024), we show how the transformation matrices can be
 arranged so that the follower’s vertical measure :math:`z_\textrm{F}`
 can be converted to :math:`z_\textrm{L}` depending on :math:`\varphi`
 and :math:`\theta` with
@@ -88,9 +88,9 @@ point for the iteration, the matching algorithm is applied for frames
 where only a single, relatively large (:math:`>` 10 px) particle is
 detected, so that the matching can be done based on particle height
 difference (:math:`\Delta h`) alone, ignoring vertical offset
-(:math:`\Delta z`).
+(:math:`\Delta z`). [*]_
 
-This section has been copied from Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introducing the Video In Situ Snowfall Sensor (VISSS). Atmospheric Measurement Techniques, 17, 899–919, doi:10.5194/amt-17-899-2024.
+
 
 
 Run metaRotation
@@ -287,5 +287,6 @@ Now foramt the output so that we can copy paste it in the config files
 API
 ---
 
-metaRotaion is handled in matching.py
+metaRotation is handled in matching.py, see :doc:`matching`
 
+.. [*] The former text has been copied from Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introducing the Video In Situ Snowfall Sensor (VISSS). Atmospheric Measurement Techniques, 17, 899–919, doi:10.5194/amt-17-899-2024.

@@ -252,7 +252,7 @@ And again
         minSamples4rot=5,
     )
 
-Now foramt the output so that we can copy paste it in the config files
+Now format the output so that we can copy paste it in the config files
 
 .. code:: ipython3
 

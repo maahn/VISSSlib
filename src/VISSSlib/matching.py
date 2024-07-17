@@ -973,10 +973,12 @@ def matchParticles(
     rotate_time = None
 
     if not doRot:
-        # get rotation estimates and add to config instead of etimating them
+        # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
         metaRotationDat = xr.open_dataset(fnameMetaRotation)
-        metaRotationDat = metaRotationDat.where(metaRotationDat.camera_Ofz.notnull())
+        metaRotationDat = metaRotationDat.where(
+            metaRotationDat.camera_Ofz.notnull(), drop=True
+        )
 
         config = tools.rotXr2dict(metaRotationDat, config)
 
@@ -984,6 +986,9 @@ def matchParticles(
         rotate, rotate_err, rotate_time = tools.getPrevRotationEstimates(
             ffl1.datetime64, config
         )
+    # in case everything else below fails
+    rotate_final = rotate
+    rotate_err_final = rotate_err
 
     log.info(
         f"opening {fnameLv1Detect} with rotation first guess {rotate} from {rotate_time}"
@@ -1131,6 +1136,9 @@ def matchParticles(
     leader1D4rot = leader1D
     follower1D4rot = follower1DAll
 
+    nFollower = 0
+    nLeader = 0
+
     # loop over all follower segments separated by camera restarts
     for tt, (FR1, FR2) in enumerate(zip(timeBlocks[:-1], timeBlocks[1:])):
         log.info(
@@ -1176,7 +1184,7 @@ def matchParticles(
                     FR1,
                     FR2,
                     "less than one second",
-                    (FR2 - FR1),
+                    (FR2 - FR1) / 1e9,
                 )
             )
             continue
@@ -1515,8 +1523,13 @@ def matchParticles(
             rotate_err_result = rotate_err
 
         if rotationOnly:
+            nLeader += len(leader1D4rot.fpid)
+            nFollower += len(follower1D4rot.fpid)
             continue
             # return fname1Match, matchedDat4Rot, rotate, rotate_err
+
+        nLeader += len(leader1D.fpid)
+        nFollower += len(follower1D.fpid)
 
         if dataTruncated4rot or (not doRot):
             log.info(tools.concat("final doMatch"))
@@ -1571,7 +1584,7 @@ def matchParticles(
 
             matchedDats.append(matchedDat)
 
-        # end loop camera restart FR
+    # end loop camera restart FR
 
     if rotationOnly:
         try:
@@ -1583,8 +1596,8 @@ def matchParticles(
             matchedDat4Rot,
             rotate_result,
             rotate_err_result,
-            len(leader1D4rot.fpid),
-            len(follower1D4rot.fpid),
+            nLeader,
+            nFollower,
             nMatched,
             errors,
         )
@@ -1611,13 +1624,14 @@ def matchParticles(
         with tools.open2(f"{fname1Match}.nodata", "w") as f:
             f.write("no data")
         log.error(tools.concat("NO DATA", fname1Match))
+
         return (
             fname1Match,
             None,
             rotate_final,
             rotate_err_final,
-            len(leader1D.fpid),
-            len(follower1D.fpid),
+            nLeader,
+            nFollower,
             0,
             errors,
         )
@@ -1651,8 +1665,8 @@ def matchParticles(
         matchedDats,
         rotate_final,
         rotate_err_final,
-        len(leader1D.fpid),
-        len(follower1D.fpid),
+        nLeader,
+        nFollower,
         len(matchedDats.pair_id),
         errors,
     )
@@ -1689,10 +1703,14 @@ def createMetaRotation(
     # find files
     fl = files.FindFiles(case, config.leader, config, version)
     # get events
-    # eventFile, eventDat = fl.getEvents()
+    eventFile, eventDat = fl.getEvents()
 
     # get all the other file names
-    fflM = files.FilenamesFromLevel(fl.listFiles("metaEvents")[0], config)
+    try:
+        fflM = files.FilenamesFromLevel(fl.listFiles("metaEvents")[0], config)
+    except IndexError:
+        print("NO EVENT DATA", case)
+        return None, None
 
     # output file
     fnameMetaRotation = fflM.fname["metaRotation"]
@@ -1734,10 +1752,11 @@ def createMetaRotation(
                 return None, None
 
         # add previous configuration to config file
-        if prevFile is not None:
+        elif prevFile is not None:
             prevDat = xr.open_dataset(prevFile)
             prevDat = prevDat.where(prevDat.camera_Ofz.notnull())
             config = tools.rotXr2dict(prevDat, config)
+            prevDat.close()
 
         # get most recent rotation estimate from config object
         rotate_default, rotate_err_default, prevTime = tools.getPrevRotationEstimates(
@@ -1846,8 +1865,8 @@ def createMetaRotation(
         elif (
             (nL > nSamples4rot)
             and (nF > nSamples4rot)
-            and ((nM / nL) < 0.01)
-            and ((nM / nF) < 0.01)
+            and ((nM / nL) < 0.01)  # less than 1% leader matched
+            and ((nM / nF) < 0.01)  # less than 1% follower matched
             and (errors["doMatchSlicer"] == True)
         ):
             log.error(f"only {nM} of {nL}+{nF} particles matched!")

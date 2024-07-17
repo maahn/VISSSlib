@@ -314,6 +314,13 @@ def _getMetaData1(
 
     if asciiVersion == 0.2:
         asciiNames = ["capture_time", "record_time", "capture_id", "mean", "std"]
+    elif (asciiVersion == 0.3) and (config.site == "lim"):  # intermediate version
+        asciiNames = [
+            "capture_time",
+            "record_time",
+            "capture_id",
+        ] + list(threshs)
+        asciiVersion = "0.3a"
     elif (asciiVersion == 0.3) or (asciiVersion == 0.4):
         asciiNames = ["capture_time", "record_time", "capture_id", "queue_size"] + list(
             threshs
@@ -340,7 +347,6 @@ def _getMetaData1(
     # - record_time: order can be mixed up after merging threads
     # - capture time: only variable that is really unique, but can be off by a couple of seconds during MOSAiC...
     metaDat = metaDat.set_index("capture_time")
-
     # very rarely, data fields are missing
     metaDat = metaDat.dropna()
 
@@ -359,7 +365,6 @@ def _getMetaData1(
     #    newIndex = [0]
     # metaDat['capture_id'] = newIndex
     metaDat = xr.Dataset(metaDat)
-
     # just to be sure
     try:
         metaDat["capture_id"] = metaDat.capture_id.astype(np.int64)
@@ -599,6 +604,33 @@ def _getMetaData1(
                         "nMovingPixel",
                     ]
                 ]
+        elif asciiVersion in ["0.3a"]:
+            if includeHeader:
+                metaDat = metaDat[
+                    [
+                        "capture_time",
+                        "record_time",
+                        "capture_id",
+                        "record_id",
+                        "capture_starttime",
+                        "serialnumber",
+                        "configuration",
+                        "hostname",
+                        "gitTag",
+                        "gitBranch",
+                        "nMovingPixel",
+                    ]
+                ]
+            else:
+                metaDat = metaDat[
+                    [
+                        "capture_time",
+                        "record_time",
+                        "capture_id",
+                        "record_id",
+                        "nMovingPixel",
+                    ]
+                ]
 
         # else:
         #    metaDat = metaDat[['capture_time', 'record_time', 'capture_id', 'capture_starttime',
@@ -613,7 +645,6 @@ def _getMetaData1(
     # metaDat["foundParticles"] = metaDat["foundParticles"].astype(np.uint32)
     # metaDat["movingObjects"] = metaDat["movingObjects"].astype(np.uint32)
     metaDat["nThread"] = metaDat["nThread"].astype(np.uint16)
-
     return metaDat
 
 
@@ -853,7 +884,9 @@ def getEvents(fnames0, config, fname0status=None):
             names=["file_starttime", "timestamp", "event", "user"],
             index_col=0,
         )
-        statusDat.index = pd.to_datetime(statusDat.index, format="%Y-%m-%d %H:%M:%S.%f")
+        # more robust than pd.to_datetime
+        statusDat.index = [np.datetime64(t) for t in statusDat.index]
+
         # remove faulty data
         statusDat = statusDat.iloc[~np.isnan(statusDat.index)]
         statusDat["event"] = [
@@ -862,6 +895,7 @@ def getEvents(fnames0, config, fname0status=None):
         ]
         statusDat = statusDat["event"]
         statusDat = xr.Dataset({"event": xr.DataArray(statusDat)})
+        statusDat = statusDat.rename(dim_0="file_starttime")
         try:
             metaDats = xr.merge((metaDats, statusDat))
 

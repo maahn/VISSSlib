@@ -897,9 +897,9 @@ def _runCommand(command, tmpFile, fOut, stdout=subprocess.DEVNULL):
             exitCode = proc.returncode
             if exitCode != 0:
                 success = False
-                log.error(f"{fOut} BROKEN {exitCode}")
+                log.error(f"BROKEN {fOut} {exitCode}")
             else:
-                log.info(f"{fOut} SUCCESS {exitCode}")
+                log.info(f"SUCCESS {fOut} {exitCode}")
 
     except portalocker.LockException:
         log.info(f"{fOut} RUNNING")
@@ -1543,12 +1543,34 @@ def loopCreateBatch(
                 )
                 iL2MQ = p.imap(doWork, daysStr)
 
+            if "level2track" in products:
+                nJobs += len(daysStr)
+                doWork = partial(
+                    quicklooks.createLevel2trackQuicklook,
+                    config=config,
+                    skipExisting=skipExisting,
+                    returnFig=False,
+                )
+                iL2TQ = p.imap(doWork, daysStr)
+
         nFinished = 0
         for i, r in enumerate(
-            chain(iL1D, iL1M, iL2M, iL1T, iL2T, iL1DQ1, iL1DQ2, iL1MQ1, iL1MQ2, iL2MQ)
+            chain(
+                iL1D,
+                iL1M,
+                iL2M,
+                iL1T,
+                iL2T,
+                iL1DQ1,
+                iL1DQ2,
+                iL1MQ1,
+                iL1MQ2,
+                iL2MQ,
+                iL2TQ,
+            )
         ):
             nFinished += 1
             log.info(f"done {nFinished} of {nJobs} files with result {r}")
         log.info(f"processed all {nJobs} jobs")
 
-    return iL1D, iL1M, iL2M, iL1T, iL2T, iL1DQ1, iL1DQ2, iL1MQ1, iL1MQ2, iL2MQ
+    return iL1D, iL1M, iL2M, iL1T, iL2T, iL1DQ1, iL1DQ2, iL1MQ1, iL1MQ2, iL2MQ, iL2TQ

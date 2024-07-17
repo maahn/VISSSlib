@@ -156,6 +156,54 @@ def createLevel2(
     sublevel="match",
     applyFilters=[],
 ):
+    """[summary]
+
+    [description]
+
+    Parameters
+    ----------
+    case : [type]
+        [description]
+    config : [type]
+        [description]
+    freq : str, optional
+        [description] (the default is "1min", which [default_description])
+    minMatchScore : number, optional
+        [description] (the default is 1e-3, which [default_description])
+    DbinsPixel : [type], optional
+        [description] (the default is range(301), which [default_description])
+    sizeDefinitions : list, optional
+        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
+    endTime : [type], optional
+        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+    blockedPixThresh : number, optional
+        [description] (the default is 0.1, which [default_description])
+    blowingSnowFrameThresh : number, optional
+        [description] (the default is 0.05, which [default_description])
+    skipExisting : bool, optional
+        [description] (the default is True, which [default_description])
+    writeNc : bool, optional
+        [description] (the default is True, which [default_description])
+    hStep : number, optional
+        [description] (the default is 1, which [default_description])
+    sublevel : str, optional
+        [description] (the default is "match", which [default_description])
+    applyFilters : list, optional
+        applyFilter contains list of filters connected by AND.
+        Each filter is a tuple with:
+        1) variable name (e.g. aspectRatio, all lv1 variables work)
+        2) Operator, one of '>','<','>=','<=','=='
+        3) Value for comparison
+        4) if variable contains extra dimensions, which one to select, {} otherwise
+
+        Example to get all particles > 10 pixels (using max of both cameras) with
+        aspectRatio >= 0.7 (using min of both cameras)
+        applyFilters = [
+            ("Dmax",">",10,"max",{}),
+            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+    ]
+    """
+
     assert sublevel in ["match", "track"]
     if type(config) is str:
         config = tools.readSettings(config)

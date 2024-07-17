@@ -11,6 +11,7 @@ from copy import deepcopy
 
 import numpy as np
 import pandas as pn
+import xarray as xr
 from addict import Dict
 
 log = logging.getLogger(__name__)
@@ -280,7 +281,6 @@ class FindFiles(object):
             event Dataset
         """
 
-        eventFile = self.listFiles("metaEvents")[0]
         # just in case it is missing
         metadata.createEvent(
             self.case,
@@ -289,6 +289,12 @@ class FindFiles(object):
             skipExisting=skipExisting,
             quiet=True,
         )
+        try:
+            eventFile = self.listFiles("metaEvents")[0]
+        except IndexError:
+            print("no event file")
+            return None, None
+
         eventDat = xr.open_dataset(eventFile).load()
         # opening it several times can cause segfaults
         eventDat.close()

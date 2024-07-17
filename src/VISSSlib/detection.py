@@ -170,13 +170,13 @@ class detectedParticles(object):
         self.brightnessBackground = int(np.median(self.frame[::10, ::10]))
 
         if training:
-            return True
+            return True, 0
 
         if blockingThresh is not None:
             nBlocked = np.sum(self.frame < blockingThresh)
             print("%%%%%%%%%%%%%%%%%%% pixels blocked", nBlocked, blockingThresh)
             if nBlocked > blockingThresh:
-                return True
+                return True, -99
 
         # tools.displayImage(self.backSub.getBackgroundImage())
         # self.frame = av.doubleDynamicRange(cv2.bitwise_not(cv2.subtract(self.backSub.getBackgroundImage(), self.frame, )))
@@ -196,7 +196,7 @@ class detectedParticles(object):
             if "nonMovingFgMask" in self.testing:
                 print("SHOWING", "nonMovingFgMask")
                 tools.displayImage(self.fgMask)
-            return True
+            return True, 0
 
         # it can happen that the background subtraction has little gaps
         # if self.fgMask is not None:
@@ -218,7 +218,7 @@ class detectedParticles(object):
         #     if self.nMovingPix2 == 0:
         #         print("particles.update", "FRAME", pp,
         #               'nothing is moving after Canny filter')
-        #         return True
+        #         return True, 0
 
         # if "fgMask" in self.testing:
         #     print("SHOWING", "fgMask")
@@ -264,7 +264,7 @@ class detectedParticles(object):
             print(
                 f"particles.update FRAME {pp} SKIPPED. more than {self.maxNParticle} particles"
             )
-            return False
+            return False, self.nParticle
         added = False
         # loop over the contours
         for cnt in self.cnts:
@@ -286,7 +286,7 @@ class detectedParticles(object):
                 print("SHOWING", "resultAddedOnly")
                 tools.displayImage(self.frame4drawing)
 
-        return True
+        return True, self.nParticle
 
     def applyCannyFilter(self, frame, fgMask, threshold1=0, threshold2=25):
         if logDebug:
@@ -1364,6 +1364,9 @@ def detectParticles(
         log.warning("no movie files: " + fname)
         return 0
 
+    # just in case it is not there yet
+    metadata.createMetaFrames(fn.case, camera, config, skipExisting=True)
+
     # mov data is sometimes transmtted later, so do not write nodata files in
     # case data is missing yet
     if len(fnamesV) < int(nThreads2):
@@ -1376,9 +1379,6 @@ def detectParticles(
             with tools.open2("%s.nodata" % fn.fname.level1detect, "w") as f:
                 f.write("no data")
         return 0
-
-    # just in case it is not there yet
-    metadata.createMetaFrames(fn.case, camera, config, skipExisting=True)
 
     try:
         metaData = xr.open_dataset(fn.fname.metaFrames)
@@ -1528,7 +1528,7 @@ def detectParticles(
     # do training
     for ff, frame in enumerate(trainingFrames):
         # meta data does not matter fro training
-        res = snowParticles.update(frame, ff, -99, -99, -99, -99, -99, training=True)
+        res, _ = snowParticles.update(frame, ff, -99, -99, -99, -99, -99, training=True)
 
         log.debug("training %i" % ff)
 
@@ -1650,7 +1650,7 @@ def detectParticles(
             else:
                 log.debug("%s IS moving %i" % (str(metaData1.capture_time.values), pp))
 
-        res = snowParticles.update(
+        res, nObjects = snowParticles.update(
             frame,
             pp,
             int(metaData1.capture_id.values),
@@ -1660,8 +1660,12 @@ def detectParticles(
             nThread,
         )
 
+        # changed 27.06.24
+        movingObjects[pp] = nObjects  # nObjects is -99 for blocked data
+
         if res:
-            movingObjects[pp] = snowParticles.nParticle
+            # commented  27.06.24
+            # movingObjects[pp] = snowParticles.nParticle
             Dmax = []
             for part in snowParticles.lastFrame.values():
                 Dmax.append(part.Dmax)
@@ -1726,9 +1730,12 @@ def detectParticles(
         metaData["movingObjects"] = movingObjects
 
         metaData["foundParticles"] = metaData["foundParticles"].astype(np.uint32)
-        metaData["movingObjects"] = metaData["movingObjects"].astype(np.uint32)
+        metaData["movingObjects"] = metaData["movingObjects"].astype(np.int32)
 
-        metaData = tools.finishNc(metaData, config.site, config.visssGen)
+        # remove extra in 1.1
+        metaData = tools.finishNc(
+            metaData, config.site, config.visssGen, extra={"blowingSnowFixed": "True"}
+        )
         tools.to_netcdf2(metaData, fn.fname.metaDetection)
         metaData.close()
 

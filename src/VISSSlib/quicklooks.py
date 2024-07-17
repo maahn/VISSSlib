@@ -38,7 +38,7 @@ def plotVar(
     ylabel=None,
     axhline=None,
     xlabel=None,
-    resample="5T",
+    resample="5min",
     func="mean",
     color="C1",
     label=None,
@@ -101,7 +101,7 @@ def plot2dhist(
     bins,
     ylabel=None,
     logScale=True,
-    resample="5T",
+    resample="5min",
     cbarlabel=None,
 ):
     pVar = xr.DataArray(
@@ -596,6 +596,7 @@ def createLevel1detectQuicklook(
     # width, height = draw.textsize(title, font=font)##Depricated
     draw.line((width + 15, 30, width + 15 + round(tenmm), 30), fill=0, width=5)
 
+    tools.createParentDir(ffOut)
     new_im.save(ffOut)
     print("SAVED ", ffOut)
 
@@ -1054,7 +1055,7 @@ def metaFramesQuicklook(
     ax1.grid()
 
     if metaDats is not None:
-        frames = metaDats.capture_time.notnull().resample(capture_time="5T").sum()
+        frames = metaDats.capture_time.notnull().resample(capture_time="5min").sum()
         ax2.plot(frames.capture_time, frames)
     ylim = [0, config.fps * 5 * 60 * 1.05]
     if isBlocked.any():
@@ -1197,7 +1198,7 @@ def createLevel1matchQuicklook(
     minMatchScore=1e-3,
     returnFig=True,
 ):
-    resample = "5T"  # 5 mins
+    resample = "5min"  # 5 mins
 
     # find files
     fl = files.FindFiles(case, config["leader"], config, version)
@@ -1446,6 +1447,7 @@ def createLevel1matchQuicklook(
         inclusive="both",
     )
     blowingSnow = tools.identifyBlowingSnowData(fnamesMD, config, timeIndex1)
+
     blowingSnowL = blowingSnow.sel(camera="leader")
     blowingSnowF = blowingSnow.sel(camera="follower")
     blowingSnowL = blowingSnowL.time.where(
@@ -1530,9 +1532,10 @@ def createLevel1matchQuicklook(
     ax[1].legend()
 
     for ii in range(8):
-        ax[ii].get_shared_x_axes().join(ax[ii], ax[-1])
         ax[ii].set_xticklabels([])
     for ii in range(9):
+        if ii > 0:
+            ax[ii - 1].sharex(ax[ii])
         ax[ii].grid(True)
 
     ax[8].set_xlim(
@@ -1698,6 +1701,13 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.metaRotation
 
+    if skipExisting and os.path.isfile(fOut):
+        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
+            print("file exists but older than event file, redoing", fOut)
+        else:
+            print(case, "skip exisiting")
+            return None, None
+
     fnames1D = {}
     fnames1D["leader"] = ff.listFiles("level1detect")
     ff2 = files.FindFiles(case, config.follower, config, version)
@@ -1714,13 +1724,6 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
             nParticles[camera][tt] = nP
         nParticles[camera] = pd.Series(nParticles[camera])
 
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", fOut)
-        else:
-            print(case, "skip exisiting")
-            return None, None
-
     print(case, camera, fOut)
 
     if len(ff.listFiles("level0txt")) == 0 and len(ff.listFiles("level0status")) == 0:
@@ -1732,16 +1735,29 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     if len(ff.listFiles("metaEvents")) == 0:
         print(f"event data not found")
         return None, None
+
     try:
-        events = xr.open_dataset(ff.listFiles("metaEvents")[0])
-    except:
-        print(f'{ff.listFiles("metaEvents")[0]} broken')
+        eventFile = ff.listFiles("metaEvents")[0]
+    except IndexError:
+        print(f"no leader event file")
         return None, None
 
     try:
-        events2 = xr.open_dataset(ff2.listFiles("metaEvents")[0])
+        events = xr.open_dataset(eventFile)
     except:
-        print(f'{ff2.listFiles("metaEvents")[0]} broken')
+        print(f"{eventFile} broken")
+        return None, None
+
+    try:
+        eventFile = ff2.listFiles("metaEvents")[0]
+    except IndexError:
+        print(f"no follower event file")
+        return None, None
+
+    try:
+        events2 = xr.open_dataset(eventFile)
+    except:
+        print(f"{eventFile} broken")
         return None, None
 
     if len(events.data_vars) == 0:
@@ -1802,10 +1818,10 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     rotDat.camera_Ofz.sel(camera_rotation="mean").plot(ax=ax2, marker="x")
 
     for camera in nParticles.keys():
-        # try:
-        xr.DataArray(nParticles[camera]).plot(ax=ax3, marker="x", label=camera)
-        # except IndexError:
-        # pass
+        try:
+            xr.DataArray(nParticles[camera]).plot(ax=ax3, marker="x", label=camera)
+        except TypeError:
+            pass
 
     ofz = rotDat.camera_Ofz.sel(camera_rotation="mean")
     cond = ofz.file_starttime.where(np.isnan(ofz))
@@ -1891,8 +1907,8 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         if ts2.notnull().sum() > 0:
             ax.fill_between(
                 ts2,
-                [ylim[0]] * len(ts),
-                [ylim[1]] * len(ts),
+                [ylim[0]] * len(ts2),
+                [ylim[1]] * len(ts2),
                 color="orange",
                 alpha=0.5,
                 label="idle",
@@ -2830,6 +2846,7 @@ def createLevel1matchParticlesQuicklook(
 
     draw.line((width + 15, 30, width + 15 + round(tenmm), 30), fill=0, width=5)
 
+    tools.createParentDir(ffOut)
     new_im.save(ffOut)
     print("SAVED ", ffOut)
 

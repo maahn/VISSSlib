@@ -997,6 +997,14 @@ class singleParticle(object):
         self.aspectRatio = (AR_ellipseDirect, AR_ellipse, AR_rect)
 
         self.area = cv2.contourArea(self.cnt)
+        self.perimeter = cv2.arcLength(self.cnt, True)
+
+        self.areaConsideringHoles = deepcopy(self.area)
+        self.perimeterConsideringHoles = deepcopy(self.perimeter)
+        for cc in self.cntChild:
+            self.areaConsideringHoles -= cv2.contourArea(cc)
+            self.perimeterConsideringHoles += cv2.arcLength(cc, True)
+
         M = cv2.moments(self.cnt)
         # https://docs.opencv.org/master/dd/d49/tutorial_py_contour_features.html
         try:
@@ -1007,7 +1015,6 @@ class singleParticle(object):
         except ZeroDivisionError:  # happens typically for very small particles
             self.position_centroid = self.position_circle
 
-        self.perimeter = cv2.arcLength(self.cnt, True)
         # data type cv2.CV_16S requried to avoid overflow
         # https://pyimagesearch.com/2015/09/07/blur-detection-with-opencv/
         self.blur = cv2.Laplacian(self.particleBox, cv2.CV_64F).var(ddof=1)

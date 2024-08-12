@@ -39,10 +39,11 @@ def _preprocess(dat):
             "capture_time",
             "Dmax",
             "area",
+            "areaConsideringHoles",
             "matchScore",
             "aspectRatio",
             "angle",
-            "perimeter",
+            "perimeterConsideringHoles",
             "position3D_center",
             "position3D_centroid",
             "position_centroid",
@@ -419,6 +420,16 @@ def createLevel2(
     lv2Dat.area_dist.attrs.update(dict(units="m^2", long_name="area distribution"))
     lv2Dat.area_mean.attrs.update(dict(units="m^2", long_name="mean area"))
     lv2Dat.area_std.attrs.update(dict(units="m^2", long_name="standard deviation area"))
+    lv2Dat.areaConsideringHoles_dist.attrs.update(
+        dict(units="m^2", long_name="area distribution")
+    )
+    lv2Dat.areaConsideringHoles_mean.attrs.update(
+        dict(units="m^2", long_name="mean area")
+    )
+    lv2Dat.areaConsideringHoles_std.attrs.update(
+        dict(units="m^2", long_name="standard deviation area")
+    )
+
     lv2Dat.aspectRatio_dist.attrs.update(
         dict(units="-", long_name="aspectRatio distribution")
     )
@@ -455,6 +466,15 @@ def createLevel2(
     )
     lv2Dat.perimeter_mean.attrs.update(dict(units="m", long_name="mean perimeter"))
     lv2Dat.perimeter_std.attrs.update(
+        dict(units="m", long_name="standard deviation perimeter")
+    )
+    lv2Dat.perimeterConsideringgHoles_dist.attrs.update(
+        dict(units="m", long_name="perimeter distribution")
+    )
+    lv2Dat.perimeterConsideringgHoles_mean.attrs.update(
+        dict(units="m", long_name="mean perimeter")
+    )
+    lv2Dat.perimeterConsideringgHoles_std.attrs.update(
         dict(units="m", long_name="standard deviation perimeter")
     )
     lv2Dat.processingFailed.attrs.update(
@@ -704,7 +724,15 @@ def createLevel2part(
 
     if sublevel == "match":
         log.info(f"estimate camera mean values")
-        data_vars = ["Dmax", "area", "matchScore", "aspectRatio", "angle", "perimeter"]
+        data_vars = [
+            "Dmax",
+            "area",
+            "areaConsideringHoles",
+            "matchScore",
+            "aspectRatio",
+            "angle",
+            "perimeter",
+        ]
 
         # promote capture_time to coordimnate for later
         level1dat_time = level1dat.assign_coords(
@@ -763,10 +791,12 @@ def createLevel2part(
         data_vars = [
             "Dmax",
             "area",
+            "areaConsideringHoles",
             "matchScore",
             "aspectRatio",
             "angle",
             "perimeter",
+            "perimeterConsideringHoles",
             "velocity",
         ]
         for data_var in data_vars:
@@ -826,7 +856,14 @@ def createLevel2part(
     del level1dat_4timeAve
 
     sizeDefinitions = ["Dmax", "Dequiv"]
-    data_vars = ["area", "angle", "aspectRatio", "perimeter"]
+    data_vars = [
+        "area",
+        "angle",
+        "aspectRatio",
+        "perimeter",
+        "areaConsideringHoles",
+        "perimeterConsideringHoles",
+    ]
     if sublevel == "track":
         data_vars += ["velocity", "track_angle"]
 
@@ -1121,10 +1158,12 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
             [
                 "Dmax",
                 "area",
+                "areaConsideringHoles",
                 "matchScore",
                 "aspectRatio",
                 "angle",
                 "perimeter",
+                "perimeterConsideringHoles",
                 "position3D_centroid",
                 "capture_time",
             ]
@@ -1343,6 +1382,12 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     # remaining variables
     calibDat["area_dist"] = calibDat["area_dist"] / slope**2 / 1e6**2
     calibDat["perimeter_dist"] = calibDat["perimeter_dist"] / slope / 1e6
+    calibDat["areaConsideringHoles_dist"] = (
+        calibDat["areaConsideringHoles_dist"] / slope**2 / 1e6**2
+    )
+    calibDat["perimeterConsideringHoles_dist"] = (
+        calibDat["perimeterConsideringHoles_dist"] / slope / 1e6
+    )
 
     calibDat["Dmax_mean"] = (calibDat["Dmax_mean"]) / slope / 1e6
     calibDat["Dmax_std"] = (calibDat["Dmax_std"]) / slope / 1e6
@@ -1350,6 +1395,14 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     calibDat["area_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeter_mean"] = calibDat["perimeter_mean"] / slope / 1e6
     calibDat["perimeter_std"] = calibDat["perimeter_std"] / slope / 1e6
+    calibDat["areaConsideringHoles_mean"] = (
+        calibDat["area_mean"] / slope**2 / 1e6**2
+    )
+    calibDat["areaConsideringHoles_std"] = calibDat["area_std"] / slope**2 / 1e6**2
+    calibDat["perimeterConsideringHoles_mean"] = (
+        calibDat["perimeter_mean"] / slope / 1e6
+    )
+    calibDat["perimeterConsideringHoles_std"] = calibDat["perimeter_std"] / slope / 1e6
     calibDat["Dequiv_mean"] = (calibDat["Dequiv_mean"]) / slope / 1e6
 
     if "velocity_dist" in calibDat.data_vars:

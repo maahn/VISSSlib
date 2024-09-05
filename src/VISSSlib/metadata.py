@@ -313,8 +313,18 @@ def _getMetaData1(
         return None
 
     if asciiVersion == 0.2:
-        asciiNames = ["capture_time", "record_time", "capture_id", "mean", "std"]
-    elif (asciiVersion == 0.3) and (config.site == "lim"):  # intermediate version
+        asciiNames = [
+            "capture_time",
+            "record_time",
+            "capture_id",
+            "mean",
+            "std",
+        ]
+    elif (
+        (asciiVersion == 0.3)
+        and (config.site == "lim")
+        and (record_starttime < datetime.datetime(2021, 7, 1))
+    ):  # intermediate version, 2021-07-01  is a rough estinate
         asciiNames = [
             "capture_time",
             "record_time",

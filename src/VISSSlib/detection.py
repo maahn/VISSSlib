@@ -1608,10 +1608,9 @@ def detectParticles(
         # we dont want to take the risk to jump to an index and get the wrong frame
         if int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) < rr:
             while int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) < rr:
-                log.debug(
-                    "fast forwarding",
-                    int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)),
-                    rr,
+                log.warning(
+                    "fast forwarding %i %i"
+                    % (int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)), rr)
                 )
                 _, _ = inVid[nThread].read()
         elif int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) > rr:

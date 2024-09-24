@@ -41,11 +41,13 @@ DEFAULT_SETTINGS = {
     "level1detectQuicklook": {"minBlur": 500, "minSize": 10, "omitLabel4small": True},
     "rotate": {},
     "level1detect": {
-        "maxMovingObjects": 60,
+        "maxMovingObjects": 1000,  # 60 until 18.9.24
         "minAspectRatio": None,
         "minBlur": 250,
         "minSize": 8,
     },
+    "matchData": True,
+    "processL2detect": False,
 }
 
 
@@ -389,7 +391,7 @@ def removeBlockedData(dat1D, events, threshold=0.1):
     dat1D = dat1D.isel(fpid=(~isBlocked))
     events.close()
 
-    if np.any(isBlocked) and (len(dat1D.fpid) > 0):
+    if len(dat1D.fpid) > 0:
         print(f"{np.sum(isBlocked)/ len(dat1D.fpid)*100}% blocked data removed")
 
     if len(dat1D.fpid) == 0:

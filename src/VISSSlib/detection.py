@@ -1741,7 +1741,10 @@ def detectParticles(
         if hasData:
             snowParticlesXR = snowParticles.collectResults()
             snowParticlesXR = tools.finishNc(
-                snowParticlesXR, config.site, config.visssGen
+                snowParticlesXR,
+                config.site,
+                config.visssGen,
+                extra={"maxMovingObjects": config.level1detect.maxMovingObjects},
             )
             tools.to_netcdf2(snowParticlesXR, fn.fname.level1detect)
 

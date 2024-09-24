@@ -3,6 +3,8 @@ import os
 import socket
 import sys
 
+import taskqueue
+
 from . import (
     av,
     detection,
@@ -178,6 +180,19 @@ def main():
             settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
         )
 
+    elif sys.argv[1] == "scripts.loopCreateLevel2detect":
+        settings = sys.argv[2]
+        nDays = sys.argv[3]
+
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        scripts.loopCreateLevel2detect(
+            settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
+        )
+
     elif sys.argv[1] == "scripts.loopCreateLevel2match":
         settings = sys.argv[2]
         nDays = sys.argv[3]
@@ -296,6 +311,17 @@ def main():
             skipExisting = True
         scripts.loopCreateBatch(settings, nDays=nDays, skipExisting=skipExisting)
 
+    elif sys.argv[1] == "scripts.loopCreateBatchTest":
+        settings = sys.argv[2]
+        nDays = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+        scripts.loopCreateBatch(
+            settings, nDays=nDays, skipExisting=skipExisting, products=["test"]
+        )
+
     elif sys.argv[1] == "scripts.reportLastFiles":
         settings = sys.argv[2]
         output = scripts.reportLastFiles(settings)
@@ -305,6 +331,12 @@ def main():
         settings = sys.argv[2]
         year = sys.argv[3]
         quicklooks.metaRotationYearlyQuicklook(year, settings)
+
+    elif sys.argv[1] == "worker":
+        queue = sys.argv[2]
+
+        tq = taskqueue.TaskQueue(f"q://{queue}")  # file queue ('fq')
+        tq.poll(verbose=True, tally=True, stop_fn=tq.is_empty, lease_seconds=2)
 
     else:
         print(f"Do not understand {sys.argv[1]}")

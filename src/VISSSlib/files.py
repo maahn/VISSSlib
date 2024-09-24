@@ -22,6 +22,7 @@ from .tools import nicerNames, otherCamera
 dailyLevels = [
     "metaEvents",
     "metaRotation",
+    "level2detect",
     "level2match",
     "level2track",
 ]
@@ -43,7 +44,7 @@ quicklookLevelsSep = [
     "level1matchParticles",
     "metaRotation",
 ]
-quicklookLevelsComb = ["level2match", "level2track"]
+quicklookLevelsComb = ["level2detect", "level2match", "level2track"]
 imageLevels = ["imagesL1detect"]
 
 

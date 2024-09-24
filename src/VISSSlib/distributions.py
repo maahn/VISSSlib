@@ -32,24 +32,32 @@ logDebug = log.isEnabledFor(logging.DEBUG)
 
 def _preprocess(dat):
     try:
-        del dat["pair_id"]
-
         # we do not need all variables
         data_vars = [
             "capture_time",
             "Dmax",
             "area",
-            "matchScore",
             "aspectRatio",
             "angle",
             "perimeter",
-            "position3D_center",
-            "position3D_centroid",
-            "position_centroid",
-            "camera_phi",
-            "camera_theta",
-            "camera_Ofz",
         ]
+        if "pair_id" in dat.coords:
+            del dat["pair_id"]
+            data_vars += [
+                "matchScore",
+                "position3D_center",
+                "position3D_centroid",
+                "position_centroid",
+                "camera_phi",
+                "camera_theta",
+                "camera_Ofz",
+            ]
+        else:
+            dat = dat.rename(
+                pid="pair_id"
+            )  # saves lots of trouble later of the main dimension has the same name
+            data_vars += ["blur", "Droi", "position_upperLeft"]
+
         if "track_id" in dat.data_vars:
             data_vars += ["track_id", "track_step"]
             # make track_ids unique, use only day-hour-minute-second, otherwise number is too large
@@ -77,6 +85,39 @@ _select = {
     "mean": np.mean,
     "min": np.min,
 }
+
+
+def createLevel2detect(
+    case,
+    config,
+    freq="1min",
+    minMatchScore=1e-3,
+    DbinsPixel=range(301),
+    sizeDefinitions=["Dmax", "Dequiv"],
+    endTime=np.timedelta64(1, "D"),
+    blockedPixThresh=0.1,
+    blowingSnowFrameThresh=0.05,
+    skipExisting=True,
+    writeNc=True,
+    applyFilters=[],
+    camera="leader",
+):
+    return createLevel2(
+        case,
+        config,
+        freq=freq,
+        minMatchScore=minMatchScore,
+        DbinsPixel=DbinsPixel,
+        sizeDefinitions=sizeDefinitions,
+        endTime=endTime,
+        blockedPixThresh=blockedPixThresh,
+        blowingSnowFrameThresh=blowingSnowFrameThresh,
+        skipExisting=skipExisting,
+        writeNc=writeNc,
+        applyFilters=applyFilters,
+        sublevel="detect",
+        camera=camera,
+    )
 
 
 def createLevel2match(
@@ -154,6 +195,7 @@ def createLevel2(
     writeNc=True,
     hStep=1,
     sublevel="match",
+    camera="leader",
     applyFilters=[],
 ):
     """[summary]
@@ -204,11 +246,11 @@ def createLevel2(
     ]
     """
 
-    assert sublevel in ["match", "track"]
+    assert sublevel in ["match", "track", "detect"]
     if type(config) is str:
         config = tools.readSettings(config)
 
-    fL = files.FindFiles(case, config.leader, config)
+    fL = files.FindFiles(case, config[camera], config)
     lv2File = fL.fnamesDaily[f"level2{sublevel}"]
 
     log.info(f"Processing {lv2File}")
@@ -258,6 +300,18 @@ def createLevel2(
             )
             log.error("look at %s" % fL.fnamesPatternExt["level1track"])
             return None, None
+    elif sublevel == "detect":
+        if not fL.isCompleteL1detect:
+            log.error(
+                "level1detect NOT COMPLETE YET %i of %i %s"
+                % (
+                    len(fL.listFilesExt("level1detect")),
+                    len(fL.listFiles("level0txt")),
+                    lv2File,
+                )
+            )
+            log.error("look at %s" % fL.fnamesPatternExt["level1detect"])
+            return None, None
     else:
         raise ValueError
 
@@ -288,6 +342,7 @@ def createLevel2(
             skipExisting=skipExisting,
             sublevel=sublevel,
             applyFilters=applyFilters,
+            camera=camera,
         )
         if lv2Dat is not None:
             log.info(f"load data for {case}")
@@ -313,6 +368,7 @@ def createLevel2(
                 skipExisting=skipExisting,
                 sublevel=sublevel,
                 applyFilters=applyFilters,
+                camera=camera,
             )
 
             if lv2Dat1 is not None:
@@ -344,6 +400,7 @@ def createLevel2(
         sublevel,
         blockedPixThresh=blockedPixThresh,
         blowingSnowFrameThresh=blowingSnowFrameThresh,
+        camera=camera,
     )
 
     lv2Dat = tools.finishNc(lv2Dat, config.site, config.visssGen)
@@ -360,7 +417,9 @@ def createLevel2(
     lv2Dat.time.attrs.update(
         dict(long_name="time", comment="label at the end of time interval")
     )
-    lv2Dat.camera.attrs.update(dict(units="string", long_name="camera"))
+
+    if sublevel != "detect":
+        lv2Dat.camera.attrs.update(dict(units="string", long_name="camera"))
 
     lv2Dat.D32.attrs.update(dict(units="m", long_name="mean mass-weighted diameter"))
     lv2Dat.D43.attrs.update(
@@ -443,12 +502,14 @@ def createLevel2(
     lv2Dat.counts.attrs.update(
         dict(units="1/min", long_name="number of observed particles")
     )
-    lv2Dat.matchScore_mean.attrs.update(
-        dict(units="-", long_name="mean camera match score")
-    )
-    lv2Dat.matchScore_std.attrs.update(
-        dict(units="-", long_name="standard deviation camera match score")
-    )
+    if sublevel != "detect":
+        lv2Dat.matchScore_mean.attrs.update(
+            dict(units="-", long_name="mean camera match score")
+        )
+        lv2Dat.matchScore_std.attrs.update(
+            dict(units="-", long_name="standard deviation camera match score")
+        )
+
     lv2Dat.obs_volume.attrs.update(dict(units="m^3", long_name="obs_volume"))
     lv2Dat.perimeter_dist.attrs.update(
         dict(units="m", long_name="perimeter distribution")
@@ -524,6 +585,7 @@ def createLevel2part(
     endTime=np.timedelta64(1, "h"),
     skipExisting=True,
     sublevel="match",
+    camera="leader",
     applyFilters=[],
 ):
     """applyFilter contains list of filters connected by AND.
@@ -540,9 +602,9 @@ def createLevel2part(
     ]
     """
 
-    assert sublevel in ["match", "track"]
+    assert sublevel in ["match", "track", "detect"]
 
-    fL = files.FindFiles(case, config.leader, config)
+    fL = files.FindFiles(case, config[camera], config)
     lv2File = fL.fnamesDaily[f"level2{sublevel}"]
 
     lv1Files = fL.listFilesWithNeighbors(f"level1{sublevel}")
@@ -565,30 +627,172 @@ def createLevel2part(
             lv1Files, preprocess=_preprocess, combine="nested", concat_dim="pair_id"
         )
 
-    # limit to period of interest
-    level1dat = level1dat.isel(
-        pair_id=(level1dat.capture_time.isel(camera=0) >= fL.datetime64).values
-        & (level1dat.capture_time.isel(camera=0) < (fL.datetime64 + endTime)).values
-    )
+    # camera variable exists only for track and match
+    try:
+        # limit to period of interest
+        level1dat = level1dat.isel(
+            pair_id=(level1dat.capture_time.isel(camera=0) >= fL.datetime64).values
+            & (level1dat.capture_time.isel(camera=0) < (fL.datetime64 + endTime)).values
+        )
+    except ValueError:
+        level1dat = level1dat.isel(
+            pair_id=(level1dat.capture_time >= fL.datetime64).values
+            & (level1dat.capture_time < (fL.datetime64 + endTime)).values
+        )
 
     # make chunks more regular
     level1dat = level1dat.chunk(pair_id=10000)
 
-    # apply matchScore threshold
-    if minMatchScore is not None:
-        matchCond = (level1dat.matchScore >= minMatchScore).values
+    if sublevel == "detect":
+        # apply blur threshold
+        assert config.visssGen == "visss"
+
+        # coefficients developed from winer 2021/22 in Hyytiälä
+        """
+        The idea is to estimate the cummulated total PSD for detect and match data
+        and find a blur threshold so that both distributions agree. See 
+        match_analyze_blur_vs_size.ipynb Filters are applied:
+
+            processing failed by selecting only detect files where match is present
+            blocked data by VISSSlib quality control
+            smaller sampling volume of matched data is considered by estimatign correction factor
+
+        """
+        blurThresh = np.array(
+            [
+                np.nan,
+                800.0,
+                773.0,
+                360.0,
+                363.0,
+                436.0,
+                523.0,
+                568.0,
+                633.0,
+                621.0,
+                607.0,
+                574.0,
+                556.0,
+                534.0,
+                506.0,
+                477.0,
+                465.0,
+                435.0,
+                416.0,
+                394.0,
+                374.0,
+                356.0,
+                327.0,
+                314.0,
+                300.0,
+                292.0,
+                275.0,
+                263.0,
+                256.0,
+                248.0,
+                237.0,
+                232.0,
+                226.0,
+                220.0,
+                207.0,
+                202.0,
+                196.0,
+                191.0,
+                183.0,
+                176.0,
+                172.0,
+                170.0,
+                161.0,
+                158.0,
+                153.0,
+                151.0,
+                148.0,
+                144.0,
+                141.0,
+                138.0,
+                140.0,
+                132.0,
+                132.0,
+                131.0,
+                130.0,
+                129.0,
+                125.0,
+                126.0,
+                124.0,
+                123.0,
+                119.0,
+                119.0,
+                120.0,
+                120.0,
+                119.0,
+                117.0,
+                117.0,
+                117.0,
+                118.0,
+                117.0,
+                115.0,
+                114.0,
+                115.0,
+                115.0,
+                115.0,
+                118.0,
+                113.0,
+                114.0,
+                116.0,
+                113.0,
+                112.0,
+                114.0,
+                112.0,
+                112.0,
+                116.0,
+                115.0,
+                112.0,
+                113.0,
+                114.0,
+                111.0,
+                111.0,
+                113.0,
+                112.0,
+            ]
+            + 2000 * [110.0]
+        )  # by using 2000 we make sure even huge particles are treated and do not raise an error
+
+        # this works liek a lookup table. We use the Dmax rounded to next
+        # integer as an index for blurThresh
+        appliedblurThresh = blurThresh[np.around(level1dat.Dmax.values).astype(int)]
+
+        blurCond = (level1dat.blur >= appliedblurThresh).values
         log.info(
             tools.concat(
-                "matchCond applies to",
-                (matchCond.sum() / len(matchCond)) * 100,
+                "Hyytiälä blurCond applies to",
+                (blurCond.sum() / len(blurCond)) * 100,
                 "% of data",
             )
         )
-        level1dat = level1dat.isel(pair_id=matchCond)
+        level1dat = level1dat.isel(pair_id=blurCond)
 
-        if len(level1dat.matchScore) == 0:
-            log.warning("no data remains after matchScore filtering %s" % lv2File)
+        del level1dat["blur"]
+
+        if len(level1dat.pair_id) == 0:
+            log.warning("no data remains after blurCond filtering %s" % lv2File)
             return None
+
+    else:  # match or track
+        # apply matchScore threshold
+        if minMatchScore is not None:
+            matchCond = (level1dat.matchScore >= minMatchScore).values
+            log.info(
+                tools.concat(
+                    "matchCond applies to",
+                    (matchCond.sum() / len(matchCond)) * 100,
+                    "% of data",
+                )
+            )
+            level1dat = level1dat.isel(pair_id=matchCond)
+
+            if len(level1dat.matchScore) == 0:
+                log.warning("no data remains after matchScore filtering %s" % lv2File)
+                return None
 
     # only for debuging
     for aa, applyFilter in enumerate(applyFilters):
@@ -616,28 +820,61 @@ def createLevel2part(
             )
             return None
 
-    sizeCond = (level1dat.Dmax < max(DbinsPixel)).all("camera").values
+    try:
+        sizeCond = (level1dat.Dmax < max(DbinsPixel)).all("camera").values
+    except ValueError:
+        sizeCond = (level1dat.Dmax < max(DbinsPixel)).values
     level1dat = level1dat.isel(pair_id=sizeCond)
-    if len(level1dat.matchScore) == 0:
+    if len(level1dat.pair_id) == 0:
         log.warning("no data remains after size filtering %s" % lv2File)
         return None
 
     # remove particles too close to the edge
     # this is possible for non symmetrical particles
-    DmaxHalf = level1dat.Dmax.max("camera") / 2
-    farEnoughFromBorder = (
-        (level1dat.position3D_center.sel(dim3D=["x", "y", "z"]) >= DmaxHalf).all(
-            "dim3D"
+    if sublevel == "detect":
+        level1dat["position_center"] = level1dat.position_upperLeft + (
+            level1dat.Droi / 2
         )
-        & (
-            config.frame_width - level1dat.position3D_center.sel(dim3D=["x", "y"])
-            >= DmaxHalf
-        ).all("dim3D")
-        & (
-            config.frame_height - level1dat.position3D_center.sel(dim3D="z", drop=True)
-            >= DmaxHalf
+        DmaxHalf = level1dat.Dmax / 2
+
+        farEnoughFromBorder = (
+            (level1dat.position_center >= DmaxHalf).all("dim2D")
+            & (
+                (
+                    config.frame_width
+                    - level1dat.position_center.sel(dim2D="x", drop=True)
+                )
+                >= DmaxHalf
+            )
+            & (
+                (
+                    config.frame_height
+                    - level1dat.position_center.sel(dim2D="y", drop=True)
+                )
+                >= DmaxHalf
+            )
         )
-    )
+
+    else:
+        DmaxHalf = level1dat.Dmax.max("camera") / 2
+
+        farEnoughFromBorder = (
+            (level1dat.position3D_center.sel(dim3D=["x", "y", "z"]) >= DmaxHalf).all(
+                "dim3D"
+            )
+            & (
+                (config.frame_width - level1dat.position3D_center.sel(dim3D=["x", "y"]))
+                >= DmaxHalf
+            ).all("dim3D")
+            & (
+                (
+                    config.frame_height
+                    - level1dat.position3D_center.sel(dim3D="z", drop=True)
+                )
+                >= DmaxHalf
+            )
+        )
+
     farEnoughFromBorder = farEnoughFromBorder.compute()
 
     log.info(
@@ -655,8 +892,9 @@ def createLevel2part(
 
     if config.correctForSmallOnes and "maxSharpness" in config.keys():
         # remove small particles that are not in the very sharpest region
-        # leader
-        log.info("removing small particles outsides of most sharp volume")
+        # IN DEVELOPMENT
+        assert sublevel != "detect"
+        log.info("removing small particles outside of most sharp volume")
         isOutsideSharp = False
         l1datL = level1dat.position_centroid.sel(
             dim2D="x", camera=config.leader, drop=True
@@ -695,14 +933,35 @@ def createLevel2part(
             return None
     else:
         log.info(f"do not remove particles outside of most sharp area")
-    level1dat = level1dat.drop_vars("position_centroid")
 
-    # done with filtering the data
+    if sublevel == "detect":
+        level1dat = level1dat.drop_vars(
+            ["position_center", "Droi", "position_upperLeft", "dim2D"]
+        )
+    else:
+        level1dat = level1dat.drop_vars("position_centroid")
+
+    # done with filtering the data.
     # the following code is much faster with a loaded netcdf object
     log.info("loading data")
     level1dat.load()
 
-    if sublevel == "match":
+    if sublevel == "detect":
+        log.info(f"estimate mean values")
+
+        # promote capture_time to coordimnate for later
+        level1dat_time = level1dat.assign_coords(
+            time=xr.DataArray(level1dat.capture_time.values, coords=[level1dat.pair_id])
+        )
+
+        # fix order
+        level1dat_4timeAve = level1dat_time.transpose(*["fitMethod", "pair_id"])
+
+        # save for later
+        individualDataPoints = level1dat_4timeAve.pair_id
+        individualDataPoints.name = "nParticles"
+
+    elif sublevel == "match":
         log.info(f"estimate camera mean values")
         data_vars = ["Dmax", "area", "matchScore", "aspectRatio", "angle", "perimeter"]
 
@@ -805,6 +1064,9 @@ def createLevel2part(
         # clean up
         del level1dat_trackAve
 
+    else:
+        raise ValueError("do not know sublevel")
+
     # clean up
     level1dat.close()
 
@@ -835,23 +1097,14 @@ def createLevel2part(
     res = {}
     nParticles = {}
 
-    if sublevel == "track":
-        coordVar = "cameratrack"
-    else:
-        coordVar = "camera"
-
-    # iterate through every 1 min piece
-    for interv, level1datG1 in tqdm(level1datG, file=sys.stdout):
-        # print(interv)
-        tmp = []
-        # for each track&camera/min/max/mean seperately
-        for coord in level1datG1[coordVar]:
+    if sublevel == "detect":
+        # iterate through every 1 min piece
+        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout):
             # estimate counts
             tmpXr = []
             for sizeDefinition in sizeDefinitions:
                 tmpXr1 = (
                     level1datG1[[sizeDefinition]]
-                    .sel(**{coordVar: coord})
                     .groupby_bins(sizeDefinition, DbinsPixel, right=False)
                     .count()
                     .fillna(0)
@@ -866,7 +1119,6 @@ def createLevel2part(
                 data_vars1 = data_vars + [sizeDefinition]
                 otherVars1 = (
                     level1datG1[data_vars1]
-                    .sel(**{coordVar: coord})
                     .groupby_bins(sizeDefinition, DbinsPixel, right=False)
                     .mean()
                 )
@@ -881,17 +1133,72 @@ def createLevel2part(
             tmpXr = xr.concat(tmpXr, dim="size_definition")
             tmpXr["size_definition"] = sizeDefinitions
 
-            tmp.append(xr.Dataset(tmpXr))
-        # merge camera/min/max/mean reults
-        res[interv.left] = xr.concat(tmp, dim=coordVar)
-        # add camera/min/max/mean information
-        res[interv.left][coordVar] = level1datG1[coordVar]
+            res[interv.left] = xr.Dataset(tmpXr)
 
-    # clean up
-    del tmpXr, tmp, tmpXr1
+        # clean up
+        del tmpXr, tmpXr1
 
-    dist = xr.concat(res.values(), dim="time")
-    dist["time"] = list(res.keys())
+        dist = xr.concat(res.values(), dim="time")
+        dist["time"] = list(res.keys())
+
+    else:
+        if sublevel == "track":
+            coordVar = "cameratrack"
+        elif sublevel == "match":
+            coordVar = "camera"
+
+        # iterate through every 1 min piece
+        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout):
+            # print(interv)
+            tmp = []
+            # for each track&camera/min/max/mean seperately
+            for coord in level1datG1[coordVar]:
+                # estimate counts
+                tmpXr = []
+                for sizeDefinition in sizeDefinitions:
+                    tmpXr1 = (
+                        level1datG1[[sizeDefinition]]
+                        .sel(**{coordVar: coord})
+                        .groupby_bins(sizeDefinition, DbinsPixel, right=False)
+                        .count()
+                        .fillna(0)
+                    )
+
+                    tmpXr1 = tmpXr1.rename({sizeDefinition: "N"})
+                    tmpXr1 = tmpXr1.rename({f"{sizeDefinition}_bins": "D_bins"})
+
+                    # import pdb; pdb.set_trace()
+                    # estimate mean values for "area", "angle", "aspectRatio", "perimeter"
+                    # Dmax is only for technical resaons and is removed afterwards
+                    data_vars1 = data_vars + [sizeDefinition]
+                    otherVars1 = (
+                        level1datG1[data_vars1]
+                        .sel(**{coordVar: coord})
+                        .groupby_bins(sizeDefinition, DbinsPixel, right=False)
+                        .mean()
+                    )
+                    del otherVars1[sizeDefinition]
+                    otherVars1 = otherVars1.rename(
+                        {k: f"{k}_dist" for k in otherVars1.data_vars}
+                    )
+                    otherVars1 = otherVars1.rename({f"{sizeDefinition}_bins": "D_bins"})
+                    tmpXr1.update(otherVars1)
+                    tmpXr.append(tmpXr1)
+
+                tmpXr = xr.concat(tmpXr, dim="size_definition")
+                tmpXr["size_definition"] = sizeDefinitions
+
+                tmp.append(xr.Dataset(tmpXr))
+            # merge camera/min/max/mean reults
+            res[interv.left] = xr.concat(tmp, dim=coordVar)
+            # add camera/min/max/mean information
+            res[interv.left][coordVar] = level1datG1[coordVar]
+
+        # clean up
+        del tmpXr, tmp, tmpXr1
+
+        dist = xr.concat(res.values(), dim="time")
+        dist["time"] = list(res.keys())
 
     # fill data gaps with zeros
     with warnings.catch_warnings():
@@ -955,6 +1262,7 @@ def addVariables(
     sublevel,
     blockedPixThresh=0.1,
     blowingSnowFrameThresh=0.05,
+    camera="leader",
 ):
     # 1 min data
     deltaT = int(timeIndex.freq.nanos * 1e-9) * config.fps
@@ -987,8 +1295,19 @@ def addVariables(
     )
     assert np.all(blockedPixels.time == calibDat.time)
 
-    cameraBlocked = blockedPixels.max("camera") > blockedPixThresh
-    blowingSnow = blowingSnowRatio.max("camera") > blowingSnowFrameThresh
+    if sublevel == "detect":
+        recordingFailed = recordingFailed.sel(camera=camera, drop=True)
+        processingFailed.values[:] = False  # not relevant becuase it is about matching
+        blockedPixels = blockedPixels.sel(camera=camera, drop=True)
+        blowingSnowRatio = blowingSnowRatio.sel(camera=camera, drop=True)
+
+        cameraBlocked = blockedPixels > blockedPixThresh
+        blowingSnow = blowingSnowRatio > blowingSnowFrameThresh
+
+    else:
+        recordingFailed = recordingFailed.any("camera")
+        cameraBlocked = blockedPixels.max("camera") > blockedPixThresh
+        blowingSnow = blowingSnowRatio.max("camera") > blowingSnowFrameThresh
 
     # apply quality
     log.info("apply quality filters...")
@@ -1267,49 +1586,70 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
         maxSharpnessLeader = tuple()
         maxSharpnessFollower = tuple()
 
-    rotDat = level1dat_time[["camera_phi", "camera_theta", "camera_Ofz"]].sel(
-        camera_rotation="mean"
-    )
-    try:
-        rotDat = rotDat.isel(track_id=~np.isnan(rotDat.time).values)
-    except ValueError:
-        rotDat = rotDat.isel(pair_id=~np.isnan(rotDat.time).values)
-
-    rotDat = rotDat.groupby_bins("time", timeIndex1, right=False, squeeze=False).mean()
-    rotDat = rotDat.rename(time_bins="time")
-    # we want time stamps not intervals
-    rotDat["time"] = [a.left for a in rotDat["time"].values]
-
-    rotDat.load()
-    rotDat = rotDat.round(2)
-
-    volumes = []
-    for ii in range(len(rotDat.time)):
-        rotDat1 = rotDat.isel(time=ii, drop=True)
+    if "camera_phi" in level1dat_time.data_vars:
+        rotDat = level1dat_time[["camera_phi", "camera_theta", "camera_Ofz"]].sel(
+            camera_rotation="mean"
+        )
         try:
-            rotDat1 = rotDat1.isel(track_step=0, drop=True)
+            rotDat = rotDat.isel(track_id=~np.isnan(rotDat.time).values)
         except ValueError:
-            pass
+            rotDat = rotDat.isel(pair_id=~np.isnan(rotDat.time).values)
 
-        # print(config.frame_width,
-        #                              config.frame_height,
-        #                              rotDat1.camera_phi.values,
-        #                              rotDat1.camera_theta.values,
-        #                              rotDat1.camera_Ofz.values, DbinsPixel)
+        rotDat = rotDat.groupby_bins(
+            "time", timeIndex1, right=False, squeeze=False
+        ).mean()
+        rotDat = rotDat.rename(time_bins="time")
+        # we want time stamps not intervals
+        rotDat["time"] = [a.left for a in rotDat["time"].values]
+
+        rotDat.load()
+        rotDat = rotDat.round(2)
+
+        volumes = []
+        for ii in range(len(rotDat.time)):
+            rotDat1 = rotDat.isel(time=ii, drop=True)
+            try:
+                rotDat1 = rotDat1.isel(track_step=0, drop=True)
+            except ValueError:
+                pass
+
+            # print(config.frame_width,
+            #                              config.frame_height,
+            #                              rotDat1.camera_phi.values,
+            #                              rotDat1.camera_theta.values,
+            #                              rotDat1.camera_Ofz.values, DbinsPixel)
+            Ds, volume = estimateVolumes(
+                config.frame_width,
+                config.frame_height,
+                config.correctForSmallOnes,
+                float(rotDat1.camera_phi.values),
+                float(rotDat1.camera_theta.values),
+                float(rotDat1.camera_Ofz.values),
+                DbinsPixel,
+                maxSharpnessSizes,
+                maxSharpnessLeader,
+                maxSharpnessFollower,
+            )
+
+            volumes.append(volume[1:])
+    else:  # for detect only:
         Ds, volume = estimateVolumes(
             config.frame_width,
             config.frame_height,
             config.correctForSmallOnes,
-            float(rotDat1.camera_phi.values),
-            float(rotDat1.camera_theta.values),
-            float(rotDat1.camera_Ofz.values),
+            0.0,
+            0.0,
+            0.0,
             DbinsPixel,
             maxSharpnessSizes,
             maxSharpnessLeader,
             maxSharpnessFollower,
         )
 
-        volumes.append(volume[1:])
+        # add time dimension
+        volumes = []
+        for ii in range(len(timeIndex1) - 1):
+            volumes.append(volume[1:])
     return volumes
 
 
@@ -1392,7 +1732,8 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel):
     newfilesF = eventF.isel(file_starttime=(eventF.event == "newfile"))
     newfilesL = eventL.isel(file_starttime=(eventL.event == "newfile"))
 
-    dataRecorded = []
+    dataRecordedL = []
+    dataRecordedF = []
     processingFailed = []
     for tt, tI1min in enumerate(timeIndex):
         tDiffF = (
@@ -1401,14 +1742,15 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel):
         tDiffL = (
             np.datetime64(tI1min) - newfilesL.file_starttime
         ).values / np.timedelta64(1, "s")
-        dataRecordedF = np.any(
+        dataRecordedF1 = np.any(
             tDiffF[tDiffF >= -graceTime] < (config.newFileInt - graceTime)
         )
-        dataRecordedL = np.any(
+        dataRecordedL1 = np.any(
             tDiffL[tDiffL >= -graceTime] < (config.newFileInt - graceTime)
         )
         #     print(tI1min, dataRecordedF, dataRecordedL)
-        dataRecorded.append(dataRecordedF and dataRecordedL)
+        dataRecordedL.append(dataRecordedL1)
+        dataRecordedF.append(dataRecordedF1)
 
         if len(matchFilesBroken) > 0:
             tDiffBroken = (
@@ -1421,7 +1763,11 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel):
         else:
             processingFailed.append(False)
 
-    recordingFailed = ~xr.DataArray(dataRecorded, dims=["time"], coords=[timeIndex])
+    recordingFailed = ~xr.DataArray(
+        np.stack([dataRecordedL, dataRecordedF], axis=1),
+        dims=["time", "camera"],
+        coords=[timeIndex, ["leader", "follower"]],
+    )
     processingFailed = xr.DataArray(processingFailed, dims=["time"], coords=[timeIndex])
 
     blockedPixelsF = eventF.blocking.sel(blockingThreshold=50, drop=True)

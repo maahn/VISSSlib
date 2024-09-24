@@ -986,6 +986,7 @@ def matchParticles(
         rotate, rotate_err, rotate_time = tools.getPrevRotationEstimates(
             ffl1.datetime64, config
         )
+
     # in case everything else below fails
     rotate_final = rotate
     rotate_err_final = rotate_err
@@ -1754,7 +1755,7 @@ def createMetaRotation(
         # add previous configuration to config file
         elif prevFile is not None:
             prevDat = xr.open_dataset(prevFile)
-            prevDat = prevDat.where(prevDat.camera_Ofz.notnull())
+            prevDat = prevDat.where(prevDat.camera_Ofz.notnull(), drop=True)
             config = tools.rotXr2dict(prevDat, config)
             prevDat.close()
 
@@ -1845,6 +1846,7 @@ def createMetaRotation(
             nM = 1
 
         print(
+            fname1L,
             rot,
             nL,
             nF,

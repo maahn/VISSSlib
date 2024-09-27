@@ -15,6 +15,7 @@ from itertools import chain
 import numpy as np
 import pandas as pd
 import portalocker
+import taskqueue
 import xarray as xr
 
 from . import __version__, distributions, files, matching, metadata, quicklooks, tools
@@ -712,7 +713,7 @@ def _loopCreateLevel2Worker(
 
 
 def loopCreateMetaFrames(
-    settings, skipExisting=True, nDays=0, cameras="all", doPlot=True
+    settings, skipExisting=True, nDays=0, camera="all", doPlot=True
 ):
     """
     loop through days to create metaFrames product
@@ -734,8 +735,10 @@ def loopCreateMetaFrames(
 
     days = tools.getDateRange(nDays, config, endYesterday=False)
 
-    if cameras == "all":
+    if camera == "all":
         cameras = [config.follower, config.leader]
+    else:
+        cameras = [config[camera]]
 
     for dd in days:
         year = str(dd.year)
@@ -2083,3 +2086,79 @@ def loopCreateBatch(
         iL2MQ,
         iL2TQ,
     )
+
+
+###############
+
+
+# to be deleted!!
+@taskqueue.queueable
+def _runCommandInQueue(IN, stdout=subprocess.DEVNULL):
+    """
+    helper function to run command on the shell
+    """
+
+    command, fOut = IN
+    tmpFile = os.path.basename("%s.processing.txt" % fOut)
+
+    success = True
+    running = False
+    # with statement extended to avoid race conditions
+    try:
+        with portalocker.Lock(tmpFile, timeout=0) as f:
+            f.write("PID & Host: %i %s\n" % (os.getpid(), socket.gethostname()))
+            f.write("Command: %s\n" % command)
+            f.write("Outfile: %s\n" % fOut)
+            f.write("#########################\n")
+            f.flush()
+            log.info(f"written {tmpFile} in {os.getcwd()}")
+            log.info(command)
+
+            # proc = subprocess.Popen(shlex.split(f'bash -c "{command}"'), stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+            proc = subprocess.Popen(
+                command, shell=True, stdout=stdout, stderr=subprocess.PIPE
+            )
+
+            # Poll process for new output until finished
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    line = line.decode()
+                    log.info(line)
+                    f.write(line)
+                    f.flush()
+            for line in proc.stderr:
+                line = line.decode()
+                log.error(line)
+                f.write(line)
+                f.flush()
+
+            proc.wait()
+            exitCode = proc.returncode
+            if exitCode != 0:
+                success = False
+                log.error(f"BROKEN {fOut} {exitCode}")
+            else:
+                log.info(f"SUCCESS {fOut} {exitCode}")
+
+            # flush and sync to filesystem
+            f.flush()
+            os.fsync(f.fileno())
+
+    except portalocker.LockException:
+        log.info(f"{fOut} RUNNING")
+        success = True
+        running = True
+
+    if not success:
+        shutil.copy(tmpFile, "%s.broken.txt" % tmpFile)
+        try:
+            shutil.copy(tmpFile, "%s.broken.txt" % fOut)
+        except:
+            pass
+    if not running:
+        try:
+            os.remove(tmpFile)
+        except:
+            pass
+
+    return success

@@ -1000,6 +1000,11 @@ def createEvent(
 ):
     # case is always daily for events!
     case = case.split("-")[0]
+    if type(config) is str:
+        config = tools.readSettings(config)
+
+    if camera in ["leader", "follower"]:
+        camera = config[camera]
 
     fn = files.FindFiles(case, camera, config, version)
     fnames0 = fn.listFiles("level0txt")

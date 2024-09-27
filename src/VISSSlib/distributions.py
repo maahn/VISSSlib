@@ -1792,7 +1792,9 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel):
     fnames = {}
     fnames["leader"] = fL.listFilesWithNeighbors("metaDetection")
     fnames["follower"] = fF.listFilesWithNeighbors("metaDetection")
-    blowingSnowRatio = tools.identifyBlowingSnowData(fnames, config, timeIndex1)
+    blowingSnowRatio = tools.identifyBlowingSnowData(
+        fnames, config, timeIndex1, sublevel
+    )
     blowingSnowRatio = blowingSnowRatio
 
     return recordingFailed, processingFailed, blockedPixels, blowingSnowRatio

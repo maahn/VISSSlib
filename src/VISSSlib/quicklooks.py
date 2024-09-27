@@ -1446,7 +1446,7 @@ def createLevel1matchQuicklook(
         freq=resample,
         inclusive="both",
     )
-    blowingSnow = tools.identifyBlowingSnowData(fnamesMD, config, timeIndex1)
+    blowingSnow = tools.identifyBlowingSnowData(fnamesMD, config, timeIndex1, "match")
 
     blowingSnowL = blowingSnow.sel(camera="leader")
     blowingSnowF = blowingSnow.sel(camera="follower")

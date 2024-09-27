@@ -4,6 +4,7 @@ import datetime
 import io
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import tarfile
@@ -18,7 +19,9 @@ import IPython.display
 import ipywidgets
 import numpy as np
 import pandas as pd
+import portalocker
 import skimage
+import taskqueue
 import xarray as xr
 import yaml
 from addict import Dict
@@ -46,6 +49,9 @@ DEFAULT_SETTINGS = {
         "minBlur": 250,
         "minSize": 8,
     },
+    "level1match": {
+        "maxMovingObjects": 300,  # 60 until 18.9.24
+    },
     "matchData": True,
     "processL2detect": False,
 }
@@ -56,6 +62,11 @@ niceNames = (
     ("trigger", "leader"),
     ("slave", "follower"),
 )
+
+
+class DictNoDefault(Dict):
+    def __missing__(self, key):
+        raise KeyError(key)
 
 
 def nicerNames(string):
@@ -345,7 +356,7 @@ def open_mflevel1match(fnamesExt, config, datVars="all"):
     return dat
 
 
-def identifyBlowingSnowData(fnames, config, timeIndex1):
+def identifyBlowingSnowData(fnames, config, timeIndex1, sublevel):
     # handle blowing snow, estimate ratio of skipped frames
 
     blowingSnowRatio = {}
@@ -357,7 +368,7 @@ def identifyBlowingSnowData(fnames, config, timeIndex1):
         movingObjects = xr.concat(movingObjects, dim="capture_time")
         # movingObjects = xr.open_mfdataset(fnames[cam],  combine='nested', preprocess=preprocess).movingObjects.load()
         movingObjects = movingObjects.sortby("capture_time")
-        tooManyMove = movingObjects > config.level1detect.maxMovingObjects
+        tooManyMove = movingObjects > config[f"level1{sublevel}"].maxMovingObjects
         tooManyMove = tooManyMove.groupby_bins(
             "capture_time", timeIndex1, labels=timeIndex1[:-1]
         )
@@ -374,12 +385,20 @@ def identifyBlowingSnowData(fnames, config, timeIndex1):
     return blowingSnowRatio
 
 
-def removeBlockedData(dat1D, events, threshold=0.1):
+def removeBlockedBlowingData(dat1D, events, config, threshold=0.1):
     """
     remove data where window was blocked more than 10%
     """
     # shortcut
     if dat1D is None:
+        return None
+
+    ts, counts = np.unique(dat1D.capture_time, return_counts=True)
+    if np.any(counts > config.level1match.maxMovingObjects):
+        tsBlowingSnow = ts[counts > config.level1match.maxMovingObjects]
+        dat1D = dat1D.isel(fpid=~dat1D.capture_time.isin(tsBlowingSnow))
+    if len(dat1D.fpid) == 0:
+        print("no data after removing blowing snow data")
         return None
 
     if type(events) is str:
@@ -544,6 +563,14 @@ def prevCase(case):
     return str(
         np.datetime64(f"{case[:4]}-{case[4:6]}-{case[6:8]}") - np.timedelta64(1, "D")
     ).replace("-", "")
+
+
+def timestamp2case(dd):
+    year = str(dd.year)
+    month = "%02i" % dd.month
+    day = "%02i" % dd.day
+    case = f"{year}{month}{day}"
+    return case
 
 
 def rescaleImage(
@@ -963,3 +990,75 @@ def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
     return (rho, phi)
+
+
+@taskqueue.queueable
+def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
+    """
+    helper function to run command on the shell
+    """
+
+    command, fOut = IN
+    tmpFile = os.path.basename("%s.processing.txt" % fOut)
+
+    success = True
+    running = False
+    # with statement extended to avoid race conditions
+    try:
+        with portalocker.Lock(tmpFile, timeout=0) as f:
+            f.write("PID & Host: %i %s\n" % (os.getpid(), socket.gethostname()))
+            f.write("Command: %s\n" % command)
+            f.write("Outfile: %s\n" % fOut)
+            f.write("#########################\n")
+            f.flush()
+            log.info(f"written {tmpFile} in {os.getcwd()}")
+            log.info(command)
+
+            # proc = subprocess.Popen(shlex.split(f'bash -c "{command}"'), stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+            proc = subprocess.Popen(
+                command, shell=True, stdout=stdout, stderr=subprocess.PIPE
+            )
+
+            # Poll process for new output until finished
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    line = line.decode()
+                    log.info(line)
+                    f.write(line)
+                    f.flush()
+            for line in proc.stderr:
+                line = line.decode()
+                log.error(line)
+                f.write(line)
+                f.flush()
+
+            proc.wait()
+            exitCode = proc.returncode
+            if exitCode != 0:
+                success = False
+                log.error(f"BROKEN {fOut} {exitCode}")
+            else:
+                log.info(f"SUCCESS {fOut} {exitCode}")
+
+            # flush and sync to filesystem
+            f.flush()
+            os.fsync(f.fileno())
+
+    except portalocker.LockException:
+        log.info(f"{fOut} RUNNING")
+        success = True
+        running = True
+
+    if not success:
+        shutil.copy(tmpFile, "%s.broken.txt" % tmpFile)
+        try:
+            shutil.copy(tmpFile, "%s.broken.txt" % fOut)
+        except:
+            pass
+    if not running:
+        try:
+            os.remove(tmpFile)
+        except:
+            pass
+
+    return success

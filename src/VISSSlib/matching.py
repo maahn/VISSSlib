@@ -1079,8 +1079,8 @@ def matchParticles(
         errors["openingData"] = True
         return fname1Match, np.nan, None, None, None, None, None, errors
 
-    leader1D = tools.removeBlockedData(leader1D, lEvents)
-    follower1DAll = tools.removeBlockedData(follower1DAll, fEvents)
+    leader1D = tools.removeBlockedBlowingData(leader1D, lEvents, config)
+    follower1DAll = tools.removeBlockedBlowingData(follower1DAll, fEvents, config)
 
     if follower1DAll is None:
         if not rotationOnly:
@@ -1700,6 +1700,9 @@ def createMetaRotation(
     nL = None
     nF = None
     nM = None
+
+    if type(config) is str:
+        config = tools.readSettings(config)
 
     # find files
     fl = files.FindFiles(case, config.leader, config, version)

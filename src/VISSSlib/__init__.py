@@ -95,6 +95,7 @@ from . import (
     fixes,
     matching,
     metadata,
+    products,
     quicklooks,
     scripts,
     tools,

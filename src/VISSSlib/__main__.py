@@ -2,12 +2,14 @@ import logging
 import os
 import socket
 import sys
+import time
 
 import taskqueue
 
 from . import (
     av,
     detection,
+    distributions,
     files,
     fixes,
     matching,
@@ -17,6 +19,10 @@ from . import (
     tools,
     tracking,
 )
+
+# to be deleted
+from .scripts import _runCommandInQueue
+from .tools import runCommandInQueue
 
 log = logging.getLogger(__name__)
 
@@ -38,16 +44,30 @@ def main():
 
         scripts.loopCreateEvents(settings, skipExisting=skipExisting, nDays=nDays)
 
+    elif sys.argv[1] == "metadata.createEvent":
+        settings = sys.argv[2]
+        camera, case = sys.argv[3].split("+")
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+        metadata.createEvent(case, camera, settings, skipExisting=skipExisting)
+
     elif sys.argv[1] == "scripts.loopCreateMetaFrames":
         settings = sys.argv[2]
-        nDays = sys.argv[3]
-
+        try:
+            camera, case = sys.argv[3].split("+")
+        except ValueError:
+            nDays = sys.argv[3]
+            camera = "all"
         try:
             skipExisting = bool(int(sys.argv[4]))
         except IndexError:
             skipExisting = True
 
-        scripts.loopCreateMetaFrames(settings, skipExisting=skipExisting, nDays=nDays)
+        scripts.loopCreateMetaFrames(
+            settings, skipExisting=skipExisting, nDays=nDays, camera=camera
+        )
 
     elif sys.argv[1] == "quicklooks.createLevel1detectQuicklook":
         case = sys.argv[2]
@@ -129,6 +149,16 @@ def main():
 
         detection.detectParticles(fname, settings)
 
+    elif sys.argv[1] == "matching.createMetaRotation":
+        fname = sys.argv[2]
+        settings = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        matching.createMetaRotation(case, settings, skipExisting=skipExisting)
+
     elif sys.argv[1] == "matching.matchParticles":
         fname = sys.argv[2]
         settings = sys.argv[3]
@@ -140,6 +170,38 @@ def main():
         settings = sys.argv[3]
 
         tracking.trackParticles(fname, settings)
+
+    elif sys.argv[1] == "distributions.createLevel2detect":
+        settings = sys.argv[2]
+        camera, case = sys.argv[3].split("+")
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        distributions.createLevel2detect(
+            case, settings, skipExisting=skipExisting, camera=camera
+        )
+
+    elif sys.argv[1] == "distributions.createLevel2match":
+        settings = sys.argv[2]
+        case = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        distributions.createLevel2match(case, settings, skipExisting=skipExisting)
+
+    elif sys.argv[1] == "distributions.createLevel2track":
+        settings = sys.argv[2]
+        case = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        distributions.createLevel2track(case, settings, skipExisting=skipExisting)
 
     elif sys.argv[1] == "scripts.loopCreateLevel1detect":
         settings = sys.argv[2]
@@ -334,9 +396,24 @@ def main():
 
     elif sys.argv[1] == "worker":
         queue = sys.argv[2]
+        assert os.path.isdir(queue)
 
-        tq = taskqueue.TaskQueue(f"q://{queue}")  # file queue ('fq')
-        tq.poll(verbose=True, tally=True, stop_fn=tq.is_empty, lease_seconds=2)
+        class TaskQueuePatched(taskqueue.TaskQueue):
+            def is_empty_wait(self):
+                for ii in range(10):
+                    # stop processing
+                    if os.path.isfile("VISSS_KILLSWITCH"):
+                        log.warning(f"{ii}, found file VISSS_KILLSWITCH, stopping")
+                        return True
+                    if tq.is_empty():
+                        log.warning(f"{ii}, file queue is empty, waiting 60s")
+                        time.sleep(60)
+                    else:
+                        return tq.is_empty()
+                return tq.is_empty()
+
+        tq = TaskQueuePatched(f"fq://{queue}")
+        tq.poll(verbose=True, tally=True, stop_fn=tq.is_empty_wait, lease_seconds=2)
 
     else:
         print(f"Do not understand {sys.argv[1]}")

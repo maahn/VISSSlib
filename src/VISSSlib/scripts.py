@@ -236,6 +236,52 @@ def loopLevel1matchQuicklooks(
     return
 
 
+def loopLevel1detectQuicklooks(
+    settings, version=__version__, nDays=0, skipExisting=True, plotCompleteOnly=True
+):
+    """
+    loop through days to create level1detect quicklooks
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    version : str, optional
+        VISSS version number to process (the default is __version__, i.e. current version of the library)
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    skipExisting : bool, optional
+        Skip existing files? (the default is True)
+    plotCompleteOnly : bool, optional
+        plot only days that are completely processed (the default is True)
+    """
+    config = tools.readSettings(settings)
+
+    days = tools.getDateRange(nDays, config, endYesterday=False)
+
+    for dd in days:
+        year = str(dd.year)
+        month = "%02i" % dd.month
+        day = "%02i" % dd.day
+        case = f"{year}{month}{day}"
+
+        #         print(case, computer, camera)
+        for camera in ["leader", "follower"]:
+            fname, fig = quicklooks.createLevel1detectQuicklook(
+                case,
+                config,
+                camera,
+                version=version,
+                skipExisting=skipExisting,
+                plotCompleteOnly=plotCompleteOnly,
+            )
+            try:
+                fig.close()
+            except AttributeError:
+                pass
+    return
+
+
 def loopLevel1matchParticlesQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True
 ):

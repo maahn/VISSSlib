@@ -8,7 +8,7 @@ import pandas as pd
 import taskqueue
 import xarray as xr
 
-from . import __version__, distributions, files, matching, metadata, quicklooks, tools
+from . import __version__, files, scripts, tools
 from .tools import runCommandInQueue
 
 log = logging.getLogger(__name__)
@@ -116,6 +116,10 @@ class DataProduct(object):
                     skipExisting=skipExisting, withParents=False
                 )
         self.commands = list(set(commands))
+        if len(self.commands) == 0:
+            log.warning(
+                f"{self.level} {self.case} all done",
+            )
         return self.commands
 
     def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
@@ -246,7 +250,10 @@ class DataProduct(object):
     ):
         if len(self.commands) == 0:
             self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
-        assert len(self.commands) > 0
+
+        if len(self.allCommands) == 0:
+            log.error("nothing to submit")
+            return
 
         if checkForDuplicates:
             running = [t.args for t in self.tq.tasks()]
@@ -259,7 +266,7 @@ class DataProduct(object):
         else:
             commands = self.commands
 
-        log.info(f"warning {len(commands)} commands to {self.fileQueue}")
+        log.warning(f"sending {len(commands)} commands to {self.fileQueue}")
         # region is SQS specific, green means cooperative threading
 
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
@@ -391,7 +398,9 @@ class DataProductRange(object):
         self, skipExisting=True, checkForDuplicates=False, withParents=True
     ):
         self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
-        assert len(self.allCommands) > 0
+        if len(self.allCommands) == 0:
+            log.error("nothing to submit")
+            return
 
         if checkForDuplicates:
             running = [t.args for t in self.tq.tasks()]
@@ -403,6 +412,9 @@ class DataProductRange(object):
                     commands.append(command)
         else:
             commands = self.allCommands
+        if len(commands) == 0:
+            log.error("nothing to submit after checking for duplicates")
+            return
 
         log.warning(f"adding {len(commands)} commands to {self.fileQueue}")
         # region is SQS specific, green means cooperative threading
@@ -414,3 +426,38 @@ class DataProductRange(object):
         log.info(f"Deleting {self.tq.enqueued} tasks")
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
+
+
+def submitAll(
+    nDays,
+    settings,
+    fileQueue,
+    withLevel2detect=False,
+    doMetaRot=True,
+    submitJobs=True,
+    skipExisting=True,
+):
+    if submitJobs:
+        prod = DataProductRange("level2track", nDays, settings, fileQueue, "leader")
+        prod.submitCommands(checkForDuplicates=True, skipExisting=skipExisting)
+
+        prod = DataProductRange("level2match", nDays, settings, fileQueue, "leader")
+        prod.submitCommands(
+            checkForDuplicates=True, withParents=False, skipExisting=skipExisting
+        )
+
+        if withLevel2detect:
+            prod = DataProductRange(
+                "level2detect", nDays, settings, fileQueue, "leader"
+            )
+            prod.submitCommands(
+                checkForDuplicates=True, withParents=False, skipExisting=skipExisting
+            )
+            prod = DataProductRange(
+                "level2detect", nDays, settings, fileQueue, "follower"
+            )
+            prod.submitCommands(
+                checkForDuplicates=True, withParents=False, skipExisting=skipExisting
+            )
+    if doMetaRot:
+        scripts.loopCreateMetaRotation(settings, skipExisting=skipExisting, nDays=nDays)

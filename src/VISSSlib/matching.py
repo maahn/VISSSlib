@@ -959,6 +959,7 @@ def matchParticles(
             "leaderBlocked": False,
             "offsetEstimation": False,
             "doMatchSlicer": False,
+            "noMetaRot": False,
         }
     )
 
@@ -975,7 +976,13 @@ def matchParticles(
     if not doRot:
         # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
-        metaRotationDat = xr.open_dataset(fnameMetaRotation)
+        try:
+            metaRotationDat = xr.open_dataset(fnameMetaRotation)
+        except FileNotFoundError:
+            log.error(f"did not find{fnameMetaRotation}")
+            errors["noMetaRot"] = True
+            return fname1Match, None, None, None, None, None, None, errors
+
         metaRotationDat = metaRotationDat.where(
             metaRotationDat.camera_Ofz.notnull(), drop=True
         )

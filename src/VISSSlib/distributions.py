@@ -19,7 +19,7 @@ import xarray_extras.sort
 from dask.diagnostics import ProgressBar
 from tqdm import tqdm
 
-from . import __version__
+from . import __version__, quicklooks
 from .matching import *
 
 log = logging.getLogger(__name__)
@@ -101,8 +101,9 @@ def createLevel2detect(
     writeNc=True,
     applyFilters=[],
     camera="leader",
+    doPlot=True,
 ):
-    return createLevel2(
+    out = createLevel2(
         case,
         config,
         freq=freq,
@@ -118,6 +119,12 @@ def createLevel2detect(
         sublevel="detect",
         camera=camera,
     )
+    if doPlot:
+        quicklooks.createLevel2detectQuicklook(
+            case, config, camera, skipExisting=skipExisting
+        )
+
+    return out
 
 
 def createLevel2match(
@@ -133,8 +140,9 @@ def createLevel2match(
     skipExisting=True,
     writeNc=True,
     applyFilters=[],
+    doPlot=True,
 ):
-    return createLevel2(
+    out = createLevel2(
         case,
         config,
         freq=freq,
@@ -149,6 +157,10 @@ def createLevel2match(
         applyFilters=applyFilters,
         sublevel="match",
     )
+    if doPlot:
+        quicklooks.createLevel2matchQuicklook(case, config, skipExisting=skipExisting)
+
+    return out
 
 
 def createLevel2track(
@@ -163,8 +175,9 @@ def createLevel2track(
     skipExisting=True,
     writeNc=True,
     applyFilters=[],
+    doPlot=True,
 ):
-    return createLevel2(
+    out = createLevel2(
         case,
         config,
         freq=freq,
@@ -179,6 +192,10 @@ def createLevel2track(
         applyFilters=applyFilters,
         sublevel="track",
     )
+    if doPlot:
+        quicklooks.createLevel2trackQuicklook(case, config, skipExisting=skipExisting)
+
+    return out
 
 
 def createLevel2(

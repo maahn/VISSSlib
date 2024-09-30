@@ -1983,6 +1983,208 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     return fOut, fig
 
 
+def createLevel2detectQuicklook(
+    case, config, camera, version=__version__, skipExisting=True, returnFig=True
+):
+    version = __version__
+
+    if type(config) is str:
+        config = tools.readSettings(config)
+
+    camera = config[camera]
+    nodata = False
+    # get level 0 file names
+    ff = files.FindFiles(case, camera, config, version)
+    fOut = ff.quicklook.level2detect
+    if skipExisting and os.path.isfile(fOut):
+        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
+            log.info(f"{case} file exists but older than event file, redoing {fOut}")
+        else:
+            log.warning(tools.concat(case, camera, "skip exisiting"))
+            return None, None
+
+    lv2 = ff.listFiles("level2detect")
+    if len(lv2) == 0:
+        if len(ff.listFilesExt("level2detect")) == 0:
+            log.error(f"{case} level2detect data not found")
+            return None, None
+        else:
+            print("nodata = True")
+    else:
+        lv2 = lv2[0]
+
+    if len(ff.listFiles("metaEvents")) == 0:
+        log.error(f"{case} event data not found")
+        return None, None
+
+    log.info(f"running {case} {fOut}")
+
+    fig, axs = plt.subplots(
+        nrows=4,
+        ncols=2,
+        figsize=(20, 20),
+        gridspec_kw={
+            "width_ratios": [1, 0.01],
+            "height_ratios": [2.5, 1, 1, 1],
+            "hspace": 0.02,
+            "wspace": 0.1,
+        },
+    )
+    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
+    fig.suptitle(
+        "VISSS level2detect \n"
+        + f"{ff.year}-{ff.month}-{ff.day}"
+        + ", "
+        + config["name"]
+        + "",
+        fontsize=25,
+        y=0.995,
+        fontweight="bold",
+        x=mid,
+    )
+    if nodata:
+        axs[0, 0].set_title("no data")
+    else:
+        dat2 = xr.open_dataset(lv2)
+        fEvents1 = ff.listFiles("metaEvents")[0]
+
+        try:
+            events = xr.open_dataset(fEvents1)
+        except:
+            print(f"{fEvents1} broken")
+            return None, None
+
+        (ax1, ax2, ax3, ax4) = axs[:, 0]
+        (bx1, bx2, bx3, bx4) = axs[:, 1]
+
+        ax3a = ax3.twinx()  # instantiate a second Axes that shares the same x-axis
+        ax1a = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
+
+        (dat2.PSD.sel(size_definition="Dmax")).T.plot(
+            ax=ax1,
+            norm=mpl.colors.LogNorm(vmin=1, vmax=dat2.PSD.max()),
+            cbar_kwargs={"label": "Particle Size Distribution [1/m^4]"},
+            cbar_ax=bx1,
+        )
+        ax1.set_ylabel("Dmax [m]")
+
+        lns3 = dat2.Ntot.sel(size_definition="Dmax").plot(
+            ax=ax1a, label="N_tot", color="k", alpha=0.7
+        )
+        ax1a.set_ylabel("N_tot [1/m3]")
+        ax1a.set_yscale("log")
+        ax1a.set_ylim(1e0, 1e11)
+
+        # (dat2.aspectRatio_dist.sel(size_definition="Dmax", fitMethod="cv2.fitEllipseDirect")).T.plot(ax=ax2, vmin=0,vmax=1, cbar_kwargs={"label":"aspect ratio [-]"})
+        dat2.Dmax_mean.plot(ax=ax2, label="mean Dmax")
+        dat2.D32.sel(size_definition="Dmax").plot(ax=ax2, label="D32")
+        dat2.D43.sel(size_definition="Dmax").plot(ax=ax2, label="D43")
+        ax2.set_ylabel("Size [m]")
+        ax2.legend()
+
+        lns1 = dat2.complexityBW_mean.plot(ax=ax3, label="complexity")
+        lns2 = dat2.aspectRatio_mean.sel(fitMethod="cv2.fitEllipseDirect").plot(
+            ax=ax3, label="aspect ratio"
+        )
+        ax3.set_ylabel("Shape [-]")
+        ax3.legend()
+
+        dat2.counts.sel(size_definition="Dmax").sum("D_bins").plot(
+            label="observed particles [1/min]", ax=ax4
+        )
+        ax4.set_yscale("log")
+        ax4.set_ylabel("Performance")
+        ax4.legend()
+
+        for ax in axs[:, 0]:
+            ax.set_title(None)
+
+            ylim = ax.get_ylim()
+            cond = dat2.time.where(dat2.recordingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(dat2.time),
+                    [ylim[1]] * len(dat2.time),
+                    color="pink",
+                    alpha=0.25,
+                    label="cameras off",
+                )
+            cond = dat2.time.where(dat2.processingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(dat2.time),
+                    [ylim[1]] * len(dat2.time),
+                    color="purple",
+                    alpha=0.25,
+                    label="processing failed",
+                )
+            cond = dat2.time.where(dat2.blockedPixelRatio > 0.1)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(dat2.time),
+                    [ylim[1]] * len(dat2.time),
+                    color="red",
+                    alpha=0.25,
+                    label="camera blocked > 10%",
+                )
+            cond = dat2.time.where(dat2.blowingSnowRatio > 0.1)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(dat2.time),
+                    [ylim[1]] * len(dat2.time),
+                    color="orange",
+                    alpha=0.25,
+                    label="blowing snow > 10%",
+                )  # , hatch='///')
+            ax.set_ylim(ylim)
+
+            ax.tick_params(axis="both", labelsize=15)
+            ax.grid()
+            ax.set_xlim(
+                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
+                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
+                + np.timedelta64(1, "D"),
+            )
+
+        for ax in axs[:-1, 0]:
+            ax.set_xticklabels([])
+
+        # mark relaunch
+        firstEvent = True
+        for event in events.event:
+            if str(event.values).startswith("start") or str(event.values).startswith(
+                "launch"
+            ):
+                for ax in axs[:, 0]:
+                    if firstEvent:
+                        label = "restarted"
+                        firstEvent = False
+                    else:
+                        label = None
+                    ax.axvline(
+                        event.file_starttime.values, color="red", ls=":", label=label
+                    )
+
+        ax1.legend()
+        ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
+
+        for bx in axs[1:, 1]:
+            bx.axis("off")
+
+    fig.tight_layout()
+    tools.createParentDir(fOut)
+    fig.savefig(fOut)
+
+    if returnFig:
+        return fOut, fig
+    else:
+        return fOut
+
+
 def createLevel2matchQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):

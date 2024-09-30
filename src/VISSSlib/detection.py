@@ -1644,7 +1644,7 @@ def detectParticles(
             nChangedPixel = checkMotion(frame, oldFrame, config.threshs)
             passesThreshold = nChangedPixel >= minMovingPixels
             if not passesThreshold.any():
-                log.debug("%s NOT moving %i" % str(metaData1.capture_time.values), (pp))
+                log.debug("%s NOT moving %i" % (str(metaData1.capture_time.values), pp))
                 continue
             else:
                 log.debug("%s IS moving %i" % (str(metaData1.capture_time.values), pp))

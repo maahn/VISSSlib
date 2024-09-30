@@ -1,9 +1,12 @@
 import logging
+import multiprocessing
 import os
 import socket
 import sys
 import time
 
+import numpy as np
+import psutil
 import taskqueue
 
 from . import (
@@ -150,8 +153,8 @@ def main():
         detection.detectParticles(fname, settings)
 
     elif sys.argv[1] == "matching.createMetaRotation":
-        fname = sys.argv[2]
-        settings = sys.argv[3]
+        settings = sys.argv[2]
+        case = sys.argv[3]
         try:
             skipExisting = bool(int(sys.argv[4]))
         except IndexError:
@@ -397,23 +400,66 @@ def main():
     elif sys.argv[1] == "worker":
         queue = sys.argv[2]
         assert os.path.isdir(queue)
+        try:
+            nJobs = int(sys.argv[3])
+        except IndexError:
+            nJobs = os.cpu_count()
 
         class TaskQueuePatched(taskqueue.TaskQueue):
             def is_empty_wait(self):
-                for ii in range(10):
-                    # stop processing
-                    if os.path.isfile("VISSS_KILLSWITCH"):
-                        log.warning(f"{ii}, found file VISSS_KILLSWITCH, stopping")
-                        return True
-                    if tq.is_empty():
-                        log.warning(f"{ii}, file queue is empty, waiting 60s")
-                        time.sleep(60)
-                    else:
-                        return tq.is_empty()
-                return tq.is_empty()
+                # first delay everything if there are no jobs
+                for i in range(5):
+                    if not self.is_empty():
+                        break
+                    log.warning(f"waiting for jobs... {i}")
+                    time.sleep(60)
 
-        tq = TaskQueuePatched(f"fq://{queue}")
-        tq.poll(verbose=True, tally=True, stop_fn=tq.is_empty_wait, lease_seconds=2)
+                # if there are really no jobs, nothing to do
+                if self.is_empty():
+                    return True
+
+                # if there are jobs, check for killwitch file
+                if os.path.isfile("VISSS_KILLSWITCH"):
+                    log.warning(f"{ii}, found file VISSS_KILLSWITCH, stopping")
+                    return True
+
+                # if tehre are jobsm check for memory and wait otherwise
+                while True:
+                    if psutil.virtual_memory().percent < 95:
+                        break
+                    log.warning(f"waiting for available memory...")
+                    time.sleep(60)
+                return self.is_empty()
+
+        def worker1(ww, status, queue):
+            print(f"starting worker {ww} for {queue}")
+            tq = TaskQueuePatched(f"fq://{queue}")
+            while True:
+                status[ww] = 1
+                out = tq.poll(
+                    verbose=True, tally=True, stop_fn=tq.is_empty_wait, lease_seconds=2
+                )
+                status[ww] = 0
+                if np.all([ss == 0 for ss in status]):
+                    print(ww, "do not restart worker because all empty")
+                    break
+                print(ww, "restart worker")
+                time.sleep(60)
+
+            return out
+
+        # for communication between subprocesses
+        status = multiprocessing.Array("i", [0] * nJobs)
+        for ww in range(nJobs):
+            x = multiprocessing.Process(
+                target=worker1,
+                args=(
+                    ww,
+                    status,
+                    queue,
+                ),
+            )
+            x.start()
 
     else:
         print(f"Do not understand {sys.argv[1]}")

@@ -43,8 +43,9 @@ quicklookLevelsSep = [
     "level1match",
     "level1matchParticles",
     "metaRotation",
+    "level2detect",
 ]
-quicklookLevelsComb = ["level2detect", "level2match", "level2track"]
+quicklookLevelsComb = ["level2match", "level2track"]
 imageLevels = ["imagesL1detect"]
 
 

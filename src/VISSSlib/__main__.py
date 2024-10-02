@@ -439,14 +439,18 @@ def main():
             while True:
                 if not tq.is_empty():
                     status[ww] = 1
-                    out = tq.poll(
-                        verbose=True,
-                        tally=True,
-                        stop_fn=tq.is_empty_wait,
-                        lease_seconds=2,
-                        backoff_exceptions=[BlockingIOError],
-                    )
-                    status[ww] = 0
+                    try:
+                        out = tq.poll(
+                            verbose=True,
+                            tally=True,
+                            stop_fn=tq.is_empty_wait,
+                            lease_seconds=2,
+                            backoff_exceptions=[BlockingIOError],
+                        )
+                    except:
+                        pass
+                    finally:
+                        status[ww] = 0
                 else:
                     print(f"worker {ww} queueu {queue} empty", flush=True)
                 if np.all([ss == 0 for ss in status]):

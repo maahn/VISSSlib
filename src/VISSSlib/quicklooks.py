@@ -1984,14 +1984,14 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 
 
 def createLevel2detectQuicklook(
-    case, config, camera, version=__version__, skipExisting=True, returnFig=True
+    case, config, camera1, version=__version__, skipExisting=True, returnFig=True
 ):
     version = __version__
 
     if type(config) is str:
         config = tools.readSettings(config)
 
-    camera = config[camera]
+    camera = config[camera1]
     nodata = False
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
@@ -2009,7 +2009,7 @@ def createLevel2detectQuicklook(
             log.error(f"{case} level2detect data not found")
             return None, None
         else:
-            print("nodata = True")
+            nodata = True
     else:
         lv2 = lv2[0]
 
@@ -2032,7 +2032,7 @@ def createLevel2detectQuicklook(
     )
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
     fig.suptitle(
-        "VISSS level2detect \n"
+        f"VISSS level2detect {camera1}\n"
         + f"{ff.year}-{ff.month}-{ff.day}"
         + ", "
         + config["name"]
@@ -2057,7 +2057,6 @@ def createLevel2detectQuicklook(
         (ax1, ax2, ax3, ax4) = axs[:, 0]
         (bx1, bx2, bx3, bx4) = axs[:, 1]
 
-        ax3a = ax3.twinx()  # instantiate a second Axes that shares the same x-axis
         ax1a = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
 
         (dat2.PSD.sel(size_definition="Dmax")).T.plot(
@@ -2074,6 +2073,7 @@ def createLevel2detectQuicklook(
         ax1a.set_ylabel("N_tot [1/m3]")
         ax1a.set_yscale("log")
         ax1a.set_ylim(1e0, 1e11)
+        ax1a.set_title("")
 
         # (dat2.aspectRatio_dist.sel(size_definition="Dmax", fitMethod="cv2.fitEllipseDirect")).T.plot(ax=ax2, vmin=0,vmax=1, cbar_kwargs={"label":"aspect ratio [-]"})
         dat2.Dmax_mean.plot(ax=ax2, label="mean Dmax")
@@ -2227,7 +2227,7 @@ def createLevel2matchQuicklook(
             "width_ratios": [1, 0.01],
             "height_ratios": [2.5, 1, 1, 1],
             "hspace": 0.02,
-            "wspace": 0.02,
+            "wspace": 0.1,
         },
     )
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
@@ -2266,6 +2266,7 @@ def createLevel2matchQuicklook(
 
         (ax1, ax2, ax3, ax4) = axs[:, 0]
         (bx1, bx2, bx3, bx4) = axs[:, 1]
+        ax1a = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
 
         (dat2.PSD.sel(camera="max", size_definition="Dmax")).T.plot(
             ax=ax1,
@@ -2274,6 +2275,14 @@ def createLevel2matchQuicklook(
             cbar_ax=bx1,
         )
         ax1.set_ylabel("Dmax [m]")
+
+        lns3 = dat2.Ntot.sel(camera="max", size_definition="Dmax").plot(
+            ax=ax1a, label="N_tot", color="k", alpha=0.7
+        )
+        ax1a.set_ylabel("N_tot [1/m3]")
+        ax1a.set_yscale("log")
+        ax1a.set_ylim(1e0, 1e11)
+        ax1a.set_title("")
 
         # (dat2.aspectRatio_dist.sel(camera="max", size_definition="Dmax", fitMethod="cv2.fitEllipseDirect")).T.plot(ax=ax2, vmin=0,vmax=1, cbar_kwargs={"label":"aspect ratio [-]"})
         dat2.Dmax_mean.sel(camera="max").plot(ax=ax2, label="mean Dmax")
@@ -2428,7 +2437,7 @@ def createLevel2trackQuicklook(
             "width_ratios": [1, 0.01],
             "height_ratios": [1.25, 1.25, 1, 1, 1],
             "hspace": 0.02,
-            "wspace": 0.02,
+            "wspace": 0.1,
         },
     )
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
@@ -2468,6 +2477,15 @@ def createLevel2trackQuicklook(
 
         (ax1, ax1a, ax2, ax3, ax4) = axs[:, 0]
         (bx1, bx1a, bx2, bx3, bx4) = axs[:, 1]
+        ax1b = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
+
+        lns3 = dat2.Ntot.sel(cameratrack="max", size_definition="Dmax").plot(
+            ax=ax1b, label="N_tot", color="k", alpha=0.7
+        )
+        ax1b.set_ylabel("N_tot [1/m3]")
+        ax1b.set_yscale("log")
+        ax1b.set_ylim(1e0, 1e11)
+        ax1b.set_title("")
 
         plotDat = (dat2.PSD.sel(cameratrack="max", size_definition="Dmax")).T
         if np.any(plotDat.notnull()):

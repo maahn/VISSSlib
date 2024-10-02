@@ -47,16 +47,19 @@ class DataProduct(object):
 
         self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
         self.commands = []
+        self.allCommands = []
 
-        self.fn = files.FindFiles(self.case, self.cameraFull, self.config)
+        self.fn = files.FindFiles(str(self.case), self.cameraFull, self.config)
         self.parents = tools.DictNoDefault({})
 
         if self.level == "level0":
             self.parentNames = []
+        elif self.level == "level0txt":
+            self.parentNames = []
         elif level == "metaEvents":
-            self.parentNames = [f"{camera}_level0"]
+            self.parentNames = [f"{camera}_level0txt"]
         elif level == "metaFrames":
-            self.parentNames = [f"{camera}_level0"]
+            self.parentNames = [f"{camera}_level0txt"]
         elif level == "level1detect":
             self.parentNames = [
                 f"{camera}_metaFrames",
@@ -124,6 +127,8 @@ class DataProduct(object):
 
     def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
         if self.level == "level0":
+            return []
+        elif self.level == "level0txt":
             return []
         elif self.level == "metaEvents":
             return self.commandTemplateDaily(

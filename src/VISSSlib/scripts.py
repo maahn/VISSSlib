@@ -236,7 +236,7 @@ def loopLevel1matchQuicklooks(
     return
 
 
-def loopLevel1detectQuicklooks(
+def loopLevel2detectQuicklooks(
     settings, version=__version__, nDays=0, skipExisting=True, plotCompleteOnly=True
 ):
     """
@@ -267,13 +267,12 @@ def loopLevel1detectQuicklooks(
 
         #         print(case, computer, camera)
         for camera in ["leader", "follower"]:
-            fname, fig = quicklooks.createLevel1detectQuicklook(
+            fname, fig = quicklooks.createLevel2detectQuicklook(
                 case,
                 config,
                 camera,
                 version=version,
                 skipExisting=skipExisting,
-                plotCompleteOnly=plotCompleteOnly,
             )
             try:
                 fig.close()
@@ -1295,7 +1294,7 @@ def loopCheckCompleteness(
         "metaRotation",
         "level1match",
         "level1track",
-        "level2detect",
+        # "level2detect",
         "level2match",
         "level2track",
     ],
@@ -2132,79 +2131,3 @@ def loopCreateBatch(
         iL2MQ,
         iL2TQ,
     )
-
-
-###############
-
-
-# to be deleted!!
-@taskqueue.queueable
-def _runCommandInQueue(IN, stdout=subprocess.DEVNULL):
-    """
-    helper function to run command on the shell
-    """
-
-    command, fOut = IN
-    tmpFile = os.path.basename("%s.processing.txt" % fOut)
-
-    success = True
-    running = False
-    # with statement extended to avoid race conditions
-    try:
-        with portalocker.Lock(tmpFile, timeout=0) as f:
-            f.write("PID & Host: %i %s\n" % (os.getpid(), socket.gethostname()))
-            f.write("Command: %s\n" % command)
-            f.write("Outfile: %s\n" % fOut)
-            f.write("#########################\n")
-            f.flush()
-            log.info(f"written {tmpFile} in {os.getcwd()}")
-            log.info(command)
-
-            # proc = subprocess.Popen(shlex.split(f'bash -c "{command}"'), stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
-            proc = subprocess.Popen(
-                command, shell=True, stdout=stdout, stderr=subprocess.PIPE
-            )
-
-            # Poll process for new output until finished
-            if proc.stdout is not None:
-                for line in proc.stdout:
-                    line = line.decode()
-                    log.info(line)
-                    f.write(line)
-                    f.flush()
-            for line in proc.stderr:
-                line = line.decode()
-                log.error(line)
-                f.write(line)
-                f.flush()
-
-            proc.wait()
-            exitCode = proc.returncode
-            if exitCode != 0:
-                success = False
-                log.error(f"BROKEN {fOut} {exitCode}")
-            else:
-                log.info(f"SUCCESS {fOut} {exitCode}")
-
-            # flush and sync to filesystem
-            f.flush()
-            os.fsync(f.fileno())
-
-    except portalocker.LockException:
-        log.info(f"{fOut} RUNNING")
-        success = True
-        running = True
-
-    if not success:
-        shutil.copy(tmpFile, "%s.broken.txt" % tmpFile)
-        try:
-            shutil.copy(tmpFile, "%s.broken.txt" % fOut)
-        except:
-            pass
-    if not running:
-        try:
-            os.remove(tmpFile)
-        except:
-            pass
-
-    return success

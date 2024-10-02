@@ -52,6 +52,9 @@ DEFAULT_SETTINGS = {
     "level1match": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
+    "level1track": {
+        "maxMovingObjects": 300,  # 60 until 18.9.24
+    },
     "matchData": True,
     "processL2detect": False,
 }

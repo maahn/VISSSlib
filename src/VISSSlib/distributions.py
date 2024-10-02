@@ -12,6 +12,7 @@ import dask.array
 import numpy as np
 import pandas as pn
 import scipy.special
+import scipy.stats
 import trimesh
 import vg
 import xarray as xr
@@ -980,7 +981,7 @@ def createLevel2part(
 
     elif sublevel == "match":
         log.info(f"estimate camera mean values")
-        data_vars = ["Dmax", "area", "matchScore", "aspectRatio", "angle", "perimeter"]
+        data_vars = ["Dmax", "area", "matchScore", "aspectRatio", "perimeter", "angle"]
 
         # promote capture_time to coordimnate for later
         level1dat_time = level1dat.assign_coords(
@@ -1002,6 +1003,12 @@ def createLevel2part(
         )
         level1dat_camAve = xr.concat(level1dat_camAve, dim="camera")
         level1dat_camAve["camera"] = ["max", "mean", "min", "leader", "follower"]
+
+        # fix angle becuase we want the circular mean
+        level1dat_camAve["angle"].loc["mean"] = level1dat_time["angle"].reduce(
+            scipy.stats.circmean, "camera", high=360, nan_policy="omit"
+        )
+
         # position_3D is the same for all
         # level1dat_camAve["position3D_center"] = level1dat_camAve["position3D_center"].sel(
         #    camera="max", drop=True)
@@ -1098,6 +1105,9 @@ def createLevel2part(
     level1datG = level1dat_4timeAve.groupby_bins(
         "time", timeIndex1, right=False, squeeze=False
     )
+    level1datG_angle = level1dat_4timeAve["angle"].groupby_bins(
+        "time", timeIndex1, right=False, squeeze=False
+    )
     individualDataPointsG = individualDataPoints.groupby_bins(
         "time", timeIndex1, right=False, squeeze=False
     )
@@ -1134,12 +1144,21 @@ def createLevel2part(
                 # estimate mean values for "area", "angle", "aspectRatio", "perimeter"
                 # Dmax is only for technical resaons and is removed afterwards
                 data_vars1 = data_vars + [sizeDefinition]
+                data_vars1.remove("angle")  # treated seperately
+
                 otherVars1 = (
                     level1datG1[data_vars1]
                     .groupby_bins(sizeDefinition, DbinsPixel, right=False)
                     .mean()
                 )
+                angleVars = (
+                    level1datG1[["angle", sizeDefinition]]
+                    .groupby_bins(sizeDefinition, DbinsPixel, right=False)
+                    .reduce(scipy.stats.circmean, high=360, nan_policy="omit")
+                )
+                otherVars1["angle"] = angleVars["angle"]
                 del otherVars1[sizeDefinition]
+
                 otherVars1 = otherVars1.rename(
                     {k: f"{k}_dist" for k in otherVars1.data_vars}
                 )
@@ -1188,13 +1207,22 @@ def createLevel2part(
                     # estimate mean values for "area", "angle", "aspectRatio", "perimeter"
                     # Dmax is only for technical resaons and is removed afterwards
                     data_vars1 = data_vars + [sizeDefinition]
+                    data_vars1.remove("angle")  # treated seperately
                     otherVars1 = (
                         level1datG1[data_vars1]
                         .sel(**{coordVar: coord})
                         .groupby_bins(sizeDefinition, DbinsPixel, right=False)
                         .mean()
                     )
+                    angleVars = (
+                        level1datG1[["angle", sizeDefinition]]
+                        .sel(**{coordVar: coord})
+                        .groupby_bins(sizeDefinition, DbinsPixel, right=False)
+                        .reduce(scipy.stats.circmean, high=360, nan_policy="omit")
+                    )
+                    otherVars1["angle"] = angleVars["angle"]
                     del otherVars1[sizeDefinition]
+
                     otherVars1 = otherVars1.rename(
                         {k: f"{k}_dist" for k in otherVars1.data_vars}
                     )
@@ -1228,6 +1256,9 @@ def createLevel2part(
     # to do: data is weighted with number of obs not considering the smalle robservation volume for larger particles
 
     meanValues = level1datG.mean()
+    meanValues["angle"] = level1datG_angle.reduce(
+        scipy.stats.circmean, high=360, nan_policy="omit"
+    )
     meanValues = meanValues.rename({k: f"{k}_mean" for k in meanValues.data_vars})
     meanValues = meanValues.rename(time_bins="time")
     # we want tiem stamps not intervals
@@ -1237,6 +1268,9 @@ def createLevel2part(
     # estimate mean values
     # to do: data is weighted with number of obs not considering the smalle robservation volume for larger particles
     stdValues = level1datG.std()
+    stdValues["angle"] = level1datG_angle.reduce(
+        scipy.stats.circstd, high=360, nan_policy="omit"
+    )
     stdValues = stdValues.rename({k: f"{k}_std" for k in stdValues.data_vars})
     stdValues = stdValues.rename(time_bins="time")
     # we want tiem stamps not intervals
@@ -1506,7 +1540,14 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
     )
     level1dat_trackAve = xr.concat(level1dat_trackAve, dim="cameratrack")
     level1dat_trackAve["cameratrack"] = trackOps
-    # position_3D is the same for all
+
+    # fix  circular mean & std for angle
+    level1dat_trackAve["angle"].loc["mean"] = level1dat_track2D["angle"].reduce(
+        scipy.stats.circmean, ["track_step", "camera"], high=360, nan_policy="omit"
+    )
+    level1dat_trackAve["angle"].loc["std"] = level1dat_track2D["angle"].reduce(
+        scipy.stats.circstd, ["track_step", "camera"], high=360, nan_policy="omit"
+    )
 
     # use Dmax as arbitrary variable with only one dimension
     level1dat_trackAve["track_length"] = (

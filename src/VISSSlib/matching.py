@@ -959,6 +959,7 @@ def matchParticles(
             "leaderBlocked": False,
             "offsetEstimation": False,
             "doMatchSlicer": False,
+            "noMetaRot": False,
         }
     )
 
@@ -975,7 +976,13 @@ def matchParticles(
     if not doRot:
         # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
-        metaRotationDat = xr.open_dataset(fnameMetaRotation)
+        try:
+            metaRotationDat = xr.open_dataset(fnameMetaRotation)
+        except FileNotFoundError:
+            log.error(f"did not find{fnameMetaRotation}")
+            errors["noMetaRot"] = True
+            return fname1Match, None, None, None, None, None, None, errors
+
         metaRotationDat = metaRotationDat.where(
             metaRotationDat.camera_Ofz.notnull(), drop=True
         )
@@ -986,6 +993,7 @@ def matchParticles(
         rotate, rotate_err, rotate_time = tools.getPrevRotationEstimates(
             ffl1.datetime64, config
         )
+
     # in case everything else below fails
     rotate_final = rotate
     rotate_err_final = rotate_err
@@ -1078,8 +1086,8 @@ def matchParticles(
         errors["openingData"] = True
         return fname1Match, np.nan, None, None, None, None, None, errors
 
-    leader1D = tools.removeBlockedData(leader1D, lEvents)
-    follower1DAll = tools.removeBlockedData(follower1DAll, fEvents)
+    leader1D = tools.removeBlockedBlowingData(leader1D, lEvents, config)
+    follower1DAll = tools.removeBlockedBlowingData(follower1DAll, fEvents, config)
 
     if follower1DAll is None:
         if not rotationOnly:
@@ -1700,6 +1708,9 @@ def createMetaRotation(
     nF = None
     nM = None
 
+    if type(config) is str:
+        config = tools.readSettings(config)
+
     # find files
     fl = files.FindFiles(case, config.leader, config, version)
     # get events
@@ -1754,7 +1765,7 @@ def createMetaRotation(
         # add previous configuration to config file
         elif prevFile is not None:
             prevDat = xr.open_dataset(prevFile)
-            prevDat = prevDat.where(prevDat.camera_Ofz.notnull())
+            prevDat = prevDat.where(prevDat.camera_Ofz.notnull(), drop=True)
             config = tools.rotXr2dict(prevDat, config)
             prevDat.close()
 
@@ -1845,6 +1856,7 @@ def createMetaRotation(
             nM = 1
 
         print(
+            fname1L,
             rot,
             nL,
             nF,

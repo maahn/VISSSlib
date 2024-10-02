@@ -1615,10 +1615,9 @@ def detectParticles(
         # we dont want to take the risk to jump to an index and get the wrong frame
         if int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) < rr:
             while int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) < rr:
-                log.debug(
-                    "fast forwarding",
-                    int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)),
-                    rr,
+                log.warning(
+                    "fast forwarding %i %i"
+                    % (int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)), rr)
                 )
                 _, _ = inVid[nThread].read()
         elif int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) > rr:
@@ -1652,7 +1651,7 @@ def detectParticles(
             nChangedPixel = checkMotion(frame, oldFrame, config.threshs)
             passesThreshold = nChangedPixel >= minMovingPixels
             if not passesThreshold.any():
-                log.debug("%s NOT moving %i" % str(metaData1.capture_time.values), (pp))
+                log.debug("%s NOT moving %i" % (str(metaData1.capture_time.values), pp))
                 continue
             else:
                 log.debug("%s IS moving %i" % (str(metaData1.capture_time.values), pp))
@@ -1749,7 +1748,10 @@ def detectParticles(
         if hasData:
             snowParticlesXR = snowParticles.collectResults()
             snowParticlesXR = tools.finishNc(
-                snowParticlesXR, config.site, config.visssGen
+                snowParticlesXR,
+                config.site,
+                config.visssGen,
+                extra={"maxMovingObjects": config.level1detect.maxMovingObjects},
             )
             tools.to_netcdf2(snowParticlesXR, fn.fname.level1detect)
 

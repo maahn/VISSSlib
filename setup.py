@@ -47,6 +47,8 @@ setuptools.setup(
         "vg",
         "xarray_extras",
         "manifold3d",
+        "task-queue",
+        "psutil",
     ],
     setup_requires=["setuptools_scm"],
 )

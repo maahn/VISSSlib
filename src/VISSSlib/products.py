@@ -24,12 +24,13 @@ class DataProduct(object):
         camera,
         relatives="",
         addRelatives=True,
+        fileObject=None,
     ):
         """
         Class for processing VISSS data
 
         """
-        log.info(f"create object for level {level}")
+        log.info(f"create object for level {level} {camera}")
         self.level = level
         self.config = tools.readSettings(settings)
         self.settings = settings
@@ -45,11 +46,18 @@ class DataProduct(object):
         self.case = case
         self.fileQueue = fileQueue
 
-        self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
+        if type(fileQueue) is str:
+            self.fileQueue = fileQueue
+            self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
+        else:
+            self.tq = self.fileQueue
+            self.fileQueue = self.tq.path.path
+
         self.commands = []
         self.allCommands = []
 
         self.fn = files.FindFiles(str(self.case), self.cameraFull, self.config)
+
         self.parents = tools.DictNoDefault({})
 
         if self.level == "level0":
@@ -62,7 +70,7 @@ class DataProduct(object):
             self.parentNames = [f"{camera}_level0txt"]
         elif level == "level1detect":
             self.parentNames = [
-                f"{camera}_metaFrames",
+                # f"{camera}_metaFrames", # done by level1detect
                 f"{camera}_metaEvents",
             ]
         elif level == "metaRotation":
@@ -80,6 +88,8 @@ class DataProduct(object):
             self.parentNames = [f"{camera}_level1match"]
         elif level == "level2track":
             self.parentNames = [f"{camera}_level1track"]
+        elif level == "allDone":
+            self.parentNames = [f"leader_level2track", f"leader_level2match"]
         else:
             raise ValueError(f"Do not understand {level}")
 
@@ -93,7 +103,7 @@ class DataProduct(object):
                 parent,
                 self.case,
                 self.settings,
-                self.fileQueue,
+                self.tq,
                 camera,
                 relatives=f"{self.relatives}",
             )
@@ -105,10 +115,13 @@ class DataProduct(object):
             log.info(f"{self.relatives} skip all existing")
             return []
         if self.parentsComplete:
-            log.info(f"{self.relatives} generate commands")
             commands = self.generateCommands(skipExisting=skipExisting)
+            if len(commands) > 0:
+                log.warning(
+                    f"{self.case} {self.relatives} generated commands for level {self.level} {self.camera}"
+                )
         else:
-            log.warning(f"{self.case} {self.relatives} Parents not ready yet")
+            log.info(f"{self.case} {self.relatives} Parents not ready yet")
             commands = []
         if withParents:
             for parent in self.parents.keys():
@@ -119,9 +132,9 @@ class DataProduct(object):
                     skipExisting=skipExisting, withParents=False
                 )
         self.commands = list(set(commands))
-        if len(self.commands) == 0:
+        if (len(self.commands) == 0) and (withParents):
             log.warning(
-                f"{self.level} {self.case} all done",
+                f"{self.level} {self.camera} {self.case} no commands created",
             )
         return self.commands
 
@@ -187,6 +200,10 @@ class DataProduct(object):
                 nCPU=nCPU,
                 bin=bin,
             )
+        elif self.level == "allDone":
+            outFile = self.fn.fnamesDaily["allDone"]
+            command = f"touch {outFile}"
+            return [(command, outFile)]
         else:
             raise ValueError(f"Do not understand {level}")
 
@@ -295,6 +312,8 @@ class DataProduct(object):
                 f"{self.relatives} {parent} parentsComplete {self.parents[parent].isComplete}",
             )
             parentsComplete = parentsComplete and self.parents[parent].isComplete
+            if not parentsComplete:  # shortcut
+                break
         return parentsComplete
 
     @property
@@ -310,6 +329,11 @@ class DataProduct(object):
 
     def listFiles():
         return self.fn.listFiles(self.level)
+
+
+class level2track(DataProduct):
+    def __init__(self, case, settings, fileQueue, camera="leader"):
+        super().__init__("allDone", case, settings, fileQueue, camera)
 
 
 class level2track(DataProduct):
@@ -378,18 +402,18 @@ class DataProductRange(object):
         self.dailies = {}
         self.level = level
         self.camera = camera
+        self.fileQueue = fileQueue
+        self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
         for dd in self.days:
             case = tools.timestamp2case(dd)
             self.dailies[dd] = DataProduct(
                 level,
                 case,
                 settings,
-                fileQueue,
+                self.tq,
                 camera,
                 addRelatives=addRelatives,
             )
-        self.fileQueue = fileQueue
-        self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
         self.allCommands = []
@@ -441,28 +465,35 @@ def submitAll(
     doMetaRot=True,
     submitJobs=True,
     skipExisting=True,
+    checkForDuplicates=True,
 ):
     if submitJobs:
-        prod = DataProductRange("level2track", nDays, settings, fileQueue, "leader")
-        prod.submitCommands(checkForDuplicates=True, skipExisting=skipExisting)
-
-        prod = DataProductRange("level2match", nDays, settings, fileQueue, "leader")
+        prod = DataProductRange("allDone", nDays, settings, fileQueue, "leader")
         prod.submitCommands(
-            checkForDuplicates=True, withParents=False, skipExisting=skipExisting
+            checkForDuplicates=checkForDuplicates, skipExisting=skipExisting
         )
 
         if withLevel2detect:
-            prod = DataProductRange(
+            prod1 = DataProductRange(
                 "level2detect", nDays, settings, fileQueue, "leader"
             )
-            prod.submitCommands(
-                checkForDuplicates=True, withParents=False, skipExisting=skipExisting
+            prod1.submitCommands(
+                checkForDuplicates=checkForDuplicates,
+                withParents=False,
+                skipExisting=skipExisting,
             )
-            prod = DataProductRange(
+            prod1 = DataProductRange(
                 "level2detect", nDays, settings, fileQueue, "follower"
             )
-            prod.submitCommands(
-                checkForDuplicates=True, withParents=False, skipExisting=skipExisting
+            prod1.submitCommands(
+                checkForDuplicates=checkForDuplicates,
+                withParents=False,
+                skipExisting=skipExisting,
             )
+    else:
+        prod = None
+
     if doMetaRot:
         scripts.loopCreateMetaRotation(settings, skipExisting=skipExisting, nDays=nDays)
+
+    return prod

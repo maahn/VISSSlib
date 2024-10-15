@@ -1576,13 +1576,21 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
         return None, None
 
     rotFiles = ff.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
-    rotDat = xr.open_mfdataset(rotFiles, combine="nested")
+    try:
+        rotDat = xr.open_mfdataset(rotFiles, combine="by_coords")
+    except OSError:
+        log.error(f"{rotFiles} not found")
+        return None, None
 
     # handle current year a bit differently
     if int(year) == int(datetime.datetime.utcnow().year):
         rotFiles1 = ff1.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
-        rotDat1 = xr.open_mfdataset(rotFiles1, combine="by_coords")
-        rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
+        try:
+            rotDat1 = xr.open_mfdataset(rotFiles1, combine="by_coords")
+        except OSError:
+            pass
+        else:
+            rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
         lastYear = np.datetime64(
             datetime.datetime.utcnow() - datetime.timedelta(days=365)
         )
@@ -1591,8 +1599,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     fig, (ax1, ax2, ax3) = plt.subplots(
         3, figsize=(20, 15), gridspec_kw={"hspace": 0.0}, sharex=True
     )
-    # plt.rcParams['text.usetex'] = False
-    # plt.rcParams['lines.linewidth'] = 1.5
+
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
     plt.suptitle(
         "VISSS rotation \n" + f"{year}" + ", " + config["name"] + "",

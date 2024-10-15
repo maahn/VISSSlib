@@ -25,6 +25,7 @@ dailyLevels = [
     "level2detect",
     "level2match",
     "level2track",
+    "allDone",
 ]
 hourlyLevels = []
 fileLevels = [
@@ -244,23 +245,23 @@ class FindFiles(object):
             if self.hour == "":
                 self.quicklook[
                     qL
-                ] = f"{self.quicklookPath[qL]}/{qL}_V{version}_{config['site']}_{nicerNames(camera)}_{self.year}{self.month}{self.day}.png"
+                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(camera).split('_')[0]}_{self.year}{self.month}{self.day}.png"
             else:
                 self.quicklook[
                     qL
-                ] = f"{self.quicklookPath[qL]}/{qL}_V{version}_{config['site']}_{nicerNames(camera)}_{self.year}{self.month}{self.day}T{self.hour}.png"
+                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(camera).split('_')[0]}_{self.year}{self.month}{self.day}T{self.hour}.png"
             self.quicklookCurrent[
                 qL
-            ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(camera)}_current.png"
+            ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(camera).split('_')[0]}_current.png"
         for qL in quicklookLevelsComb:
             if self.hour == "":
                 self.quicklook[
                     qL
-                ] = f"{self.quicklookPath[qL]}/{qL}_V{version}_{config['site']}_{self.year}{self.month}{self.day}.png"
+                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{self.year}{self.month}{self.day}.png"
             else:
                 self.quicklook[
                     qL
-                ] = f"{self.quicklookPath[qL]}/{qL}_V{version}_{config['site']}_{self.year}{self.month}{self.day}T{self.hour}.png"
+                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{self.year}{self.month}{self.day}T{self.hour}.png"
             self.quicklookCurrent[
                 qL
             ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_current.png"

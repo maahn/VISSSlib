@@ -297,11 +297,6 @@ def createLevel2(
             print("SKIPPING - nodata file exists", lv2File)
             return None, None
 
-    #    if len(fL.listFiles("metaFrames")) > len(fL.listFiles("level0")):
-    #        print("DATA TRANSFER INCOMPLETE ", lv2File)
-    #        print(len(fL.listFiles("level0")), "of", len(fL.listFiles("metaFrames")), "transmitted")
-    #        return None, None
-
     if sublevel == "match":
         if not fL.isCompleteL1match:
             log.error(

@@ -397,6 +397,12 @@ def main():
         quicklooks.metaRotationYearlyQuicklook(year, settings)
 
     elif sys.argv[1] == "worker":
+        # alternatives to consider
+        # https://github.com/Nukesor/pueue
+        # https://github.com/justanhduc/task-spooler
+        # https://www.gnu.org/software/parallel/parallel_tutorial.html
+        # https://pm2.keymetrics.io/docs/usage/quick-start/
+        # https://github.com/leahneukirchen/nq
         queue = sys.argv[2]
         assert os.path.isdir(queue)
         try:

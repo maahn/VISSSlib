@@ -1599,8 +1599,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     fig, (ax1, ax2, ax3) = plt.subplots(
         3, figsize=(20, 15), gridspec_kw={"hspace": 0.0}, sharex=True
     )
-    # plt.rcParams['text.usetex'] = False
-    # plt.rcParams['lines.linewidth'] = 1.5
+
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
     plt.suptitle(
         "VISSS rotation \n" + f"{year}" + ", " + config["name"] + "",

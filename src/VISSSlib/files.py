@@ -25,6 +25,7 @@ dailyLevels = [
     "level2detect",
     "level2match",
     "level2track",
+    "allDone",
 ]
 hourlyLevels = []
 fileLevels = [

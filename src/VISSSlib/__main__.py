@@ -17,6 +17,7 @@ from . import (
     fixes,
     matching,
     metadata,
+    products,
     quicklooks,
     scripts,
     tools,
@@ -395,6 +396,13 @@ def main():
         settings = sys.argv[2]
         year = sys.argv[3]
         quicklooks.metaRotationYearlyQuicklook(year, settings)
+
+    elif sys.argv[1] == "products.submitAll":
+        settings = sys.argv[2]
+        nDays = sys.argv[3]
+        taskQueue = sys.argv[4]
+
+        VISSSlib.products.submitAll(nDays, settings, taskQueue)
 
     elif sys.argv[1] == "worker":
         # alternatives to consider

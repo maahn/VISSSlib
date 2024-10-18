@@ -195,6 +195,11 @@ def readHeaderData(fname, returnLasttime=False):
             gitBranch = f.readline().split(":")[1].lstrip().rstrip()
             skip = f.readline()
         elif firstLine.startswith("# VISSS file format version: 0.5"):
+            asciiVersion = 0.5
+            gitTag = f.readline().split(":")[1].lstrip().rstrip()
+            gitBranch = f.readline().split(":")[1].lstrip().rstrip()
+            skip = f.readline()
+        elif firstLine.startswith("# VISSS file format version: 0.6"):
             raise NotImplementedError
 
         else:
@@ -220,6 +225,18 @@ def readHeaderData(fname, returnLasttime=False):
             )
         except ValueError:
             capture_firsttime = None
+
+        if asciiVersion >= 0.5:
+            cameraTemperature = float(f.readline().split(":")[1].lstrip().rstrip())
+            transferQueueCurrentBlockCount = int(
+                f.readline().split(":")[1].lstrip().rstrip()
+            )
+            transferMaxBlockSize = float(f.readline().split(":")[1].lstrip().rstrip())
+
+        else:
+            cameraTemperature = -99.0
+            transferQueueCurrentBlockCount = -99
+            transferMaxBlockSize = -99.0
 
     if returnLasttime:
         lastLines = os.popen("tail -n 2 %s" % fname)
@@ -267,6 +284,9 @@ def readHeaderData(fname, returnLasttime=False):
         serialnumber,
         configuration,
         hostname,
+        cameraTemperature,
+        transferQueueCurrentBlockCount,
+        transferMaxBlockSize,
     )
 
 
@@ -307,6 +327,9 @@ def _getMetaData1(
         serialnumber,
         configuration,
         hostname,
+        cameraTemperature,
+        transferQueueCurrentBlockCount,
+        transferMaxBlockSize,
     ) = res
 
     if record_starttime is None:
@@ -729,6 +752,9 @@ def getEvents(fnames0, config, fname0status=None):
             serialnumber,
             configuration,
             hostname,
+            cameraTemperature,
+            transferQueueCurrentBlockCount,
+            transferMaxBlockSize,
         ) = res
 
         record_starttime = np.datetime64(record_starttime)
@@ -784,7 +810,17 @@ def getEvents(fnames0, config, fname0status=None):
                 dims=["file_starttime"],
                 coords=[[record_starttime]],
             )
-
+            metaDat["cameraTemperature"] = xr.DataArray(
+                [np.nan], dims=["file_starttime"], coords=[[record_starttime]]
+            )
+            metaDat["transferQueueCurrentBlockCount"] = xr.DataArray(
+                [-99],
+                dims=["file_starttime"],
+                coords=[[record_starttime]],
+            )
+            metaDat["transferMaxBlockSize"] = xr.DataArray(
+                [np.nan], dims=["file_starttime"], coords=[[record_starttime]]
+            )
         else:
             capture_starttime = np.datetime64(capture_starttime)
             capture_firsttime = np.datetime64(capture_firsttime)
@@ -828,7 +864,21 @@ def getEvents(fnames0, config, fname0status=None):
                 dims=["file_starttime"],
                 coords=[[record_starttime]],
             )
-
+            metaDat["cameraTemperature"] = xr.DataArray(
+                [cameraTemperature],
+                dims=["file_starttime"],
+                coords=[[record_starttime]],
+            )
+            metaDat["transferQueueCurrentBlockCount"] = xr.DataArray(
+                [transferQueueCurrentBlockCount],
+                dims=["file_starttime"],
+                coords=[[record_starttime]],
+            )
+            metaDat["transferMaxBlockSize"] = xr.DataArray(
+                [transferMaxBlockSize],
+                dims=["file_starttime"],
+                coords=[[record_starttime]],
+            )
         # estimate Blocking
         # using results of background estiamtor would be nice, but we don't have that inforation yet!
         img = mpl.image.imread(fname0Img)[config.height_offset :]

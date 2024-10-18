@@ -384,9 +384,14 @@ class FindFiles(object):
 
     def nMissing(self, level):
         if level in dailyLevels:
-            return 1 - len(self.listFilesExt(level))
+            nMissing = 1 - len(self.listFilesExt(level))
         else:
-            return self.nL0 - len(self.listFilesExt(level))
+            nMissing = self.nL0 - len(self.listFilesExt(level))
+
+        if nMissing < 0:
+            log.error(f"Likely duplicates for {level} in {self.fnamesPattern[level]}")
+
+        return nMissing
 
     # @property
     # def isCompleteL2match(self):

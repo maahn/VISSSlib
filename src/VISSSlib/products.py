@@ -226,8 +226,8 @@ class DataProduct(object):
                 elif os.path.isfile(f"{outFile}.broken.txt"):
                     log.info(f"{self.relatives} skip broken {outFile}.broken.txt")
                     continue
-                elif os.path.isfile(f"{outFile}.nodata.txt"):
-                    log.info(f"{self.relatives} skip nodata {outFile}.nodata.txt")
+                elif os.path.isfile(f"{outFile}.nodata"):
+                    log.info(f"{self.relatives} skip nodata {outFile}.nodata")
                     continue
             command = f"{bin} -m VISSSlib {call}  {fname} {self.settings}"
             if nCPU is not None:
@@ -258,8 +258,8 @@ class DataProduct(object):
             elif os.path.isfile(f"{outFile}.broken.txt"):
                 log.info(f"{self.relatives} skip broken {outFile}.broken.txt")
                 return []
-            elif os.path.isfile(f"{outFile}.nodata.txt"):
-                log.info(f"{self.relatives} skip nodata {outFile}.nodata.txt")
+            elif os.path.isfile(f"{outFile}.nodata"):
+                log.info(f"{self.relatives} skip nodata {outFile}.nodata")
                 return []
 
         command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
@@ -278,10 +278,10 @@ class DataProduct(object):
             return
 
         if checkForDuplicates:
-            running = [t.args for t in self.tq.tasks()]
+            running = [t.args[0] for t in self.tq.tasks()]
             commands = []
             for command in self.commands:
-                if [command] in running:
+                if command[0][0] in running:
                     continue
                 else:
                     commands.append(command)
@@ -432,10 +432,10 @@ class DataProductRange(object):
             return
 
         if checkForDuplicates:
-            running = [t.args for t in self.tq.tasks()]
+            running = [t.args[0][0] for t in self.tq.tasks()]
             commands = []
             for command in self.allCommands:
-                if [command] in running:
+                if command[0] in running:
                     continue
                 else:
                     commands.append(command)

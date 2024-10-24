@@ -57,7 +57,7 @@ DEFAULT_SETTINGS = {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
     "matchData": True,
-    "processL2detect": False,
+    "processL2detect": True,
 }
 
 
@@ -363,26 +363,20 @@ def open_mflevel1match(fnamesExt, config, datVars="all"):
 def identifyBlowingSnowData(fnames, config, timeIndex1, sublevel):
     # handle blowing snow, estimate ratio of skipped frames
 
-    blowingSnowRatio = {}
-    for cam in ["leader", "follower"]:
-        # print("starting identifyBlowingSnowData", cam)
-        movingObjects = []
-        for fna in fnames[cam]:
-            movingObjects.append(xr.open_dataset(fna).movingObjects)
-        movingObjects = xr.concat(movingObjects, dim="capture_time")
-        # movingObjects = xr.open_mfdataset(fnames[cam],  combine='nested', preprocess=preprocess).movingObjects.load()
-        movingObjects = movingObjects.sortby("capture_time")
-        tooManyMove = movingObjects > config[f"level1{sublevel}"].maxMovingObjects
-        tooManyMove = tooManyMove.groupby_bins(
-            "capture_time", timeIndex1, labels=timeIndex1[:-1]
-        )
-        blowingSnowRatio[cam] = tooManyMove.sum() / tooManyMove.count()  # now a ratio
-        # nan means nothing recorded, so no blowing snow either
-        blowingSnowRatio[cam] = blowingSnowRatio[cam].fillna(0)
-    blowingSnowRatio = xr.concat(
-        (blowingSnowRatio["leader"], blowingSnowRatio["follower"]), dim="camera"
+    # print("starting identifyBlowingSnowData", cam)
+    movingObjects = []
+    for fna in fnames:
+        movingObjects.append(xr.open_dataset(fna).movingObjects)
+    movingObjects = xr.concat(movingObjects, dim="capture_time")
+    # movingObjects = xr.open_mfdataset(fnames,  combine='nested', preprocess=preprocess).movingObjects.load()
+    movingObjects = movingObjects.sortby("capture_time")
+    tooManyMove = movingObjects > config[f"level1{sublevel}"].maxMovingObjects
+    tooManyMove = tooManyMove.groupby_bins(
+        "capture_time", timeIndex1, labels=timeIndex1[:-1]
     )
-    blowingSnowRatio["camera"] = ["leader", "follower"]
+    blowingSnowRatio = tooManyMove.sum() / tooManyMove.count()  # now a ratio
+    # nan means nothing recorded, so no blowing snow either
+    blowingSnowRatio = blowingSnowRatio[cam].fillna(0)
     blowingSnowRatio = blowingSnowRatio.rename(capture_time_bins="time")
 
     # print("done identifyBlowingSnowData")
@@ -1070,8 +1064,9 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
 
 class TaskQueuePatched(taskqueue.TaskQueue):
     def is_empty_wait(self):
+        waitTime = 30
         # first delay everything if there are no jobs
-        for i in range(2):
+        for i in range(4):
             if not self.is_empty():
                 break
             print(f"waiting for jobs... {i}", flush=True)

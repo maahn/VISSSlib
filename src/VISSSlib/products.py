@@ -1,5 +1,7 @@
 import logging
 import os
+import random
+import string
 import sys
 from functools import partial
 
@@ -44,13 +46,15 @@ class DataProduct(object):
             raise ValueError(f"do not understand camera: {camera}")
         self.camera = camera
         self.case = case
-        self.fileQueue = fileQueue
+
+        if fileQueue is None:
+            fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
 
         if type(fileQueue) is str:
             self.fileQueue = fileQueue
             self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
         else:
-            self.tq = self.fileQueue
+            self.tq = fileQueue
             self.fileQueue = self.tq.path.path
 
         self.commands = []
@@ -74,21 +78,27 @@ class DataProduct(object):
                 f"{camera}_metaEvents",
             ]
         elif level == "metaRotation":
+            assert camera == "leader"
             self.parentNames = [
                 f"leader_level1detect",
                 f"follower_level1detect",
             ]
         elif level == "level1match":
+            assert camera == "leader"
             self.parentNames = [f"{camera}_metaRotation"]
         elif level == "level1track":
+            assert camera == "leader"
             self.parentNames = [f"{camera}_level1match"]
         elif level == "level2detect":
             self.parentNames = [f"{camera}_level1detect"]
         elif level == "level2match":
+            assert camera == "leader"
             self.parentNames = [f"{camera}_level1match"]
         elif level == "level2track":
+            assert camera == "leader"
             self.parentNames = [f"{camera}_level1track"]
         elif level == "allDone":
+            assert camera == "leader"
             self.parentNames = [f"leader_level2track", f"leader_level2match"]
         else:
             raise ValueError(f"Do not understand {level}")
@@ -268,7 +278,11 @@ class DataProduct(object):
         return [(command, outFile)]
 
     def submitCommands(
-        self, skipExisting=True, checkForDuplicates=False, withParents=True
+        self,
+        skipExisting=True,
+        checkForDuplicates=False,
+        withParents=True,
+        runWorkers=False,
     ):
         if len(self.commands) == 0:
             self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
@@ -293,6 +307,10 @@ class DataProduct(object):
 
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
+
+        if runWorkers:
+            tools.workers(self.fileQueue)
+
         return
 
     def deleteQueue(self):
@@ -321,17 +339,17 @@ class DataProduct(object):
         return self.isComplete and self.parentsComplete
 
     @property
-    def nFiles():
+    def nFiles(self):
         return len(self.fn.listFilesExt(self.level))
 
-    def listFilesExt():
+    def listFilesExt(self):
         return self.fn.listFilesExt(self.level)
 
-    def listFiles():
+    def listFiles(self):
         return self.fn.listFiles(self.level)
 
 
-class level2track(DataProduct):
+class allDone(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
         super().__init__("allDone", case, settings, fileQueue, camera)
 
@@ -402,8 +420,17 @@ class DataProductRange(object):
         self.dailies = {}
         self.level = level
         self.camera = camera
-        self.fileQueue = fileQueue
-        self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
+
+        if fileQueue is None:
+            fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
+
+        if type(fileQueue) is str:
+            self.fileQueue = fileQueue
+            self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
+        else:
+            self.tq = fileQueue
+            self.fileQueue = self.tq.path.path
+
         for dd in self.days:
             case = tools.timestamp2case(dd)
             self.dailies[dd] = DataProduct(
@@ -424,7 +451,11 @@ class DataProductRange(object):
         return self.allCommands
 
     def submitCommands(
-        self, skipExisting=True, checkForDuplicates=False, withParents=True
+        self,
+        skipExisting=True,
+        checkForDuplicates=False,
+        withParents=True,
+        runWorkers=False,
     ):
         self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
         if len(self.allCommands) == 0:
@@ -449,6 +480,10 @@ class DataProductRange(object):
         # region is SQS specific, green means cooperative threading
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
+
+        if runWorkers:
+            tools.workers(self.fileQueue)
+
         return
 
     def deleteQueue(self):
@@ -466,11 +501,17 @@ def submitAll(
     submitJobs=True,
     skipExisting=True,
     checkForDuplicates=True,
+    runWorkers=False,
 ):
     if submitJobs:
+        tq = taskqueue.TaskQueue(f"fq://{fileQueue}")
+        log.warning(f"{tq.enqueued} tasks in Queue")
+
         prod = DataProductRange("allDone", nDays, settings, fileQueue, "leader")
         prod.submitCommands(
-            checkForDuplicates=checkForDuplicates, skipExisting=skipExisting
+            checkForDuplicates=checkForDuplicates,
+            skipExisting=skipExisting,
+            runWorkers=runWorkers,
         )
 
         if withLevel2detect:
@@ -481,6 +522,7 @@ def submitAll(
                 checkForDuplicates=checkForDuplicates,
                 withParents=False,
                 skipExisting=skipExisting,
+                runWorkers=runWorkers,
             )
             prod1 = DataProductRange(
                 "level2detect", nDays, settings, fileQueue, "follower"
@@ -489,6 +531,7 @@ def submitAll(
                 checkForDuplicates=checkForDuplicates,
                 withParents=False,
                 skipExisting=skipExisting,
+                runWorkers=runWorkers,
             )
     else:
         prod = None

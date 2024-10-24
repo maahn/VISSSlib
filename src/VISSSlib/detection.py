@@ -631,6 +631,7 @@ class detectedParticles(object):
         for key in [
             "Dmax",
             "area",
+            "areaConsideringHoles",
             "position_fit",
             "position_upperLeft",
             "Droi",
@@ -639,6 +640,7 @@ class detectedParticles(object):
             "angle",
             "perimeter",
             "perimeterEroded",
+            "perimeterConsideringHoles",
             "pixMin",
             "pixMax",
             "pixMean",
@@ -1399,6 +1401,18 @@ def detectParticles(
         else:
             log.warning("metaFrames data not found: " + fn.fname.metaFrames)
         return 0
+
+    # in every movie file there must be at least one frame
+    # otherwise discard data
+    nFramesPerThread = np.unique(metaData.nThread.values, return_counts=True)[1]
+    if np.any(nFramesPerThread <= 1):
+        with tools.open2("%s.nodata" % fn.fname.level1detect, "w") as f:
+            f.write("no data in %s" % fn.fname.metaFrames)
+        log.warning(
+            "metaFrames contains not enough frames " + str(list(nFramesPerThread))
+        )
+        return 0
+
     # if metaData is None:
     #     log.error('ERROR Unable to get meta data: ' + fname)
     #     raise RuntimeError('ERROR Unable to get meta data: ' + fname)

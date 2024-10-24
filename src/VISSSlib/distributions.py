@@ -103,6 +103,7 @@ def createLevel2detect(
     applyFilters=[],
     camera="leader",
     doPlot=True,
+    doParticlePlot=True,
 ):
     out = createLevel2(
         case,
@@ -124,6 +125,10 @@ def createLevel2detect(
         quicklooks.createLevel2detectQuicklook(
             case, config, camera, skipExisting=skipExisting
         )
+    if doParticlePlot:
+        quicklooks.createLevel1detectQuicklook(
+            case, camera, config, skipExisting=skipExisting
+        )
 
     return out
 
@@ -142,6 +147,7 @@ def createLevel2match(
     writeNc=True,
     applyFilters=[],
     doPlot=True,
+    doParticlePlot=True,
 ):
     out = createLevel2(
         case,
@@ -160,6 +166,10 @@ def createLevel2match(
     )
     if doPlot:
         quicklooks.createLevel2matchQuicklook(case, config, skipExisting=skipExisting)
+    if doParticlePlot:
+        quicklooks.createLevel1matchParticlesQuicklook(
+            case, config, skipExisting=skipExisting
+        )
 
     return out
 
@@ -773,7 +783,95 @@ def createLevel2part(
                 ]
                 + 2000 * [110.0]
             )  # by using 2000 we make sure even huge particles are treated and do not raise an error
-        if config.visssGen == "visss3":
+
+        elif config.visssGen == "visss2":
+            # coefficients developed from early 2023 in NYA cases with low wind speed
+            # "20230213", "20230223", "20230409", "20230429",
+
+            blurThresh = np.array(
+                [
+                    np.nan,
+                    323.0,
+                    450.0,
+                    282.0,
+                    330.0,
+                    351.0,
+                    378.0,
+                    363.0,
+                    370.0,
+                    352.0,
+                    339.0,
+                    322.0,
+                    305.0,
+                    291.0,
+                    275.0,
+                    259.0,
+                    252.0,
+                    234.0,
+                    225.0,
+                    214.0,
+                    206.0,
+                    196.0,
+                    188.0,
+                    181.0,
+                    173.0,
+                    167.0,
+                    159.0,
+                    154.0,
+                    149.0,
+                    142.0,
+                    137.0,
+                    133.0,
+                    130.0,
+                    124.0,
+                    120.0,
+                    117.0,
+                    114.0,
+                    111.0,
+                    107.0,
+                    105.0,
+                    102.0,
+                    99.0,
+                    97.0,
+                    95.0,
+                    93.0,
+                    91.0,
+                    89.0,
+                    88.0,
+                    85.0,
+                    83.0,
+                    82.0,
+                    81.0,
+                    79.0,
+                    78.0,
+                    77.0,
+                    76.0,
+                    75.0,
+                    74.0,
+                    73.0,
+                    72.0,
+                    72.0,
+                    70.0,
+                    69.0,
+                    69.0,
+                    68.0,
+                    67.0,
+                    66.0,
+                    66.0,
+                    66.0,
+                    64.0,
+                    64.0,
+                    63.0,
+                    63.0,
+                    62.0,
+                    62.0,
+                    61.0,
+                    60.0,
+                ]
+                + 2000 * [60.0]
+            )
+
+        elif config.visssGen == "visss3":
             # coefficients developed from winer 2023/24 in Hyytiälä
             blurThresh = np.array(
                 [
@@ -907,7 +1005,7 @@ def createLevel2part(
             )
 
         else:
-            raise ValueError("VISSS Generation {config.visssGen} not supported")
+            raise ValueError(f"VISSS Generation {config.visssGen} not supported")
         # this works liek a lookup table. We use the Dmax rounded to next
         # integer as an index for blurThresh
         appliedblurThresh = blurThresh[np.around(level1dat.Dmax.values).astype(int)]

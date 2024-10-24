@@ -89,7 +89,17 @@ class DataProduct(object):
         elif level == "level2track":
             self.parentNames = [f"{camera}_level1track"]
         elif level == "allDone":
-            self.parentNames = [f"leader_level2track", f"leader_level2match"]
+            self.parentNames = []
+            if self.config.matchData:
+                self.parentNames += [
+                    "leader_level2track",
+                    "leader_level2match",
+                ]
+            if self.config.processL2detect:
+                self.parentNames += [
+                    "leader_level2detect",
+                    "follower_level2detect",
+                ]
         else:
             raise ValueError(f"Do not understand {level}")
 
@@ -111,8 +121,9 @@ class DataProduct(object):
             self.parents.update(self.parents[parentCam].parents)
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
-        if skipExisting and self.allComplete:
-            log.info(f"{self.relatives} skip all existing")
+        if skipExisting and self.isComplete:
+            if withParents:
+                log.warning(f"{self.case} {self.relatives}: everything processed")
             return []
         if self.parentsComplete:
             commands = self.generateCommands(skipExisting=skipExisting)
@@ -174,7 +185,7 @@ class DataProduct(object):
                 originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
         elif self.level == "level1track":
-            originLevel = "level1detect"
+            originLevel = "level1match"
             call = "tracking.trackParticles"
             return self.commandTemplateL1(
                 originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
@@ -202,7 +213,7 @@ class DataProduct(object):
             )
         elif self.level == "allDone":
             outFile = self.fn.fnamesDaily["allDone"]
-            command = f"touch {outFile}"
+            command = f"mkdir -p {os.path.dirname(outFile)} && touch {outFile}"
             return [(command, outFile)]
         else:
             raise ValueError(f"Do not understand {level}")
@@ -213,7 +224,7 @@ class DataProduct(object):
         if bin is None:
             bin = os.path.join(sys.exec_prefix, "bin", "python")
         commands = []
-        for fname in self.fn.listFiles(originLevel):
+        for fname in self.fn.listFilesExt(originLevel):
             if originLevel.startswith("level0"):
                 f1 = files.Filenames(fname, self.config)
             else:
@@ -226,8 +237,8 @@ class DataProduct(object):
                 elif os.path.isfile(f"{outFile}.broken.txt"):
                     log.info(f"{self.relatives} skip broken {outFile}.broken.txt")
                     continue
-                elif os.path.isfile(f"{outFile}.nodata.txt"):
-                    log.info(f"{self.relatives} skip nodata {outFile}.nodata.txt")
+                elif os.path.isfile(f"{outFile}.nodata"):
+                    log.info(f"{self.relatives} skip nodata {outFile}.nodata")
                     continue
             command = f"{bin} -m VISSSlib {call}  {fname} {self.settings}"
             if nCPU is not None:
@@ -244,6 +255,7 @@ class DataProduct(object):
             call.endswith("detect")
             or call.endswith("MetaFrames")
             or call.endswith("createEvent")
+            or call.endswith("createLevel1detectQuicklook")
         ):
             case = f"{self.camera}+{self.case}"
         else:
@@ -258,8 +270,8 @@ class DataProduct(object):
             elif os.path.isfile(f"{outFile}.broken.txt"):
                 log.info(f"{self.relatives} skip broken {outFile}.broken.txt")
                 return []
-            elif os.path.isfile(f"{outFile}.nodata.txt"):
-                log.info(f"{self.relatives} skip nodata {outFile}.nodata.txt")
+            elif os.path.isfile(f"{outFile}.nodata"):
+                log.info(f"{self.relatives} skip nodata {outFile}.nodata")
                 return []
 
         command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
@@ -273,7 +285,7 @@ class DataProduct(object):
         if len(self.commands) == 0:
             self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
 
-        if len(self.allCommands) == 0:
+        if len(self.commands) == 0:
             log.error("nothing to submit")
             return
 
@@ -321,17 +333,17 @@ class DataProduct(object):
         return self.isComplete and self.parentsComplete
 
     @property
-    def nFiles():
+    def nFiles(self):
         return len(self.fn.listFilesExt(self.level))
 
-    def listFilesExt():
+    def listFilesExt(self):
         return self.fn.listFilesExt(self.level)
 
-    def listFiles():
+    def listFiles(self):
         return self.fn.listFiles(self.level)
 
 
-class level2track(DataProduct):
+class allDone(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
         super().__init__("allDone", case, settings, fileQueue, camera)
 

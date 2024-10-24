@@ -1573,7 +1573,7 @@ def addVariables(
 
     # quality variables
     recordingFailed, processingFailed, blockedPixels, blowingSnowRatio = getDataQuality(
-        case, config, timeIndex, timeIndex1, sublevel
+        case, config, timeIndex, timeIndex1, sublevel, camera=camera
     )
     assert np.all(blockedPixels.time == calibDat.time)
 
@@ -1996,50 +1996,41 @@ def applyCalib(pixel, slope, intercept):
     return m
 
 
-def getDataQuality(case, config, timeIndex, timeIndex1, sublevel):
+def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     """Estimate data quality for level2"""
 
-    fL = files.FindFiles(case, config.leader, config)
-    fF = files.FindFiles(case, config.follower, config)
+    f1 = files.FindFiles(case, config[camera], config)
 
-    fnameL = fL.listFilesWithNeighbors("metaEvents")
-    fnameF = fF.listFilesWithNeighbors("metaEvents")
+    fname1 = f1.listFilesWithNeighbors("metaEvents")
 
-    eventL = xr.open_mfdataset(fnameL).load()
-    eventF = xr.open_mfdataset(fnameF).load()
+    event1 = xr.open_mfdataset(fname1).load()
 
-    matchFilesAll = fL.listFilesExt(f"level1{sublevel}")
-    matchFilesBroken = [f for f in matchFilesAll if f.endswith("broken.txt")]
-    brokenTimes = [
-        files.FilenamesFromLevel(f, config).datetime64 for f in matchFilesBroken
-    ]
-    matchFilesBroken = xr.DataArray(
-        matchFilesBroken, dims=["file_starttime"], coords=[brokenTimes]
-    )
+    if camera == "leader":
+        matchFilesAll = f1.listFilesExt(f"level1{sublevel}")
+        matchFilesBroken = [f for f in matchFilesAll if f.endswith("broken.txt")]
+        brokenTimes = [
+            files.FilenamesFrom1evel(f, config).datetime64 for f in matchFilesBroken
+        ]
+        matchFilesBroken = xr.DataArray(
+            matchFilesBroken, dims=["file_starttime"], coords=[brokenTimes]
+        )
+    else:
+        matchFilesBroken = xr.DataArray([], dims=["file_starttime"], coords=[])
 
     graceTime = 2  # s
     newfilesF = eventF.isel(file_starttime=(eventF.event == "newfile"))
-    newfilesL = eventL.isel(file_starttime=(eventL.event == "newfile"))
 
-    dataRecordedL = []
-    dataRecordedF = []
+    dataRecorded = []
     processingFailed = []
     for tt, tI1min in enumerate(timeIndex):
-        tDiffF = (
-            np.datetime64(tI1min) - newfilesF.file_starttime
+        tDiff1 = (
+            np.datetime64(tI1min) - newfiles1.file_starttime
         ).values / np.timedelta64(1, "s")
-        tDiffL = (
-            np.datetime64(tI1min) - newfilesL.file_starttime
-        ).values / np.timedelta64(1, "s")
-        dataRecordedF1 = np.any(
-            tDiffF[tDiffF >= -graceTime] < (config.newFileInt - graceTime)
+        dataRecorded1 = np.any(
+            tDiff1[tDiff1 >= -graceTime] < (config.newFileInt - graceTime)
         )
-        dataRecordedL1 = np.any(
-            tDiffL[tDiffL >= -graceTime] < (config.newFileInt - graceTime)
-        )
-        #     print(tI1min, dataRecordedF, dataRecordedL)
-        dataRecordedL.append(dataRecordedL1)
-        dataRecordedF.append(dataRecordedF1)
+        #     print(tI1min, dataRecordedF, dataRecorded)
+        dataRecorded.append(dataRecorded1)
 
         if len(matchFilesBroken) > 0:
             tDiffBroken = (
@@ -2052,41 +2043,54 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel):
         else:
             processingFailed.append(False)
 
-    recordingFailed = ~xr.DataArray(
-        np.stack([dataRecordedL, dataRecordedF], axis=1),
-        dims=["time", "camera"],
-        coords=[timeIndex, ["leader", "follower"]],
-    )
+    recordingFailed1 = ~dataRecorded
     processingFailed = xr.DataArray(processingFailed, dims=["time"], coords=[timeIndex])
 
-    blockedPixelsF = eventF.blocking.sel(blockingThreshold=50, drop=True)
-    blockedPixelsL = eventL.blocking.sel(blockingThreshold=50, drop=True)
+    blowingSnowRatio1 = tools.identifyBlowingSnowData(
+        f1.listFilesWithNeighbors("metaDetection"), config, timeIndex1, sublevel
+    )
 
-    blockedPixelsF = blockedPixelsF.reindex(
+    blockedPixels1 = eventL.blocking.sel(blockingThreshold=50, drop=True)
+    blockedPixels1 = blockedPixels1.reindex(
         file_starttime=timeIndex,
         method="nearest",
         tolerance=np.timedelta64(int(config.newFileInt / 1.9), "s"),
     )
-    blockedPixelsL = blockedPixelsL.reindex(
-        file_starttime=timeIndex,
-        method="nearest",
-        tolerance=np.timedelta64(int(config.newFileInt / 1.9), "s"),
-    )
+    blockedPixels1 = blockedPixels1.rename(file_starttime="time")
 
-    blockedPixelsL = blockedPixelsL.rename(file_starttime="time")
-    blockedPixelsF = blockedPixelsF.rename(file_starttime="time")
-    blockedPixels = xr.concat((blockedPixelsL, blockedPixelsF), dim="camera")
-    blockedPixels["camera"] = ["leader", "follower"]
+    return recordingFailed1, processingFailed, blockedPixels1, blowingSnowRatio1
 
-    fnames = {}
-    fnames["leader"] = fL.listFilesWithNeighbors("metaDetection")
-    fnames["follower"] = fF.listFilesWithNeighbors("metaDetection")
-    blowingSnowRatio = tools.identifyBlowingSnowData(
-        fnames, config, timeIndex1, sublevel
-    )
-    blowingSnowRatio = blowingSnowRatio
 
-    return recordingFailed, processingFailed, blockedPixels, blowingSnowRatio
+def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
+    if sublevel in ["match", "track"]:
+        (
+            recordingFailedL,
+            processingFailed,
+            blockedPixelsL,
+            blowingSnowRatioL,
+        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
+        recordingFailedF, _, blockedPixelsF, blowingSnowRatioF = getDataQuality1(
+            case, config, timeIndex, timeIndex1, sublevel, "follower"
+        )
+
+        recordingFailed = ~xr.DataArray(
+            np.stack([dataRecordedL, dataRecordedF], axis=1),
+            dims=["time", "camera"],
+            coords=[timeIndex, ["leader", "follower"]],
+        )
+
+        blockedPixels = xr.concat((blockedPixelsL, blockedPixelsF), dim="camera")
+        blockedPixels["camera"] = ["leader", "follower"]
+
+        blowingSnowRatio = xr.concat(
+            (blowingSnowRatioL, blowingSnowRatioF), dim="camera"
+        )
+        blowingSnowRatio["camera"] = ["leader", "follower"]
+
+        return recordingFailed, processingFailed, blockedPixels, blowingSnowRatio
+
+    else:
+        return getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera)
 
 
 def _createBox(p1, p2, p3, p4, p5, p6, p7, p8):

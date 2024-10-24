@@ -95,7 +95,7 @@ def loopMetaFramesQuicklooks(settings, version=__version__, skipExisting=True, n
 
 
 def loopMetaRotationQuicklooks(
-    settings, version=__version__, skipExisting=True, nDays=0
+    settings, version=__version__, skipExisting=True, nDays=0, doYearly=True
 ):
     """
     loop through days to create metaRotation quicklooks
@@ -137,10 +137,11 @@ def loopMetaRotationQuicklooks(
         except AttributeError:
             pass
 
-    for year in set(years):
-        fOut, fig = quicklooks.metaRotationYearlyQuicklook(
-            year, config, version=version, skipExisting=skipExisting
-        )
+    if doYearly:
+        for year in set(years):
+            fOut, fig = quicklooks.metaRotationYearlyQuicklook(
+                year, config, version=version, skipExisting=skipExisting
+            )
 
 
 def loopLevel1detectQuicklooks(

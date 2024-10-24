@@ -17,7 +17,7 @@ from addict import Dict
 log = logging.getLogger(__name__)
 
 from . import __version__, metadata
-from .tools import nicerNames, otherCamera
+from .tools import DictNoDefault, nicerNames, otherCamera
 
 dailyLevels = [
     "metaEvents",
@@ -63,14 +63,17 @@ class FindFiles(object):
             self.case = pn.to_datetime(case).strftime("%Y%m%d-%H%M%S")
         else:
             self.case = case
-        self.camera = camera
+        if camera in ["leader", "follower"]:
+            self.camera = config[camera]
+        else:
+            self.camera = camera
         self.config = config
         self.version = version
 
         computerDict = {}
         for computer1, camera1 in zip(config["computers"], config["instruments"]):
             computerDict[camera1] = computer1
-        self.computer = computerDict[camera]
+        self.computer = computerDict[self.camera]
 
         self.year = self.case[:4]
         self.month = self.case[4:6]
@@ -102,7 +105,7 @@ class FindFiles(object):
         outpath = "%s/%s/%s/%s" % (config["pathOut"], self.year, self.month, self.day)
         outpathDaily = "%s/%s" % (config["pathOut"], self.year)
 
-        self.outpath = Dict({})
+        self.outpath = DictNoDefault({})
         for dL in fileLevels + hourlyLevels:
             self.outpath[dL] = outpath.format(
                 site=config.site, level=dL, version=self.version
@@ -113,19 +116,19 @@ class FindFiles(object):
             )
         self.outpath["level0"] = (
             config["path"].format(site=config["site"], level="level0")
-            + f'/{self.computer}_{config["visssGen"]}_{camera}/{self.year}/{self.month}/{self.day}'
+            + f'/{self.computer}_{config["visssGen"]}_{self.camera}/{self.year}/{self.month}/{self.day}'
         )
 
         # for iL in imageLevels:
         #     self.outpath[iL] = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
 
-        self.fnamesPattern = Dict({})
+        self.fnamesPattern = DictNoDefault({})
         for dL in fileLevels:
             self.fnamesPattern[dL] = "%s/%s_V%s*%s*%s*.nc" % (
                 self.outpath[dL],
                 dL,
                 version,
-                camera,
+                self.camera,
                 self.case,
             )
         # overwrite for level0
@@ -161,13 +164,13 @@ class FindFiles(object):
                 self.case,
                 "jpg",
             )
-        self.fnamesPattern.level0status = f"{self.outpath['level0']}/*_{config['visssGen']}_{camera}_{self.case}_status.txt"
+        self.fnamesPattern.level0status = f"{self.outpath['level0']}/*_{config['visssGen']}_{self.camera}_{self.case}_status.txt"
         for dL in dailyLevels:
             self.fnamesPattern[dL] = "%s/%s_V%s_*%s*%s%s%s.nc" % (
                 self.outpath[dL],
                 dL,
                 version,
-                camera,
+                self.camera,
                 self.year,
                 self.month,
                 self.day,
@@ -177,7 +180,7 @@ class FindFiles(object):
                 self.outpath[dL],
                 dL,
                 version,
-                camera,
+                self.camera,
                 self.year,
                 self.month,
                 self.day,
@@ -188,20 +191,20 @@ class FindFiles(object):
             "imagesL1detect"
         ].replace(".nc", ".zip")
 
-        self.fnamesPatternExt = Dict({})
+        self.fnamesPatternExt = DictNoDefault({})
         for dL in fileLevels + dailyLevels + hourlyLevels:
             self.fnamesPatternExt[dL] = "%s/%s_V%s_*%s*%s*nc.[b,n]*" % (
                 self.outpath[dL],
                 dL,
                 version,
-                camera,
+                self.camera,
                 self.case,
             )  # finds broken & nodata
         self.fnamesPatternExt.level0txt = ""
         self.fnamesPatternExt.level0jpg = ""
         self.fnamesPatternExt.level0 = ""
 
-        self.fnamesDaily = Dict({})
+        self.fnamesDaily = DictNoDefault({})
         for dL in dailyLevels:
             self.fnamesDaily[dL] = "%s/%s_V%s_%s_%s_%s_%s_%s%s%s.nc" % (
                 self.outpath[dL],
@@ -210,13 +213,13 @@ class FindFiles(object):
                 config.site,
                 self.computer,
                 config["visssGen"],
-                camera,
+                self.camera,
                 self.year,
                 self.month,
                 self.day,
             )
 
-        self.fnamesHourly = Dict({})
+        self.fnamesHourly = DictNoDefault({})
         for dL in hourlyLevels:
             self.fnamesHourly[dL] = "%s/%s_V%s_%s_%s_%s_%s_%s%s%s-%s%s.nc" % (
                 self.outpath[dL],
@@ -225,7 +228,7 @@ class FindFiles(object):
                 config.site,
                 self.computer,
                 config["visssGen"],
-                camera,
+                self.camera,
                 self.year,
                 self.month,
                 self.day,
@@ -233,9 +236,9 @@ class FindFiles(object):
                 self.minute,
             )
 
-        self.quicklook = Dict({})
-        self.quicklookCurrent = Dict({})
-        self.quicklookPath = Dict({})
+        self.quicklook = DictNoDefault({})
+        self.quicklookCurrent = DictNoDefault({})
+        self.quicklookPath = DictNoDefault({})
         for qL in quicklookLevelsSep + quicklookLevelsComb:
             self.quicklookPath[
                 qL
@@ -245,14 +248,14 @@ class FindFiles(object):
             if self.hour == "":
                 self.quicklook[
                     qL
-                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(camera).split('_')[0]}_{self.year}{self.month}{self.day}.png"
+                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_{self.year}{self.month}{self.day}.png"
             else:
                 self.quicklook[
                     qL
-                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(camera).split('_')[0]}_{self.year}{self.month}{self.day}T{self.hour}.png"
+                ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_{self.year}{self.month}{self.day}T{self.hour}.png"
             self.quicklookCurrent[
                 qL
-            ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(camera).split('_')[0]}_current.png"
+            ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_current.png"
         for qL in quicklookLevelsComb:
             if self.hour == "":
                 self.quicklook[
@@ -519,7 +522,7 @@ class Filenames(object):
         )
 
         # self.outpathImg = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
-        # self.imagepath = Dict({})
+        # self.imagepath = DictNoDefault({})
         # for iL in imageLevels:
         #     self.imagepath[iL] = "%s/%s/{ppid}"%(self.outpathImg.format(site=config["site"], level=iL),self.fname.level1detect.split("/")[-1])
 
@@ -529,7 +532,7 @@ class Filenames(object):
             self.month,
             self.day,
         )
-        self.quicklookPath = Dict({})
+        self.quicklookPath = DictNoDefault({})
         for qL in quicklookLevelsSep + quicklookLevelsComb:
             self.quicklookPath[qL] = outpathQuicklooks.format(
                 version=version, site=config["site"], level=qL

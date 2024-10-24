@@ -953,11 +953,14 @@ def trackParticles(
     if os.path.isfile(fnameLv1Match):
         lv1match = xr.open_dataset(fnameLv1Match)
         lv1match.load()  # important to do that early, is much slower after applying filters with isel
-    elif os.path.isfile("%s.nodata" % fnameLv1Match) or os.path.isfile(
-        "%s.broken.txt" % fnameLv1Match
-    ):
+    elif os.path.isfile("%s.nodata" % fnameLv1Match):
         with tools.open2(f"{fnameTracking}.nodata", "w") as f:
-            f.write("no data, lv1match nodata or broken")
+            f.write("no data, lv1match nodata ")
+        log.error(f"NO DATA {fnameTracking}")
+        return None, fnameTracking
+    elif os.path.isfile("%s.broken.txt" % fnameLv1Match):
+        with tools.open2(f"{fnameTracking}.broken.txt", "w") as f:
+            f.write("no data, lv1match  broken")
         log.error(f"NO DATA {fnameTracking}")
         return None, fnameTracking
     elif doMatchIfRequired:

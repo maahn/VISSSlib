@@ -72,17 +72,27 @@ def main():
         )
 
     elif sys.argv[1] == "quicklooks.createLevel1detectQuicklook":
-        case = sys.argv[2]
-        camera = sys.argv[3]
-        settings = sys.argv[4]
-        lv2Version = sys.argv[5]
+        settings = sys.argv[2]
+        camera, case = sys.argv[3].split("+")
         try:
-            skipExisting = bool(int(sys.argv[6]))
+            skipExisting = bool(int(sys.argv[4]))
         except IndexError:
             skipExisting = True
 
         quicklooks.createLevel1detectQuicklook(
-            case, camera, settings, lv2Version, skipExisting=skipExisting
+            case, camera, settings, skipExisting=skipExisting
+        )
+
+    elif sys.argv[1] == "quicklooks.createLevel1matchParticlesQuicklook":
+        settings = sys.argv[2]
+        case = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        quicklooks.createLevel1matchParticlesQuicklook(
+            case, settings, skipExisting=skipExisting
         )
 
     elif sys.argv[1] == "quicklooks.createMetaCoefQuicklook":

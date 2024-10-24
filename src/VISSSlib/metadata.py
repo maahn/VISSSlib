@@ -734,6 +734,7 @@ def getEvents(fnames0, config, fname0status=None):
     bins = [0] + list(range(11, 255, 10))
     bins4xr = list(range(10, 260, 10))
     for fname0Txt in fnames0:
+        assert "txt" in fname0Txt
         fname0Img = fname0Txt.replace("txt", "jpg")
         fname0 = fname0Txt.replace("txt", config["movieExtension"])
 

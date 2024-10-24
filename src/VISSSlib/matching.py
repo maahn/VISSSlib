@@ -982,10 +982,18 @@ def matchParticles(
             log.error(f"did not find{fnameMetaRotation}")
             errors["noMetaRot"] = True
             return fname1Match, None, None, None, None, None, None, errors
-
-        metaRotationDat = metaRotationDat.where(
-            metaRotationDat.camera_Ofz.notnull(), drop=True
-        )
+        try:
+            metaRotationDat = metaRotationDat.where(
+                metaRotationDat.camera_Ofz.notnull(), drop=True
+            )
+        except ValueError as e:
+            log.error(f"all camera_Ofz in {fnameMetaRotation} nan")
+            error = str(e)
+            log.error(error)
+            if not rotationOnly:
+                raise RuntimeError(error)
+            errors["openingData"] = True
+            return fname1Match, np.nan, None, None, None, None, None, errors
 
         config = tools.rotXr2dict(metaRotationDat, config)
 

@@ -1437,19 +1437,19 @@ def createLevel1matchQuicklook(
     cax[7].axis("off")
     cax[8].axis("off")
 
-    fnamesMD = {}
-    fnamesMD["leader"] = fl.listFilesWithNeighbors("metaDetection")
-    fnamesMD["follower"] = ff.listFilesWithNeighbors("metaDetection")
     timeIndex1 = pd.date_range(
         start=case,
         end=fl.datetime64 + np.timedelta64(1, "D"),
         freq=resample,
         inclusive="both",
     )
-    blowingSnow = tools.identifyBlowingSnowData(fnamesMD, config, timeIndex1, "match")
 
-    blowingSnowL = blowingSnow.sel(camera="leader")
-    blowingSnowF = blowingSnow.sel(camera="follower")
+    blowingSnowL = tools.identifyBlowingSnowData(
+        fl.listFilesWithNeighbors("metaDetection"), config, timeIndex1, "match"
+    )
+    blowingSnowF = tools.identifyBlowingSnowData(
+        ff.listFilesWithNeighbors("metaDetection"), config, timeIndex1, "match"
+    )
     blowingSnowL = blowingSnowL.time.where(
         blowingSnowL > 0.01
     ).values  # i.e. 1% of the frames is lost

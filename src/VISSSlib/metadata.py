@@ -177,7 +177,7 @@ def readHeaderData(fname, returnLasttime=False):
         firstLine = f.readline()
         if firstLine == "":
             log.error("%s: metaData empty" % fname)
-            return [record_starttime] + [None] * 10
+            return [record_starttime] + [None] * 13
 
         if firstLine.startswith("# VISSS file format version: 0.2"):
             asciiVersion = 0.2
@@ -216,16 +216,6 @@ def readHeaderData(fname, returnLasttime=False):
         configuration = f.readline().split(":")[1].lstrip().rstrip()
         hostname = f.readline().split(":")[1].lstrip().rstrip()
 
-        _ = f.readline()
-        capture_firsttime = f.readline()
-        capture_firsttime = capture_firsttime.split(",")[0].lstrip().rstrip()
-        try:
-            capture_firsttime = datetime.datetime.utcfromtimestamp(
-                int(capture_firsttime) * 1e-6
-            )
-        except ValueError:
-            capture_firsttime = None
-
         if asciiVersion >= 0.5:
             cameraTemperature = float(f.readline().split(":")[1].lstrip().rstrip())
             transferQueueCurrentBlockCount = int(
@@ -237,6 +227,16 @@ def readHeaderData(fname, returnLasttime=False):
             cameraTemperature = -99.0
             transferQueueCurrentBlockCount = -99
             transferMaxBlockSize = -99.0
+
+        _ = f.readline()
+        capture_firsttime = f.readline()
+        capture_firsttime = capture_firsttime.split(",")[0].lstrip().rstrip()
+        try:
+            capture_firsttime = datetime.datetime.utcfromtimestamp(
+                int(capture_firsttime) * 1e-6
+            )
+        except ValueError:
+            capture_firsttime = None
 
     if returnLasttime:
         lastLines = os.popen("tail -n 2 %s" % fname)
@@ -335,7 +335,9 @@ def _getMetaData1(
     if record_starttime is None:
         return None
 
-    if asciiVersion == 0.2:
+    if asciiVersion == 0.1:
+        asciiNames = ["capture_time", "record_time", "capture_id"]
+    elif asciiVersion == 0.2:
         asciiNames = [
             "capture_time",
             "record_time",
@@ -354,14 +356,12 @@ def _getMetaData1(
             "capture_id",
         ] + list(threshs)
         asciiVersion = "0.3a"
-    elif (asciiVersion == 0.3) or (asciiVersion == 0.4):
+    elif (asciiVersion == 0.3) or (asciiVersion == 0.4) or (asciiVersion == 0.5):
         asciiNames = ["capture_time", "record_time", "capture_id", "queue_size"] + list(
             threshs
         )
-    elif asciiVersion == 0.1:
-        asciiNames = ["capture_time", "record_time", "capture_id"]
     else:
-        raise ValueError
+        raise ValueError(f"unknown asciiVersion {asciiVersion}")
 
     metaDat = pd.read_csv(metaFname, comment="#", names=asciiNames)
 
@@ -607,7 +607,7 @@ def _getMetaData1(
                 threshs, dims=["nMovingPixelThresh"], name="nMovingPixelThresh"
             ),
         ).T
-        if asciiVersion in [0.3, 0.4]:
+        if asciiVersion in [0.3, 0.4, 0.5]:
             # remove threshs columns which are not needed any more due to the concat above
             if includeHeader:
                 metaDat = metaDat[

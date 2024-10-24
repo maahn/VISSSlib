@@ -1711,6 +1711,12 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     if skipExisting and os.path.isfile(fOut):
         if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
             print("file exists but older than event file, redoing", fOut)
+        elif os.path.isfile(ff.listFiles("metaRotation")[0]) and os.path.getmtime(
+            fOut
+        ) < os.path.getmtime(ff.listFiles("metaRotation")[0]):
+            log.info(
+                f"{case} file exists but older than metaRotation file, redoing {fOut}"
+            )
         else:
             print(case, "skip exisiting")
             return None, None
@@ -2006,6 +2012,10 @@ def createLevel2detectQuicklook(
     if skipExisting and os.path.isfile(fOut):
         if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
             log.info(f"{case} file exists but older than event file, redoing {fOut}")
+        elif os.path.isfile(ff.listFiles("level2detect")[0]) and os.path.getmtime(
+            fOut
+        ) < os.path.getmtime(ff.listFiles("level2detect")[0]):
+            log.info(f"{case} file exists but older than lv2 file, redoing {fOut}")
         else:
             log.warning(tools.concat(case, camera, "skip exisiting"))
             return None, None
@@ -2206,6 +2216,10 @@ def createLevel2matchQuicklook(
     if skipExisting and os.path.isfile(fOut):
         if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
             log.info(f"{case} file exists but older than event file, redoing {fOut}")
+        elif os.path.isfile(ff.listFiles("level2match")[0]) and os.path.getmtime(
+            fOut
+        ) < os.path.getmtime(ff.listFiles("level2match")[0]):
+            log.info(f"{case} file exists but older than lv2 file, redoing {fOut}")
         else:
             log.info(tools.concat(case, camera, "skip exisiting"))
             return None, None
@@ -2416,6 +2430,10 @@ def createLevel2trackQuicklook(
     if skipExisting and os.path.isfile(fOut):
         if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
             log.info(f"{case} file exists but older than event file, redoing {fOut}")
+        elif os.path.isfile(ff.listFiles("level2track")[0]) and os.path.getmtime(
+            fOut
+        ) < os.path.getmtime(ff.listFiles("level2track")[0]):
+            log.info(f"{case} file exists but older than lv2 file, redoing {fOut}")
         else:
             log.info(tools.concat(case, camera, "skip exisiting"))
             return None, None
@@ -2658,7 +2676,12 @@ def createLevel1matchParticlesQuicklook(
     minMatchScore=1e-3,
     returnFig=True,
 ):
-    camera = config.leader
+    if type(config) is str:
+        config = tools.readSettings(config)
+    camera = config["leader"]
+
+    # for convinience, do the other L1match quicklook as well
+    createLevel1matchQuicklook(timestamp, config, skipExisting=skipExisting)
 
     if type(config) is str:
         config = tools.readSettings(config)

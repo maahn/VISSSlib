@@ -56,7 +56,7 @@ DEFAULT_SETTINGS = {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
     "matchData": True,
-    "processL2detect": False,
+    "processL2detect": True,
 }
 
 

@@ -317,13 +317,24 @@ class DataProduct(object):
         return self.fn.isComplete(self.level)
 
     @property
+    def dateOfBirth(self):
+        files = self.fn.listFilesExt(self.level)
+        if len(files) > 0:
+            return np.max([os.path.getmtime(f) for f in files])
+        else:
+            return 0
+
+    @property
     def parentsComplete(self):
         parentsComplete = True
-        for parent in self.parents.keys():
-            log.info(
-                f"{self.relatives} {parent} parentsComplete {self.parents[parent].isComplete}",
+        for name, parent in self.parents.items()():
+            thisParentIsComplete = parent.isComplete and (
+                parent.dateOfBirth < self.dateOfBirth
             )
-            parentsComplete = parentsComplete and self.parents[parent].isComplete
+            log.info(
+                f"{self.relatives} {name} parentsComplete {thisParentIsComplete}",
+            )
+            parentsComplete = parentsComplete and thisParentIsComplete
             if not parentsComplete:  # shortcut
                 break
         return parentsComplete

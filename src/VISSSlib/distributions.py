@@ -283,21 +283,18 @@ def createLevel2(
 
     log.info(f"Processing {lv2File}")
 
-    if os.path.isfile(lv2File) and skipExisting:
-        if os.path.getmtime(lv2File) < os.path.getmtime(fL.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", lv2File)
-        else:
-            print("SKIPPING - file exists", lv2File)
-            return None, None
-
-    if os.path.isfile("%s.nodata" % lv2File) and skipExisting:
-        if os.path.getmtime("%s.nodata" % lv2File) < os.path.getmtime(
-            fL.listFiles("metaEvents")[0]
-        ):
-            print("file exists but older than event file, redoing", lv2File)
-        else:
-            print("SKIPPING - nodata file exists", lv2File)
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        lv2File,
+        events=fL.listFiles("metaEvents"),
+        parents=fL.listFiles(f"level1{sublevel}"),
+    ):
+        return None, None
+    if skipExisting and tools.checkForExisting(
+        "%s.nodata" % lv2File,
+        events=fL.listFiles("metaEvents"),
+        parents=fL.listFiles(f"level1{sublevel}"),
+    ):
+        return None, None
 
     #    if len(fL.listFiles("metaFrames")) > len(fL.listFiles("level0")):
     #        print("DATA TRANSFER INCOMPLETE ", lv2File)
@@ -2009,16 +2006,18 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
         matchFilesAll = f1.listFilesExt(f"level1{sublevel}")
         matchFilesBroken = [f for f in matchFilesAll if f.endswith("broken.txt")]
         brokenTimes = [
-            files.FilenamesFrom1evel(f, config).datetime64 for f in matchFilesBroken
+            files.FilenamesFromLevel(f, config).datetime64 for f in matchFilesBroken
         ]
         matchFilesBroken = xr.DataArray(
             matchFilesBroken, dims=["file_starttime"], coords=[brokenTimes]
         )
     else:
-        matchFilesBroken = xr.DataArray([], dims=["file_starttime"], coords=[])
+        matchFilesBroken = xr.DataArray(
+            [], dims=["file_starttime"], coords={"file_starttime": []}
+        )
 
     graceTime = 2  # s
-    newfilesF = eventF.isel(file_starttime=(eventF.event == "newfile"))
+    newfiles1 = event1.isel(file_starttime=(event1.event == "newfile"))
 
     dataRecorded = []
     processingFailed = []
@@ -2043,14 +2042,14 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
         else:
             processingFailed.append(False)
 
-    recordingFailed1 = ~dataRecorded
+    recordingFailed1 = ~np.array(dataRecorded)
     processingFailed = xr.DataArray(processingFailed, dims=["time"], coords=[timeIndex])
 
     blowingSnowRatio1 = tools.identifyBlowingSnowData(
         f1.listFilesWithNeighbors("metaDetection"), config, timeIndex1, sublevel
     )
 
-    blockedPixels1 = eventL.blocking.sel(blockingThreshold=50, drop=True)
+    blockedPixels1 = event1.blocking.sel(blockingThreshold=50, drop=True)
     blockedPixels1 = blockedPixels1.reindex(
         file_starttime=timeIndex,
         method="nearest",
@@ -2073,8 +2072,8 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             case, config, timeIndex, timeIndex1, sublevel, "follower"
         )
 
-        recordingFailed = ~xr.DataArray(
-            np.stack([dataRecordedL, dataRecordedF], axis=1),
+        recordingFailed = xr.DataArray(
+            np.stack([recordingFailedL, recordingFailedF], axis=1),
             dims=["time", "camera"],
             coords=[timeIndex, ["leader", "follower"]],
         )

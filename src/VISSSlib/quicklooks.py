@@ -194,15 +194,14 @@ def createLevel1detectQuicklook(
 
     particlesPloted = 0
 
-    if os.path.isfile(ffOut) and skipExisting:
-        if len(ff.listFiles("level0")) == 0:
-            print("SKIPPING - file exists and no level0 data", ffOut)
-            return None, None
-        if os.path.getmtime(ffOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", ffOut)
-        else:
-            print("SKIPPING - file exists", ffOut)
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        ffOut,
+        level0=ff.listFiles("level0"),
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("level1detect"),
+    ):
+        return None, None
+
     if site != "mosaic":
         if (len(ff.listFiles("level0")) == 0) and (
             len(ff.listFiles("level0status")) == 0
@@ -841,12 +840,11 @@ def level0Quicklook(case, camera, config, version=__version__, skipExisting=True
     fOut = ff.quicklook.level0
     tools.createParentDir(fOut)
 
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", fOut)
-        else:
-            print(case, camera, "skip exisiting")
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+    ):
+        return None, None
 
     print(case, camera, fOut)
 
@@ -903,12 +901,12 @@ def metaFramesQuicklook(
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.metaFrames
 
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", fOut)
-        else:
-            print(case, camera, "skip exisiting")
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("metaFrames"),
+    ):
+        return None, None
 
     if plotCompleteOnly and not ff.isCompleteMetaFrames:
         print(
@@ -1206,20 +1204,13 @@ def createLevel1matchQuicklook(
     # get level 0 file names
     fOut = fl.quicklook.level1match
 
-    if os.path.isfile(fl.quicklook.level1match) and skipExisting:
-        if len(fl.listFiles("level0")) == 0:
-            print("SKIPPING - file exists and no level0 data", fl.quicklook.level1match)
-            return None, None
-        if os.path.getmtime(fl.quicklook.level1match) < os.path.getmtime(
-            fl.listFiles("metaEvents")[0]
-        ):
-            print(
-                "file exists but older than event file, redoing",
-                fl.quicklook.level1match,
-            )
-        else:
-            print("SKIPPING - file exists", fl.quicklook.level1match)
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        level0=fl.listFiles("level0") + ff.listFiles("level0"),
+        events=fl.listFiles("metaEvents") + ff.listFiles("metaEvents"),
+        parents=fl.listFiles("level1match"),
+    ):
+        return None, None
 
     if (len(fl.listFiles("level0")) == 0) and (len(fl.listFiles("level0status")) == 0):
         print("NO DATA YET (TRANSFERRED?)", fl.quicklook.level1match)
@@ -1708,18 +1699,12 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.metaRotation
 
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", fOut)
-        elif os.path.isfile(ff.listFiles("metaRotation")[0]) and os.path.getmtime(
-            fOut
-        ) < os.path.getmtime(ff.listFiles("metaRotation")[0]):
-            log.info(
-                f"{case} file exists but older than metaRotation file, redoing {fOut}"
-            )
-        else:
-            print(case, "skip exisiting")
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+        parents=fl.listFiles("metaRotation"),
+    ):
+        return None, None
 
     fnames1D = {}
     fnames1D["leader"] = ff.listFiles("level1detect")
@@ -2009,16 +1994,13 @@ def createLevel2detectQuicklook(
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level2detect
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            log.info(f"{case} file exists but older than event file, redoing {fOut}")
-        elif os.path.isfile(ff.listFiles("level2detect")[0]) and os.path.getmtime(
-            fOut
-        ) < os.path.getmtime(ff.listFiles("level2detect")[0]):
-            log.info(f"{case} file exists but older than lv2 file, redoing {fOut}")
-        else:
-            log.warning(tools.concat(case, camera, "skip exisiting"))
-            return None, None
+
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("level2detect"),
+    ):
+        return None, None
 
     lv2 = ff.listFiles("level2detect")
     if len(lv2) == 0:
@@ -2213,16 +2195,13 @@ def createLevel2matchQuicklook(
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level2match
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            log.info(f"{case} file exists but older than event file, redoing {fOut}")
-        elif os.path.isfile(ff.listFiles("level2match")[0]) and os.path.getmtime(
-            fOut
-        ) < os.path.getmtime(ff.listFiles("level2match")[0]):
-            log.info(f"{case} file exists but older than lv2 file, redoing {fOut}")
-        else:
-            log.info(tools.concat(case, camera, "skip exisiting"))
-            return None, None
+
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("level2match"),
+    ):
+        return None, None
 
     lv2match = ff.listFiles("level2match")
     if len(lv2match) == 0:
@@ -2427,16 +2406,12 @@ def createLevel2trackQuicklook(
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level2track
-    if skipExisting and os.path.isfile(fOut):
-        if os.path.getmtime(fOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            log.info(f"{case} file exists but older than event file, redoing {fOut}")
-        elif os.path.isfile(ff.listFiles("level2track")[0]) and os.path.getmtime(
-            fOut
-        ) < os.path.getmtime(ff.listFiles("level2track")[0]):
-            log.info(f"{case} file exists but older than lv2 file, redoing {fOut}")
-        else:
-            log.info(tools.concat(case, camera, "skip exisiting"))
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("level2track"),
+    ):
+        return None, None
 
     lv2track = ff.listFiles("level2track")
     if len(lv2track) == 0:
@@ -2700,15 +2675,14 @@ def createLevel1matchParticlesQuicklook(
 
     particlesPloted = 0
 
-    if os.path.isfile(ffOut) and skipExisting:
-        if len(ff.listFiles("level0")) == 0:
-            print("SKIPPING - file exists and no level0 data", ffOut)
-            return None, None
-        if os.path.getmtime(ffOut) < os.path.getmtime(ff.listFiles("metaEvents")[0]):
-            print("file exists but older than event file, redoing", ffOut)
-        else:
-            print("SKIPPING - file exists", ffOut)
-            return None, None
+    if skipExisting and tools.checkForExisting(
+        ffOut,
+        level0=ff.listFiles("level0"),
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("level1match"),
+    ):
+        return None, None
+
     if site != "mosaic":
         if (len(ff.listFiles("level0")) == 0) and (
             len(ff.listFiles("level0status")) == 0

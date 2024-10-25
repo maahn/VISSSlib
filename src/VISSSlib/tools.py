@@ -375,7 +375,7 @@ def identifyBlowingSnowData(fnames, config, timeIndex1, sublevel):
     )
     blowingSnowRatio = tooManyMove.sum() / tooManyMove.count()  # now a ratio
     # nan means nothing recorded, so no blowing snow either
-    blowingSnowRatio = blowingSnowRatio[cam].fillna(0)
+    blowingSnowRatio = blowingSnowRatio.fillna(0)
     blowingSnowRatio = blowingSnowRatio.rename(capture_time_bins="time")
 
     # print("done identifyBlowingSnowData")
@@ -1161,3 +1161,30 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60):
             },
         )
         x.start()
+
+
+def checkForExisting(ffOut, level0=None, events=None, parents=None):
+    if not os.path.isfile(ffOut):
+        return False
+    if level0 is not None:
+        if len(level0) == 0:
+            print("no level0 data", ffOut)
+            return True
+    if events is not None:
+        if np.any(
+            os.path.getmtime(ffOut)
+            < np.array([0] + [os.path.getmtime(f) for f in events])
+        ):
+            print("file exists but older than event file, redoing", ffOut)
+            return False
+    if parents is not None:
+        if np.any(
+            os.path.getmtime(ffOut)
+            < np.array([0] + [os.path.getmtime(f) for f in parents])
+        ):
+            print(
+                "file exists but older than parents files, redoing",
+                ffOut,
+            )
+            return False
+    return True

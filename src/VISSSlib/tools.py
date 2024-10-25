@@ -951,6 +951,20 @@ def to_netcdf2(dat, file, **kwargs):
             res = dat.to_netcdf(tmpFile, **kwargs)
     os.rename(tmpFile, file)
     log.info(f"saved {file}")
+
+    try:
+        os.remove(f"{file}.nodata")
+    except FileNotFoundError:
+        pass
+    else:
+        log.info(f"{file}.nodata removed")
+    try:
+        os.remove(f"{file}.broken.txt")
+    except FileNotFoundError:
+        pass
+    else:
+        log.info(f"{file}.broken.txt removed")
+
     return res
 
 

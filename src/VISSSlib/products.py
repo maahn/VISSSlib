@@ -1,7 +1,8 @@
+import glob
 import logging
 import os
 import sys
-from functools import partial
+from functools import cached_property, partial
 
 import numpy as np
 import pandas as pd
@@ -22,7 +23,7 @@ class DataProduct(object):
         settings,
         fileQueue,
         camera,
-        relatives="",
+        relatives=None,
         addRelatives=True,
         fileObject=None,
     ):
@@ -34,8 +35,10 @@ class DataProduct(object):
         self.level = level
         self.config = tools.readSettings(settings)
         self.settings = settings
-        self.relatives = f"{relatives}.{level}"
-
+        if relatives is not None:
+            self.relatives = f"{relatives}.{level}"
+        else:
+            self.relatives = level
         if camera == "leader":
             self.cameraFull = self.config.leader
         elif camera == "follower":
@@ -77,19 +80,32 @@ class DataProduct(object):
             self.parentNames = [
                 f"leader_level1detect",
                 f"follower_level1detect",
+                f"leader_metaEvents",  # metaEvents are aded to all the L2 products to force regenration when event file is updated (ie more data is transferred)
+                f"follower_metaEvents",
             ]
         elif level == "level1match":
             self.parentNames = [f"{camera}_metaRotation"]
         elif level == "level1track":
             self.parentNames = [f"{camera}_level1match"]
         elif level == "level2detect":
-            self.parentNames = [f"{camera}_level1detect"]
+            self.parentNames = [f"{camera}_level1detect", f"{camera}_metaEvents"]
         elif level == "level2match":
-            self.parentNames = [f"{camera}_level1match"]
+            self.parentNames = [
+                f"{camera}_level1match",
+                f"leader_metaEvents",  # metaEvents are aded to all the L2 products to force regenration when events file is updated (ie more data is transferred)
+                f"follower_metaEvents",
+            ]
         elif level == "level2track":
-            self.parentNames = [f"{camera}_level1track"]
+            self.parentNames = [
+                f"{camera}_level1track",
+                f"leader_metaEvents",
+                f"follower_metaEvents",
+            ]
         elif level == "allDone":
-            self.parentNames = []
+            self.parentNames = [
+                f"leader_metaEvents",
+                f"follower_metaEvents",
+            ]
             if self.config.matchData:
                 self.parentNames += [
                     "leader_level2track",
@@ -121,26 +137,40 @@ class DataProduct(object):
             self.parents.update(self.parents[parentCam].parents)
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
-        if skipExisting and self.isComplete:
+        # cache for this function
+        isComplete = self.isComplete
+
+        if skipExisting and isComplete and self.youngerThanParents:
             if withParents:
                 log.warning(f"{self.case} {self.relatives}: everything processed")
             return []
-        if self.parentsComplete:
+        if isComplete and (not self.youngerThanParents):
+            for name, younger in self._youngerThanParentsDict.items():
+                if not younger:
+                    log.warning(
+                        f"{self.case} {self.relatives} redoing level, parent {name} is younger"
+                    )
+        if self.parentsComplete and self.parentsYoungerThanGrandparents:
             commands = self.generateCommands(skipExisting=skipExisting)
             if len(commands) > 0:
                 log.warning(
                     f"{self.case} {self.relatives} generated commands for level {self.level} {self.camera}"
                 )
+        elif not self.parentsComplete:
+            log.info(
+                f"{self.case} {self.relatives} no commands generated yet, parents not complete yet"
+            )
+            commands = []
         else:
-            log.info(f"{self.case} {self.relatives} Parents not ready yet")
+            log.info(
+                f"{self.case} {self.relatives} no commands generated, grandparents older"
+            )
             commands = []
         if withParents:
             for parent in self.parents.keys():
-                log.info(
-                    f"{self.relatives} generate commands of parent {self.parents[parent].level}",
-                )
+                # parents always with skipExisting = True to avoid chain reaction
                 commands = commands + self.parents[parent].generateAllCommands(
-                    skipExisting=skipExisting, withParents=False
+                    skipExisting=True, withParents=False
                 )
         self.commands = list(set(commands))
         if (len(self.commands) == 0) and (withParents):
@@ -182,7 +212,12 @@ class DataProduct(object):
             originLevel = "level1detect"
             call = "matching.matchParticles"
             return self.commandTemplateL1(
-                originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
+                originLevel,
+                call,
+                skipExisting=skipExisting,
+                nCPU=nCPU,
+                bin=bin,
+                extraOrigin="metaRotation",
             )
         elif self.level == "level1track":
             originLevel = "level1match"
@@ -218,29 +253,42 @@ class DataProduct(object):
         else:
             raise ValueError(f"Do not understand {level}")
 
-    def commandTemplateL1(self, originLevel, call, skipExisting=True, nCPU=1, bin=None):
+    def commandTemplateL1(
+        self, originLevel, call, skipExisting=True, nCPU=1, bin=None, extraOrigin=None
+    ):
         nCPU = 1
         skipExisitingInt = int(skipExisting)
         if bin is None:
             bin = os.path.join(sys.exec_prefix, "bin", "python")
         commands = []
-        for fname in self.fn.listFilesExt(originLevel):
+        for pName in self.fn.listFilesExt(originLevel):
             if originLevel.startswith("level0"):
-                f1 = files.Filenames(fname, self.config)
+                f1 = files.Filenames(pName, self.config)
             else:
-                f1 = files.FilenamesFromLevel(fname, self.config)
+                f1 = files.FilenamesFromLevel(pName, self.config)
             outFile = f1.fname[self.level]
-            if skipExisting:
-                if os.path.isfile(outFile):
-                    log.info(f"{self.relatives} skip exisiting {outFile}")
-                    continue
-                elif os.path.isfile(f"{outFile}.broken.txt"):
-                    log.info(f"{self.relatives} skip broken {outFile}.broken.txt")
-                    continue
-                elif os.path.isfile(f"{outFile}.nodata"):
-                    log.info(f"{self.relatives} skip nodata {outFile}.nodata")
-                    continue
-            command = f"{bin} -m VISSSlib {call}  {fname} {self.settings}"
+            exisiting = glob.glob(f"{outFile}*")
+
+            if (len(exisiting) >= 1) and (extraOrigin is not None):
+                extraOlder = os.path.getmtime(
+                    self.fn.listFilesExt(extraOrigin)[0]
+                ) < os.path.getmtime(exisiting[0])
+            else:
+                extraOlder = True
+
+            if (
+                skipExisting
+                and (len(exisiting) >= 1)
+                and (os.path.getmtime(pName) < os.path.getmtime(exisiting[0]))
+                and extraOlder
+            ):
+                log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
+                continue
+
+            if len(exisiting) > 1:
+                log.warning(f"Duplicate files detected {exisiting}")
+
+            command = f"{bin} -m VISSSlib {call}  {pName} {self.settings}"
             if nCPU is not None:
                 command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
             commands.append((command, outFile))
@@ -263,16 +311,10 @@ class DataProduct(object):
 
         outFile = self.fn.fnamesDaily[self.level]
 
-        if skipExisting:
-            if os.path.isfile(outFile):
-                log.info(f"{self.relatives} skip exisiting {outFile}")
-                return []
-            elif os.path.isfile(f"{outFile}.broken.txt"):
-                log.info(f"{self.relatives} skip broken {outFile}.broken.txt")
-                return []
-            elif os.path.isfile(f"{outFile}.nodata"):
-                log.info(f"{self.relatives} skip nodata {outFile}.nodata")
-                return []
+        exisiting = glob.glob(f"{outFile}*")
+        if skipExisting and (len(exisiting) >= 1) and (self.youngerThanParents):
+            log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
+            return []
 
         command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
         if nCPU is not None:
@@ -312,25 +354,64 @@ class DataProduct(object):
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
-    @property
+    @cached_property
     def isComplete(self):
-        return self.fn.isComplete(self.level)
+        nMissing = self.fn.nMissing(self.level)
+        if nMissing > 0:
+            log.info(f"{self.case} {self.relatives} {nMissing} files are missing")
+        return nMissing == 0
 
-    @property
-    def dateOfBirth(self):
-        files = self.fn.listFilesExt(self.level)
+    @cached_property
+    def _youngerThanParentsDict(self):
+        youngerThanParentsDict = tools.DictNoDefault()
+        for name, parent in self.parents.items():
+            isYounger = parent.fileCreation < self.fileCreation
+            if (self.level == "level1detect") and (parent.level == "metaEvents"):
+                # special case: no need to do level1detect again due to updated metaEvents
+                youngerThanParentsDict[name] = True
+            else:
+                youngerThanParentsDict[name] = isYounger
+            if not youngerThanParentsDict[name]:
+                log.info(
+                    f"{self.relatives} is older "
+                    f"({tools.timestamp2str(self.fileCreation)}) than parent "
+                    f"{name} ({tools.timestamp2str(parent.fileCreation)})",
+                )
+        return youngerThanParentsDict
+
+    @cached_property
+    def youngerThanParents(self):
+        youngerThanParents = np.all(list(self._youngerThanParentsDict.values()))
+        return youngerThanParents
+
+    @cached_property
+    def parentsYoungerThanGrandparents(self):
+        parentsYoungerThanGrandparents = True
+        for name, parent in self.parents.items():
+            parentsYoungerThanGrandparents = (
+                parentsYoungerThanGrandparents and parent.youngerThanParents
+            )
+            log.info(
+                f"{self.relatives} parent {name} is younger than its (grand)parents { parent.youngerThanParents}"
+            )
+        return parentsYoungerThanGrandparents
+
+    def _fileCreation(self, files):
         if len(files) > 0:
             return np.max([os.path.getmtime(f) for f in files])
         else:
             return 0
 
-    @property
+    @cached_property
+    def fileCreation(self):
+        files = self.listFilesExt()
+        return self._fileCreation(files)
+
+    @cached_property
     def parentsComplete(self):
         parentsComplete = True
-        for name, parent in self.parents.items()():
-            thisParentIsComplete = parent.isComplete and (
-                parent.dateOfBirth < self.dateOfBirth
-            )
+        for name, parent in self.parents.items():
+            thisParentIsComplete = parent.isComplete
             log.info(
                 f"{self.relatives} {name} parentsComplete {thisParentIsComplete}",
             )
@@ -339,11 +420,32 @@ class DataProduct(object):
                 break
         return parentsComplete
 
-    @property
-    def allComplete(self):
-        return self.isComplete and self.parentsComplete
+    def report(self, withParents=True):
+        nMissing = self.fn.nMissing(self.level)
+        print(
+            self.camera,
+            self.level,
+            "nMissing",
+            nMissing,
+            "newest file",
+            tools.timestamp2str(self.fileCreation),
+            "younger than parents",
+            self.youngerThanParents,
+        )
+        if nMissing > 0:
+            print(
+                " " * 5,
+                [(p, self.fn.nMissing(p.split("_")[1])) for p in self.parentNames],
+            )
+        if withParents:
+            for name, parent in self.parents.items():
+                parent.report(withParents=False)
 
-    @property
+    @cached_property
+    def allComplete(self):
+        return self.isCompleteand and self.youngerThanParents and self.parentsComplete
+
+    @cached_property
     def nFiles(self):
         return len(self.fn.listFilesExt(self.level))
 

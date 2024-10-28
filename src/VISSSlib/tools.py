@@ -1188,3 +1188,7 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
             )
             return False
     return True
+
+
+def timestamp2str(ts):
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")

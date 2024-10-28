@@ -1702,7 +1702,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     if skipExisting and tools.checkForExisting(
         fOut,
         events=ff.listFiles("metaEvents"),
-        parents=fl.listFiles("metaRotation"),
+        parents=ff.listFiles("metaRotation"),
     ):
         return None, None
 

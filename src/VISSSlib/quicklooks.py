@@ -1572,6 +1572,8 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     except OSError:
         log.error(f"{rotFiles} not found")
         return None, None
+    except ValueError:
+        rotDat = xr.open_mfdataset(rotFiles, combine="nested")
 
     # handle current year a bit differently
     if int(year) == int(datetime.datetime.utcnow().year):
@@ -1580,6 +1582,8 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
             rotDat1 = xr.open_mfdataset(rotFiles1, combine="by_coords")
         except OSError:
             pass
+        except ValueError:
+            rotDat1 = xr.open_mfdataset(rotFiles1, combine="nested")
         else:
             rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
         lastYear = np.datetime64(

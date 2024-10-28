@@ -1721,6 +1721,8 @@ def createMetaRotation(
 
     # find files
     fl = files.FindFiles(case, config.leader, config, version)
+    ff = files.FindFiles(case, config.follower, config, version)
+
     # get events
     eventFile, eventDat = fl.getEvents()
 
@@ -1734,8 +1736,12 @@ def createMetaRotation(
     # output file
     fnameMetaRotation = fflM.fname["metaRotation"]
 
-    # check whwther output exists
-    if os.path.isfile(fnameMetaRotation) and skipExisting:
+    # check whether output exists
+    if skipExisting and tools.checkForExisting(
+        fnameMetaRotation,
+        events=fl.listFiles("metaEvents") + ff.listFiles(f"level1detect"),
+        parents=fl.listFiles(f"level1detect") + ff.listFiles(f"level1detect"),
+    ):
         print("SKIPPING", fnameMetaRotation)
         return None, None
 

@@ -845,7 +845,7 @@ def doMatchSlicer(
     """
     doMatch with slicing  to make sure data fits into memory
     Also, smaller chunks are computationally much more efficient, optimum appears to be around 500 for
-    a file with 50.000 particles but we use 1000 to avoid double matched particles at the gaps
+    a file with 50.000 particles but we use 700 to avoid double matched particles at the gaps
 
     """
 
@@ -1660,6 +1660,15 @@ def matchParticles(
             del matchedDats[ii]["pair_id"]
         matchedDats = xr.concat(matchedDats, dim="pair_id")
         matchedDats["pair_id"] = range(len(matchedDats["pair_id"]))
+
+    nPairs = len(matchedDats["pair_id"])
+    if nPairs > config.newFileInt:  # i.e at least one match per second
+        matchScoreMedian = matchedDats.matchScore.median()
+        if matchScoreMedian < config.minMatchScore:
+            raise RuntimeError(
+                f"minMatchScore is only {matchScoreMedian} even though we "
+                f"found {nPairs} particles"
+            )
 
     matchedDats = tools.finishNc(matchedDats, config.site, config.visssGen)
 

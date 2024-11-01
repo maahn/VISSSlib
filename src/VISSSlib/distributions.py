@@ -92,7 +92,6 @@ def createLevel2detect(
     case,
     config,
     freq="1min",
-    minMatchScore=1e-3,
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -109,7 +108,6 @@ def createLevel2detect(
         case,
         config,
         freq=freq,
-        minMatchScore=minMatchScore,
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
@@ -137,7 +135,6 @@ def createLevel2match(
     case,
     config,
     freq="1min",
-    minMatchScore=1e-3,
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -153,7 +150,6 @@ def createLevel2match(
         case,
         config,
         freq=freq,
-        minMatchScore=minMatchScore,
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
@@ -192,7 +188,6 @@ def createLevel2track(
         case,
         config,
         freq=freq,
-        minMatchScore=None,
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
@@ -213,7 +208,6 @@ def createLevel2(
     case,
     config,
     freq="1min",
-    minMatchScore=1e-3,
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -238,8 +232,6 @@ def createLevel2(
         [description]
     freq : str, optional
         [description] (the default is "1min", which [default_description])
-    minMatchScore : number, optional
-        [description] (the default is 1e-3, which [default_description])
     DbinsPixel : [type], optional
         [description] (the default is range(301), which [default_description])
     sizeDefinitions : list, optional
@@ -360,7 +352,6 @@ def createLevel2(
             case,
             config,
             freq=freq,
-            minMatchScore=None,
             DbinsPixel=DbinsPixel,
             sizeDefinitions=sizeDefinitions,
             endTime=endTime,
@@ -386,7 +377,6 @@ def createLevel2(
                 case1,
                 config,
                 freq=freq,
-                minMatchScore=None,
                 DbinsPixel=DbinsPixel,
                 sizeDefinitions=sizeDefinitions,
                 endTime=np.timedelta64(1, "h"),
@@ -603,7 +593,6 @@ def createLevel2part(
     case,
     config,
     freq="1min",
-    minMatchScore=1e-3,
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "h"),
@@ -1024,8 +1013,8 @@ def createLevel2part(
 
     else:  # match or track
         # apply matchScore threshold
-        if minMatchScore is not None:
-            matchCond = (level1dat.matchScore >= minMatchScore).values
+        if config.minMatchScore is not None:
+            matchCond = (level1dat.matchScore >= config.minMatchScore).values
             log.info(
                 tools.concat(
                     "matchCond applies to",

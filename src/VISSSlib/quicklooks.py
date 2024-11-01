@@ -1193,7 +1193,6 @@ def createLevel1matchQuicklook(
     skipExisting=True,
     version=__version__,
     plotCompleteOnly=True,
-    minMatchScore=1e-3,
     returnFig=True,
 ):
     resample = "5min"  # 5 mins
@@ -1265,7 +1264,7 @@ def createLevel1matchQuicklook(
             "camera_Ofz",
         ],
     )
-    datM = datMfull.isel(fpair_id=(datMfull.matchScore >= minMatchScore))
+    datM = datMfull.isel(fpair_id=(datMfull.matchScore >= config.minMatchScore))
 
     if len(datM.fpair_id) <= 1:
         print("No precipitation (2)", case, fl.fnamesPattern.level1match)
@@ -1353,7 +1352,7 @@ def createLevel1matchQuicklook(
         ylabel="match score [-]",
         cbarlabel="%",
     )
-    ax[2].axhline(minMatchScore)
+    ax[2].axhline(config.minMatchScore)
 
     zDiff = (
         datM.position3D_centroid.sel(dim3D=["z", "z_rotated"])
@@ -2648,7 +2647,6 @@ def createLevel1matchParticlesQuicklook(
     minSize="config",
     omitLabel4small="config",
     timedelta=np.timedelta64(1, "D"),
-    minMatchScore=1e-3,
     returnFig=True,
 ):
     if type(config) is str:
@@ -2766,7 +2764,7 @@ def createLevel1matchParticlesQuicklook(
             pair_id=(
                 (dat2.blur > minBlur).all("camera")
                 & (dat2.Dmax > minSize).all("camera")
-                & (dat2.matchScore > minMatchScore)
+                & (dat2.matchScore > config.minMatchScore)
             )
         )
         # print(fname2, len(dat2.pair_id))

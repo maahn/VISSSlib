@@ -628,7 +628,7 @@ class DataProductRange(object):
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
-    def cleanUpBroken(withParents=False):
+    def cleanUpBroken(self, withParents=False):
         for dd in self.days:
             self.dailies[dd].cleanUpBroken(withParents=withParents)
 

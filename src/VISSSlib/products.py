@@ -455,6 +455,18 @@ class DataProduct(object):
     def listFiles(self):
         return self.fn.listFiles(self.level)
 
+    def listBroken(self):
+        return self.fn.listBroken(self.level)
+
+    def cleanUpBroken(self, withParents=False):
+        for fname in self.listBroken():
+            assert fname.endswith("broken.txt")
+            os.remove(fname)
+            log.warning(f"{fname} removed")
+        if withParents:
+            for name, parent in self.parents.items():
+                parent.cleanUpBroken(withParents=False)
+
 
 class allDone(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
@@ -581,40 +593,30 @@ class DataProductRange(object):
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
+    def cleanUpBroken(withParents=False):
+        for dd in self.days:
+            self.dailies[dd].cleanUpBroken(withParents=withParents)
+
 
 def submitAll(
     nDays,
     settings,
     fileQueue,
-    withLevel2detect=False,
     doMetaRot=True,
     submitJobs=True,
     skipExisting=True,
     checkForDuplicates=True,
+    runWorkers=False,
+    cleanUpBroken=False,
 ):
     if submitJobs:
         prod = DataProductRange("allDone", nDays, settings, fileQueue, "leader")
+        if cleanUpBroken:
+            prod.cleanUpBroken(withParents=True)
         prod.submitCommands(
             checkForDuplicates=checkForDuplicates, skipExisting=skipExisting
         )
 
-        if withLevel2detect:
-            prod1 = DataProductRange(
-                "level2detect", nDays, settings, fileQueue, "leader"
-            )
-            prod1.submitCommands(
-                checkForDuplicates=checkForDuplicates,
-                withParents=False,
-                skipExisting=skipExisting,
-            )
-            prod1 = DataProductRange(
-                "level2detect", nDays, settings, fileQueue, "follower"
-            )
-            prod1.submitCommands(
-                checkForDuplicates=checkForDuplicates,
-                withParents=False,
-                skipExisting=skipExisting,
-            )
     else:
         prod = None
 

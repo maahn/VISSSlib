@@ -38,6 +38,7 @@ from numba import jit
 DEFAULT_SETTINGS = {
     "correctForSmallOnes": False,
     "height_offset": 64,
+    "minMatchScore": 1e-3,
     "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
     "threshs": [20, 30, 40, 60, 80, 100, 120],
     "goodFiles": ["None", "None"],

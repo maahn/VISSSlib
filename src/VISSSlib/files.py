@@ -326,6 +326,17 @@ class FindFiles(object):
         )
 
     @functools.cache
+    def listBroken(self, level):
+        return sorted(
+            filter(
+                os.path.isfile,
+                glob.glob(
+                    self.fnamesPatternExt[level].replace(".[b,n]*", ".broken.txt")
+                ),
+            )
+        )
+
+    @functools.cache
     def listFilesWithNeighbors(self, level):
         fnames = self.listFiles(level)
         if len(fnames) > 0:

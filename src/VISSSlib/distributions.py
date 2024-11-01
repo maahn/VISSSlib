@@ -39,16 +39,10 @@ def _preprocess(dat):
             "Dmax",
             "area",
             "areaConsideringHoles",
-            "matchScore",
             "aspectRatio",
             "angle",
+            "perimeter",
             "perimeterConsideringHoles",
-            "position3D_center",
-            "position3D_centroid",
-            "position_centroid",
-            "camera_phi",
-            "camera_theta",
-            "camera_Ofz",
         ]
         if "pair_id" in dat.coords:
             del dat["pair_id"]
@@ -556,13 +550,13 @@ def createLevel2(
     lv2Dat.perimeter_std.attrs.update(
         dict(units="m", long_name="standard deviation perimeter")
     )
-    lv2Dat.perimeterConsideringgHoles_dist.attrs.update(
+    lv2Dat.perimeterConsideringHoles_dist.attrs.update(
         dict(units="m", long_name="perimeter distribution")
     )
-    lv2Dat.perimeterConsideringgHoles_mean.attrs.update(
+    lv2Dat.perimeterConsideringHoles_mean.attrs.update(
         dict(units="m", long_name="mean perimeter")
     )
-    lv2Dat.perimeterConsideringgHoles_std.attrs.update(
+    lv2Dat.perimeterConsideringHoles_std.attrs.update(
         dict(units="m", long_name="standard deviation perimeter")
     )
     lv2Dat.processingFailed.attrs.update(
@@ -669,6 +663,7 @@ def createLevel2part(
     )
 
     log.info(f"open level1 files {case}")
+
     with dask.config.set(**{"array.slicing.split_large_chunks": True}):
         level1dat = xr.open_mfdataset(
             lv1Files, preprocess=_preprocess, combine="nested", concat_dim="pair_id"
@@ -1238,6 +1233,7 @@ def createLevel2part(
             "aspectRatio",
             "angle",
             "perimeter",
+            "perimeterConsideringHoles",
         ]
 
         # promote capture_time to coordimnate for later
@@ -1559,10 +1555,12 @@ def createLevel2part(
 
 def addPerParticleVariables(level1dat_camAve):
     # add area equivalent radius
-    level1dat_camAve["Dequiv"] = np.sqrt(4 * level1dat_camAve["area"] / np.pi)
+    level1dat_camAve["Dequiv"] = np.sqrt(
+        4 * level1dat_camAve["areaConsideringHoles"] / np.pi
+    )
 
     # based on Garrett, T. J., and S. E. Yuter, 2014: Observed influence of riming, temperature, and turbulence on the fallspeed of solid precipitation. Geophys. Res. Lett., 41, 6515–6522, doi:10.1002/2014GL061016.
-    level1dat_camAve["complexityBW"] = level1dat_camAve["perimeter"] / (
+    level1dat_camAve["complexityBW"] = level1dat_camAve["perimeterConsideringHoles"] / (
         np.pi * level1dat_camAve["Dequiv"]
     )
     # level1dat_camAve["complexity"] = level1dat_camAve["complexityBW"] *

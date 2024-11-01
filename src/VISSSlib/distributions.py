@@ -777,7 +777,7 @@ def createLevel2part(
                     113.0,
                     112.0,
                 ]
-                + 2000 * [110.0]
+                + 10000 * [110.0]
             )  # by using 2000 we make sure even huge particles are treated and do not raise an error
 
         elif config.visssGen == "visss2":
@@ -864,7 +864,7 @@ def createLevel2part(
                     61.0,
                     60.0,
                 ]
-                + 2000 * [60.0]
+                + 10000 * [60.0]
             )
 
         elif config.visssGen == "visss3":
@@ -997,7 +997,7 @@ def createLevel2part(
                     174.0,
                     171.0,
                 ]
-                + 2000 * [170.0]
+                + 10000 * [170.0]
             )
 
         else:

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import glob
 import os
 import shutil
 import sys
@@ -1555,9 +1556,12 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     fOut = ff.quicklook.metaRotation
     fOut = fOut.replace("0101.png", ".png")
 
+    fPattern = ff.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
+    rotFiles = sorted(glob.glob(fPattern))
+
     if (
         skipExisting
-        and os.path.isfile(fOut)
+        and tools.checkForExisting(fOut, parents=rotFiles)
         and (
             int(year)
             < int((datetime.datetime.utcnow() - datetime.timedelta(days=60)).year)
@@ -1566,14 +1570,17 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
         print(f"{year} skip exisiting {fOut}")
         return None, None
 
-    rotFiles = ff.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
-    try:
-        rotDat = xr.open_mfdataset(rotFiles, combine="by_coords")
-    except OSError:
-        log.error(f"{rotFiles} not found")
+    rotDat = []
+    # open_mfdataset does not work due to duplicate file_starttimes...
+    for rotFile in rotFiles:
+        rotDat.append(xr.open_dataset(rotFile))
+    if len(rotDat) == 0:
+        log.error(f"{fPattern} not found")
         return None, None
-    except ValueError:
-        rotDat = xr.open_mfdataset(rotFiles, combine="nested")
+    rotDat = xr.concat(rotDat, "file_starttime")
+    rotDat = rotDat.isel(
+        file_starttime=np.unique(rotDat.file_starttime, return_index=True)[1]
+    ).sortby("file_starttime")
 
     # handle current year a bit differently
     if int(year) == int(datetime.datetime.utcnow().year):
@@ -1660,6 +1667,8 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
             else:
                 ax.axvline(reset, color="k", alpha=0.2)
             firstReset = False
+
+    ax1.set_xlim(rotDat.file_starttime.min(), rotDat.file_starttime.max())
 
     ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
 

@@ -595,7 +595,6 @@ def createLevel2(
 
     if writeNc:
         tools.to_netcdf2(lv2Dat, lv2File)
-    log.info(f"written {lv2File}")
 
     return lv2Dat, lv2File
 
@@ -1575,11 +1574,7 @@ def addVariables(
     assert np.all(blockedPixels.time == calibDat.time)
 
     if sublevel == "detect":
-        recordingFailed = recordingFailed.sel(camera=camera, drop=True)
         processingFailed.values[:] = False  # not relevant becuase it is about matching
-        blockedPixels = blockedPixels.sel(camera=camera, drop=True)
-        blowingSnowRatio = blowingSnowRatio.sel(camera=camera, drop=True)
-
         cameraBlocked = blockedPixels > blockedPixThresh
         blowingSnow = blowingSnowRatio > blowingSnowFrameThresh
 
@@ -2042,7 +2037,9 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
         else:
             processingFailed.append(False)
 
-    recordingFailed1 = ~np.array(dataRecorded)
+    recordingFailed1 = xr.DataArray(
+        ~np.array(dataRecorded), dims=["time"], coords=[timeIndex]
+    )
     processingFailed = xr.DataArray(processingFailed, dims=["time"], coords=[timeIndex])
 
     blowingSnowRatio1 = tools.identifyBlowingSnowData(
@@ -2068,15 +2065,16 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             blockedPixelsL,
             blowingSnowRatioL,
         ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
-        recordingFailedF, _, blockedPixelsF, blowingSnowRatioF = getDataQuality1(
-            case, config, timeIndex, timeIndex1, sublevel, "follower"
-        )
 
-        recordingFailed = xr.DataArray(
-            np.stack([recordingFailedL, recordingFailedF], axis=1),
-            dims=["time", "camera"],
-            coords=[timeIndex, ["leader", "follower"]],
-        )
+        (
+            recordingFailedF,
+            _________,
+            blockedPixelsF,
+            blowingSnowRatioF,
+        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "follower")
+
+        recordingFailed = xr.concat((recordingFailedL, recordingFailedF), dim="camera")
+        recordingFailed["camera"] = ["leader", "follower"]
 
         blockedPixels = xr.concat((blockedPixelsL, blockedPixelsF), dim="camera")
         blockedPixels["camera"] = ["leader", "follower"]

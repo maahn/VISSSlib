@@ -414,89 +414,20 @@ def main():
         products.submitAll(nDays, settings, taskQueue)
 
     elif sys.argv[1] == "worker":
+        # alternatives to consider
+        # https://github.com/Nukesor/pueue
+        # https://github.com/justanhduc/task-spooler
+        # https://www.gnu.org/software/parallel/parallel_tutorial.html
+        # https://pm2.keymetrics.io/docs/usage/quick-start/
+        # https://github.com/leahneukirchen/nq
         queue = sys.argv[2]
         assert os.path.isdir(queue)
         try:
             nJobs = int(sys.argv[3])
         except IndexError:
             nJobs = os.cpu_count()
-        waitTime = 60
 
-        class TaskQueuePatched(taskqueue.TaskQueue):
-            def is_empty_wait(self):
-                # first delay everything if there are no jobs
-                for i in range(2):
-                    if not self.is_empty():
-                        break
-                    print(f"waiting for jobs... {i}", flush=True)
-                    time.sleep(waitTime)
-
-                # if there are really no jobs, nothing to do
-                if self.is_empty():
-                    return True
-
-                # if there are jobs, check for killwitch file
-                if os.path.isfile("VISSS_KILLSWITCH"):
-                    print(f"{ii}, found file VISSS_KILLSWITCH, stopping", flush=True)
-                    return True
-
-                # if tehre are jobsm check for memory and wait otherwise
-                while True:
-                    if psutil.virtual_memory().percent < 95:
-                        break
-                    print(f"waiting for available memory...", flush=True)
-                    time.sleep(waitTime)
-                return self.is_empty()
-
-        def worker1(ww, status, queue):
-            print(f"starting worker {ww} for {queue}", flush=True)
-            time.sleep(ww / 5.0)  # to avoid race conditions
-            tq = TaskQueuePatched(f"fq://{queue}")
-            out = None
-            while True:
-                if not tq.is_empty():
-                    status[ww] = 1
-                    try:
-                        out = tq.poll(
-                            verbose=True,
-                            tally=True,
-                            stop_fn=tq.is_empty_wait,
-                            lease_seconds=2,
-                            backoff_exceptions=[BlockingIOError],
-                        )
-                    except:
-                        pass
-                    finally:
-                        status[ww] = 0
-                else:
-                    print(f"worker {ww} queueu {queue} empty", flush=True)
-                if np.all([ss == 0 for ss in status]):
-                    print(
-                        f"do not restart worker {ww} because all empty {[status[i] for i in range(len(status))]}",
-                        flush=True,
-                    )
-                    break
-                print(
-                    f"restart worker {ww} {[status[i] for i in range(len(status))]}",
-                    flush=True,
-                )
-                time.sleep(waitTime)
-
-            return out
-
-        # for communication between subprocesses
-        print(f"starting {nJobs} workers")
-        status = multiprocessing.Array("i", [0] * nJobs)
-        for ww in range(nJobs):
-            x = multiprocessing.Process(
-                target=worker1,
-                args=(
-                    ww,
-                    status,
-                    queue,
-                ),
-            )
-            x.start()
+        tools.workers(queue, nJobs=nJobs, waitTime=60)
 
     else:
         print(f"Do not understand {sys.argv[1]}")

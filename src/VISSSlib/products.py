@@ -286,7 +286,9 @@ class DataProduct(object):
                 continue
 
             if len(exisiting) > 1:
-                log.warning(f"Duplicate files detected {exisiting}")
+                for ex in exisiting:
+                    os.remove(ex)
+                    log.warning(f"too many files, removed {ex}")
 
             command = f"{bin} -m VISSSlib {call}  {pName} {self.settings}"
             if nCPU is not None:

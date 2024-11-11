@@ -87,7 +87,7 @@ def readSettings(fname):
         loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
         config.update(loadedSettings)
     # unflatten again and convert to addict.Dict
-    return Dict(flatten_dict.unflatten(config))
+    return DictNoDefault(flatten_dict.unflatten(config))
 
 
 def getDateRange(nDays, config, endYesterday=True):
@@ -378,7 +378,6 @@ def identifyBlowingSnowData(fnames, config, timeIndex1, sublevel):
     blowingSnowRatio = tooManyMove.sum() / tooManyMove.count()  # now a ratio
     # nan means nothing recorded, so no blowing snow either
     blowingSnowRatio = blowingSnowRatio.fillna(0)
-
     blowingSnowRatio = blowingSnowRatio.rename(capture_time_bins="time")
 
     # print("done identifyBlowingSnowData")

@@ -1749,7 +1749,7 @@ def detectParticles(
         metaData["foundParticles"] = foundParticles
         metaData["movingObjects"] = movingObjects
 
-        metaData["foundParticles"] = metaData["foundParticles"].astype(np.uint32)
+        metaData["foundParticles"] = metaData["foundParticles"].astype(np.int32)
         metaData["movingObjects"] = metaData["movingObjects"].astype(np.int32)
 
         # remove extra in 1.1

@@ -601,7 +601,6 @@ def createLevel2(
 
     if writeNc:
         tools.to_netcdf2(lv2Dat, lv2File)
-    log.info(f"written {lv2File}")
 
     return lv2Dat, lv2File
 
@@ -784,7 +783,7 @@ def createLevel2part(
                     113.0,
                     112.0,
                 ]
-                + 10000 * [110.0]
+                + 400 * [110.0]
             )  # by using 2000 we make sure even huge particles are treated and do not raise an error
         elif config.visssGen == "visss2":
             # coefficients developed from early 2023 in NYA cases with low wind speed
@@ -869,7 +868,7 @@ def createLevel2part(
                     61.0,
                     60.0,
                 ]
-                + 10000 * [60.0]
+                + 400 * [60.0]
             )
 
         elif config.visssGen == "visss3":
@@ -1002,11 +1001,15 @@ def createLevel2part(
                     174.0,
                     171.0,
                 ]
-                + 10000 * [170.0]
+                + 400 * [170.0]
             )
 
         else:
             raise ValueError(f"VISSS Generation {config.visssGen} not supported")
+
+        # discard huge ones so that the trick with the look up table works
+        sizeCond = (level1dat.Dmax <= 350).values
+        level1dat = level1dat.isel(pair_id=sizeCond)
 
         # this works liek a lookup table. We use the Dmax rounded to next
         # integer as an index for blurThresh
@@ -1600,11 +1603,7 @@ def addVariables(
     assert np.all(blockedPixels.time == calibDat.time)
 
     if sublevel == "detect":
-        recordingFailed = recordingFailed.sel(camera=camera, drop=True)
         processingFailed.values[:] = False  # not relevant becuase it is about matching
-        blockedPixels = blockedPixels.sel(camera=camera, drop=True)
-        blowingSnowRatio = blowingSnowRatio.sel(camera=camera, drop=True)
-
         cameraBlocked = blockedPixels > blockedPixThresh
         blowingSnow = blowingSnowRatio > blowingSnowFrameThresh
 
@@ -2083,8 +2082,9 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
         else:
             processingFailed.append(False)
 
-    recordingFailed1 = ~np.array(dataRecorded)
-
+    recordingFailed1 = xr.DataArray(
+        ~np.array(dataRecorded), dims=["time"], coords=[timeIndex]
+    )
     processingFailed = xr.DataArray(processingFailed, dims=["time"], coords=[timeIndex])
 
     blowingSnowRatio1 = tools.identifyBlowingSnowData(
@@ -2111,15 +2111,16 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             blockedPixelsL,
             blowingSnowRatioL,
         ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
-        recordingFailedF, _, blockedPixelsF, blowingSnowRatioF = getDataQuality1(
-            case, config, timeIndex, timeIndex1, sublevel, "follower"
-        )
 
-        recordingFailed = xr.DataArray(
-            np.stack([recordingFailedL, recordingFailedF], axis=1),
-            dims=["time", "camera"],
-            coords=[timeIndex, ["leader", "follower"]],
-        )
+        (
+            recordingFailedF,
+            _________,
+            blockedPixelsF,
+            blowingSnowRatioF,
+        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "follower")
+
+        recordingFailed = xr.concat((recordingFailedL, recordingFailedF), dim="camera")
+        recordingFailed["camera"] = ["leader", "follower"]
 
         blockedPixels = xr.concat((blockedPixelsL, blockedPixelsF), dim="camera")
         blockedPixels["camera"] = ["leader", "follower"]

@@ -999,6 +999,7 @@ def matchParticles(
             return fname1Match, np.nan, None, None, None, None, None, errors
 
         config = tools.rotXr2dict(metaRotationDat, config)
+        metaRotationDat.close()
 
     if np.any(rotate == "config"):
         rotate, rotate_err, rotate_time = tools.getPrevRotationEstimates(
@@ -1157,6 +1158,9 @@ def matchParticles(
 
     nFollower = 0
     nLeader = 0
+
+    lEvents.close()
+    fEvents.close()
 
     # loop over all follower segments separated by camera restarts
     for tt, (FR1, FR2) in enumerate(zip(timeBlocks[:-1], timeBlocks[1:])):
@@ -1667,10 +1671,11 @@ def matchParticles(
 
     nPairs = len(matchedDats["pair_id"])
     if nPairs > config.newFileInt:  # i.e at least one match per second
-        matchScoreMedian = matchedDats.matchScore.median()
+        matchScoreMedian = matchedDats.matchScore.median().values
         if matchScoreMedian < config.minMatchScore:
             raise RuntimeError(
-                f"minMatchScore is only {matchScoreMedian} even though we "
+                f"minMatchScore is only {matchScoreMedian} and smaller than "
+                f"minMatchScore {config.minMatchScore} even though we "
                 f"found {nPairs} particles"
             )
 
@@ -1808,15 +1813,15 @@ def createMetaRotation(
             tools.rotDict2Xr(rotate_default, rotate_err_default, prevTime)
         )
 
-        rotate_default = pd.Series(rotate_default)
-        rotate_err_default = pd.Series(rotate_err_default)
+        rotate_default = pd.Series(dict(rotate_default))
+        rotate_err_default = pd.Series(dict(rotate_err_default))
 
     # do not use previous data but provided arguments
     else:
         log.info(f"got {rotate} from function key words")
         # use values provided by arguments
-        rotate_default = pd.Series(rotate)
-        rotate_err_default = pd.Series(rotate_err)
+        rotate_default = pd.Series(dict(rotate))
+        rotate_err_default = pd.Series(dict(rotate_err))
 
     # loop through all files
     fnames1L = fl.listFilesExt("level1detect")
@@ -1840,8 +1845,8 @@ def createMetaRotation(
                 "taking rotation estimate directly from config file instead of calculating %s"
                 % rotate_time_config
             )
-            rot = pd.Series(rotate_config)
-            rot_err = pd.Series(rot_err)
+            rot = pd.Series(dict(rotate_config))
+            rot_err = pd.Series(dict(rot_err))
 
         # otherwise try estimation
         else:

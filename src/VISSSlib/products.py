@@ -1,6 +1,8 @@
 import glob
 import logging
 import os
+import random
+import string
 import sys
 from functools import cached_property, partial
 
@@ -47,13 +49,15 @@ class DataProduct(object):
             raise ValueError(f"do not understand camera: {camera}")
         self.camera = camera
         self.case = case
-        self.fileQueue = fileQueue
+
+        if fileQueue is None:
+            fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
 
         if type(fileQueue) is str:
             self.fileQueue = fileQueue
             self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
         else:
-            self.tq = self.fileQueue
+            self.tq = fileQueue
             self.fileQueue = self.tq.path.path
 
         self.commands = []
@@ -74,9 +78,10 @@ class DataProduct(object):
         elif level == "level1detect":
             self.parentNames = [
                 # f"{camera}_metaFrames", # done by level1detect
-                f"{camera}_metaEvents",
+                # f"{camera}_metaEvents", # done by metaRotation
             ]
         elif level == "metaRotation":
+            assert camera == "leader"
             self.parentNames = [
                 f"leader_level1detect",
                 f"follower_level1detect",
@@ -84,24 +89,29 @@ class DataProduct(object):
                 f"follower_metaEvents",
             ]
         elif level == "level1match":
+            assert camera == "leader"
             self.parentNames = [f"{camera}_metaRotation"]
         elif level == "level1track":
+            assert camera == "leader"
             self.parentNames = [f"{camera}_level1match"]
         elif level == "level2detect":
             self.parentNames = [f"{camera}_level1detect", f"{camera}_metaEvents"]
         elif level == "level2match":
+            assert camera == "leader"
             self.parentNames = [
                 f"{camera}_level1match",
                 f"leader_metaEvents",  # metaEvents are aded to all the L2 products to force regenration when events file is updated (ie more data is transferred)
                 f"follower_metaEvents",
             ]
         elif level == "level2track":
+            assert camera == "leader"
             self.parentNames = [
                 f"{camera}_level1track",
                 f"leader_metaEvents",
                 f"follower_metaEvents",
             ]
         elif level == "allDone":
+            assert camera == "leader"
             self.parentNames = [
                 f"leader_metaEvents",
                 f"follower_metaEvents",
@@ -324,7 +334,11 @@ class DataProduct(object):
         return [(command, outFile)]
 
     def submitCommands(
-        self, skipExisting=True, checkForDuplicates=False, withParents=True
+        self,
+        skipExisting=True,
+        checkForDuplicates=False,
+        withParents=True,
+        runWorkers=False,
     ):
         if len(self.commands) == 0:
             self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
@@ -334,10 +348,10 @@ class DataProduct(object):
             return
 
         if checkForDuplicates:
-            running = [t.args for t in self.tq.tasks()]
+            running = [t.args[0] for t in self.tq.tasks()]
             commands = []
             for command in self.commands:
-                if [command] in running:
+                if command[0][0] in running:
                     continue
                 else:
                     commands.append(command)
@@ -349,6 +363,10 @@ class DataProduct(object):
 
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
+
+        if runWorkers:
+            tools.workers(self.fileQueue)
+
         return
 
     def deleteQueue(self):
@@ -541,8 +559,17 @@ class DataProductRange(object):
         self.dailies = {}
         self.level = level
         self.camera = camera
-        self.fileQueue = fileQueue
-        self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
+
+        if fileQueue is None:
+            fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
+
+        if type(fileQueue) is str:
+            self.fileQueue = fileQueue
+            self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
+        else:
+            self.tq = fileQueue
+            self.fileQueue = self.tq.path.path
+
         for dd in self.days:
             case = tools.timestamp2case(dd)
             self.dailies[dd] = DataProduct(
@@ -563,7 +590,11 @@ class DataProductRange(object):
         return self.allCommands
 
     def submitCommands(
-        self, skipExisting=True, checkForDuplicates=False, withParents=True
+        self,
+        skipExisting=True,
+        checkForDuplicates=False,
+        withParents=True,
+        runWorkers=False,
     ):
         self.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
         if len(self.allCommands) == 0:
@@ -571,10 +602,10 @@ class DataProductRange(object):
             return
 
         if checkForDuplicates:
-            running = [t.args for t in self.tq.tasks()]
+            running = [t.args[0][0] for t in self.tq.tasks()]
             commands = []
             for command in self.allCommands:
-                if [command] in running:
+                if command[0] in running:
                     continue
                 else:
                     commands.append(command)
@@ -588,6 +619,10 @@ class DataProductRange(object):
         # region is SQS specific, green means cooperative threading
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
+
+        if runWorkers:
+            tools.workers(self.fileQueue)
+
         return
 
     def deleteQueue(self):
@@ -612,11 +647,16 @@ def submitAll(
     cleanUpBroken=False,
 ):
     if submitJobs:
+        tq = taskqueue.TaskQueue(f"fq://{fileQueue}")
+        log.warning(f"{tq.enqueued} tasks in Queue")
+
         prod = DataProductRange("allDone", nDays, settings, fileQueue, "leader")
         if cleanUpBroken:
             prod.cleanUpBroken(withParents=True)
         prod.submitCommands(
-            checkForDuplicates=checkForDuplicates, skipExisting=skipExisting
+            checkForDuplicates=checkForDuplicates,
+            skipExisting=skipExisting,
+            runWorkers=runWorkers,
         )
 
     else:

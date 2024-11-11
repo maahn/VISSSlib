@@ -3,6 +3,7 @@
 import datetime
 import io
 import logging
+import multiprocessing
 import os
 import shutil
 import socket
@@ -1151,6 +1152,7 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60):
     # for communication between subprocesses
     print(f"starting {nJobs} workers")
     status = multiprocessing.Array("i", [0] * nJobs)
+    workerList = []
     for ww in range(nJobs):
         x = multiprocessing.Process(
             target=worker1,
@@ -1162,6 +1164,9 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60):
             },
         )
         x.start()
+        workerList.append(x)
+    [x.join() for x in workerList]
+    return workerList
 
 
 def checkForExisting(ffOut, level0=None, events=None, parents=None):

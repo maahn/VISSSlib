@@ -78,7 +78,7 @@ class DataProduct(object):
         elif level == "level1detect":
             self.parentNames = [
                 # f"{camera}_metaFrames", # done by level1detect
-                f"{camera}_metaEvents",
+                # f"{camera}_metaEvents", # done by metaRotation
             ]
         elif level == "metaRotation":
             assert camera == "leader"

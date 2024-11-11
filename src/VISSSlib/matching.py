@@ -374,7 +374,9 @@ def forward(x, L_x=None, F_y=None, F_z=None):
     return y
 
 
-def retrieveRotation(dat3, x_ap, x_cov_diag, y_cov_diag, config, verbose=False):
+def retrieveRotation(
+    dat3, x_ap, x_cov_diag, y_cov_diag, config, verbose=False, maxIter=30
+):
     """
     apply Optimal Estimation to retrieve rotation of cameras
     """
@@ -424,7 +426,7 @@ def retrieveRotation(dat3, x_ap, x_cov_diag, y_cov_diag, config, verbose=False):
         verbose=verbose,
     )
 
-    oe.doRetrieval(maxIter=30)
+    oe.doRetrieval(maxIter=maxIter)
 
     assert not np.any(np.isnan(oe.x_op))
 
@@ -950,6 +952,7 @@ def matchParticles(
     writeNc=True,
     offsetsOnly=False,
     subset=None,
+    maxIter=30,
 ):
     errors = pd.Series(
         {
@@ -1484,6 +1487,7 @@ def matchParticles(
                             y_cov_diag,
                             config,
                             verbose=True,
+                            maxIter=maxIter,
                         )
                     except AssertionError as e:
                         log.error(tools.concat(f"pyOE error, taking previous values."))

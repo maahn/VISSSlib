@@ -766,7 +766,7 @@ def createLevel2part(
                     113.0,
                     112.0,
                 ]
-                + 10000 * [110.0]
+                + 400 * [110.0]
             )  # by using 2000 we make sure even huge particles are treated and do not raise an error
 
         elif config.visssGen == "visss2":
@@ -853,7 +853,7 @@ def createLevel2part(
                     61.0,
                     60.0,
                 ]
-                + 10000 * [60.0]
+                + 400 * [60.0]
             )
 
         elif config.visssGen == "visss3":
@@ -986,11 +986,16 @@ def createLevel2part(
                     174.0,
                     171.0,
                 ]
-                + 10000 * [170.0]
+                + 400 * [170.0]
             )
 
         else:
             raise ValueError(f"VISSS Generation {config.visssGen} not supported")
+
+        # discard huge ones so that the trick with the look up table works
+        sizeCond = (level1dat.Dmax <= 350).values
+        level1dat = level1dat.isel(pair_id=sizeCond)
+
         # this works liek a lookup table. We use the Dmax rounded to next
         # integer as an index for blurThresh
         appliedblurThresh = blurThresh[np.around(level1dat.Dmax.values).astype(int)]

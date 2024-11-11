@@ -137,7 +137,7 @@ def captureIdOverflows(dat, config, storeOrig=True, idOffset=0, dim="pid"):
         # nothing to do
         return dat
 
-    if nStepsExpected == nStepsObserved:
+    if (nStepsExpected == nStepsObserved) or ((nStepsExpected - 1) == nStepsObserved):
         jumpIIs = np.where(stepsObserved)[0] + 1
 
         for jumpII in jumpIIs:

@@ -86,7 +86,7 @@ def readSettings(fname):
         loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
         config.update(loadedSettings)
     # unflatten again and convert to addict.Dict
-    return Dict(flatten_dict.unflatten(config))
+    return DictNoDefault(flatten_dict.unflatten(config))
 
 
 def getDateRange(nDays, config, endYesterday=True):

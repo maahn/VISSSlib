@@ -32,6 +32,30 @@ from . import __version__, av, tools
 log = logging.getLogger(__name__)
 
 
+def statusText(fig, fnames):
+    if not isinstance(fnames, (list, tuple)):
+        fnames = [fnames]
+    try:
+        thisDate = np.max([os.path.getmtime(f) for f in fnames])
+    except ValueError:
+        thisDate = ""
+    except FileNotFoundError:
+        thisDate = ""
+    else:
+        thisDate = tools.timestamp2str(thisDate)
+    string = f"VISSSlib {__version__}, {thisDate}"
+    fig.text(
+        0,
+        0,
+        string,
+        fontsize=8,
+        transform=fig.transFigure,
+        verticalalignment="bottom",
+        horizontalalignment="left",
+    )
+    return fig
+
+
 def plotVar(
     pVar,
     capture_time,
@@ -256,8 +280,11 @@ def createLevel1detectQuicklook(
     dats2 = []
     l1Files = ff.listFilesWithNeighbors("level1detect")
 
+    nParticles = 0
+
     for fname2 in tqdm(l1Files):
         fname1 = fname2.replace("level1detect", "metaFrames")
+
         try:
             dat2 = xr.open_dataset(fname2)
         except FileNotFoundError:
@@ -270,9 +297,14 @@ def createLevel1detectQuicklook(
             else:
                 raise FileNotFoundError(fname2)
 
+        nParticles += len(dat2.pid)
+
         dat2 = dat2[
             ["Dmax", "blur", "record_time", "record_id", "position_upperLeft", "Droi"]
         ]
+        # it is more efficient to load the data now in comparison to after isel
+        dat2 = dat2.load()
+
         dat2 = dat2.isel(pid=((dat2.blur > minBlur) & (dat2.Dmax > minSize)))
 
         if len(dat2.pid) == 0:
@@ -361,7 +393,10 @@ def createLevel1detectQuicklook(
                             fn.fname.imagesL1detect, mode="r"
                         )
                     except FileNotFoundError:
-                        log.warning(f"did not fine {fn.fname.imagesL1detect}")
+                        log.warning(f"did not find {fn.fname.imagesL1detect}")
+                    except tools.zipfile.BadZipFile:
+                        log.warning(f"is broken {fn.fname.imagesL1detect}")
+
                 nPids = len(pids)
                 np.random.seed(tt)
                 np.random.shuffle(pids)
@@ -540,8 +575,6 @@ def createLevel1detectQuicklook(
             # for im in mosaics[len(mosaics)//nRows:]:
             #   new_im.paste(im, (x_offset,max(heights) +50))
             #   x_offset += im.size[0] + extra
-
-            nParticles = len(limDat.fpid)
 
     tenmm = 1e6 / config["resolution"] / 100
 
@@ -1172,6 +1205,8 @@ def metaFramesQuicklook(
 
     ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
 
+    statusText(fig, ff)
+
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -1237,6 +1272,7 @@ def createLevel1matchQuicklook(
         fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
         axcax.axis("off")
         axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
+        statusText(fig, ff + fl)
         tools.createParentDir(fOut)
         fig.savefig(fOut)
         return fOut, fig
@@ -1274,6 +1310,7 @@ def createLevel1matchQuicklook(
         axcax.set_title(
             f"VISSS level1match {config.name} {case} \n No precipitation (2)"
         )
+        statusText(fig, ff + fl)
         tools.createParentDir(fOut)
         fig.savefig(fOut)
         return fOut, fig
@@ -1537,6 +1574,7 @@ def createLevel1matchQuicklook(
     fig.tight_layout(w_pad=0.05, h_pad=0.005)
 
     print("DONE", fOut)
+    statusText(fig, fnames1M)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -1687,6 +1725,8 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     # ax3.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
     ax3.grid()
     ax3.set_xlabel("time")
+
+    statusText(fig, rotFiles)
 
     tools.createParentDir(fOut)
     fig.savefig(fOut)
@@ -1985,6 +2025,8 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ax1.legend(fontsize=15)
     ax3.legend(fontsize=15)
 
+    statusText(fig, ff.listFiles("metaRotation"))
+
     tools.createParentDir(fOut)
     fig.savefig(fOut)
     rotDat.close()
@@ -2187,6 +2229,7 @@ def createLevel2detectQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
+    statusText(fig, ff)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -2398,6 +2441,7 @@ def createLevel2matchQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
+    statusText(fig, ff)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -2634,6 +2678,7 @@ def createLevel2trackQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
+    statusText(fig, ff)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 

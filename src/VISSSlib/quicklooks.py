@@ -1205,7 +1205,7 @@ def metaFramesQuicklook(
 
     ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
 
-    statusText(fig, ff)
+    statusText(fig, ff.listFiles("metaFrames"))
 
     tools.createParentDir(fOut)
     fig.savefig(fOut)
@@ -1272,7 +1272,7 @@ def createLevel1matchQuicklook(
         fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
         axcax.axis("off")
         axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
-        statusText(fig, ff + fl)
+        statusText(fig, [])
         tools.createParentDir(fOut)
         fig.savefig(fOut)
         return fOut, fig
@@ -1310,7 +1310,7 @@ def createLevel1matchQuicklook(
         axcax.set_title(
             f"VISSS level1match {config.name} {case} \n No precipitation (2)"
         )
-        statusText(fig, ff + fl)
+        statusText(fig, [])
         tools.createParentDir(fOut)
         fig.savefig(fOut)
         return fOut, fig
@@ -2229,7 +2229,7 @@ def createLevel2detectQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff)
+    statusText(fig, ff.listFiles("level2detect"))
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -2441,7 +2441,7 @@ def createLevel2matchQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff)
+    statusText(fig, ff.listFiles("level2match"))
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -2678,7 +2678,7 @@ def createLevel2trackQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff)
+    statusText(fig, ff.listFiles("level2track"))
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 

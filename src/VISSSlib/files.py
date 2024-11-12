@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 from . import __version__, metadata
 from .tools import DictNoDefault, nicerNames, otherCamera
 
+# to do merge to single class using different constructors with @classmethod?
+
 dailyLevels = [
     "metaEvents",
     "metaRotation",

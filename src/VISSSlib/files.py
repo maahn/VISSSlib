@@ -405,7 +405,10 @@ class FindFiles(object):
             nMissing = self.nL0 - len(self.listFilesExt(level))
 
         if nMissing < 0:
-            log.error(f"Likely duplicates for {level} in {self.fnamesPattern[level]}")
+            log.error(
+                f"Likely duplicates for {level} in {self.fnamesPattern[level]} ."
+                f"Or sth wrong in {self.fnamesPattern['level0txt']}"
+            )
 
         return nMissing
 

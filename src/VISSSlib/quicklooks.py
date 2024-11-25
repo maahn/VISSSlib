@@ -43,7 +43,9 @@ def statusText(fig, fnames):
         thisDate = ""
     else:
         thisDate = tools.timestamp2str(thisDate)
-    string = f"VISSSlib {__version__}, {thisDate}"
+    string = f"VISSSlib {__version__}, created  "
+    string += f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+    string += f"from files created at {thisDate} "
     fig.text(
         0,
         0,
@@ -1232,6 +1234,7 @@ def createLevel1matchQuicklook(
     returnFig=True,
 ):
     resample = "5min"  # 5 mins
+    config = tools.readSettings(config)
 
     # find files
     fl = files.FindFiles(case, config["leader"], config, version)
@@ -1301,7 +1304,7 @@ def createLevel1matchQuicklook(
             "camera_Ofz",
         ],
     )
-    datM = datMfull.isel(fpair_id=(datMfull.matchScore >= config.minMatchScore))
+    datM = datMfull.isel(fpair_id=(datMfull.matchScore >= config.quality.minMatchScore))
 
     if len(datM.fpair_id) <= 1:
         print("No precipitation (2)", case, fl.fnamesPattern.level1match)
@@ -1390,7 +1393,7 @@ def createLevel1matchQuicklook(
         ylabel="match score [-]",
         cbarlabel="%",
     )
-    ax[2].axhline(config.minMatchScore)
+    ax[2].axhline(config.quality.minMatchScore)
 
     zDiff = (
         datM.position3D_centroid.sel(dim3D=["z", "z_rotated"])
@@ -1472,18 +1475,39 @@ def createLevel1matchQuicklook(
         inclusive="both",
     )
 
-    blowingSnowL = tools.identifyBlowingSnowData(
+    blowingSnowL, nDetectedL = tools.identifyBlockedBlowingSnowData(
         fl.listFilesWithNeighbors("metaDetection"), config, timeIndex1, "match"
     )
-    blowingSnowF = tools.identifyBlowingSnowData(
+    blowingSnowF, nDetectedF = tools.identifyBlockedBlowingSnowData(
         ff.listFilesWithNeighbors("metaDetection"), config, timeIndex1, "match"
     )
     blowingSnowL = blowingSnowL.time.where(
-        blowingSnowL > 0.01
-    ).values  # i.e. 1% of the frames is lost
+        blowingSnowL > config.quality.blowingSnowFrameThresh
+    ).values
     blowingSnowF = blowingSnowF.time.where(
-        blowingSnowF > 0.01
-    ).values  # i.e. 1% of the frames is lost
+        blowingSnowF > config.quality.blowingSnowFrameThresh
+    ).values
+
+    observationsRatio = tools.compareNDetected(nDetectedL, nDetectedF)
+    obervationsDiffer = (observationsRatio < config.quality.obsRatioThreshold) | (
+        observationsRatio > (1 / config.quality.obsRatioThreshold)
+    )
+
+    obervationsDiffer = obervationsDiffer.time.where(obervationsDiffer).values
+
+    for bx in ax:
+        ylim = bx.get_ylim()
+        try:
+            bx.fill_between(
+                obervationsDiffer,
+                [ylim[0]] * len(obervationsDiffer),
+                [ylim[1]] * len(obervationsDiffer),
+                color="magenta",
+                alpha=0.25,
+                label="observed # of particles differ",
+            )
+        except TypeError:
+            log.warning("no data to plot obervationsDiffer")
 
     eventDatL = xr.open_dataset(fl.listFiles("metaEvents")[0])
     for event in eventDatL.event:
@@ -1492,11 +1516,14 @@ def createLevel1matchQuicklook(
         ):
             for bx in ax:
                 bx.axvline(event.file_starttime.values, color="r")
-    lBlocked = eventDatL.blocking.sel(blockingThreshold=50) > 0.1
+    lBlocked = (
+        eventDatL.blocking.sel(blockingThreshold=50) > config.quality.blockedPixThresh
+    )
+
     lBlocked = lBlocked.file_starttime.where(lBlocked).values
     for bx in ax:
         ylim = bx.get_ylim()
-        try:
+        if not np.all(np.isnan(lBlocked)):
             bx.fill_between(
                 lBlocked,
                 [ylim[0]] * len(lBlocked),
@@ -1505,9 +1532,8 @@ def createLevel1matchQuicklook(
                 alpha=0.25,
                 label="blocked leader",
             )
-        except TypeError:
-            log.warning("no data to plot lBlocked")
-        try:
+
+        if not np.all(np.isnan(blowingSnowL)):
             bx.fill_between(
                 blowingSnowL,
                 [ylim[0]] * len(blowingSnowL),
@@ -1517,8 +1543,7 @@ def createLevel1matchQuicklook(
                 label="blow. snow leader",
                 hatch="///",
             )
-        except TypeError:
-            log.warning("no data to plot blowingSnowL")
+
         bx.set_ylim(ylim)
 
     eventDatF = xr.open_dataset(ff.listFiles("metaEvents")[0])
@@ -1528,11 +1553,13 @@ def createLevel1matchQuicklook(
         ):
             for bx in ax:
                 bx.axvline(event.file_starttime.values, color="blue")
-    fBlocked = eventDatF.blocking.sel(blockingThreshold=50) > 0.1
+    fBlocked = (
+        eventDatF.blocking.sel(blockingThreshold=50) > config.quality.blockedPixThresh
+    )
     fBlocked = fBlocked.file_starttime.where(fBlocked).values
     for bx in ax:
         ylim = bx.get_ylim()
-        try:
+        if not np.all(np.isnan(fBlocked)):
             bx.fill_between(
                 fBlocked,
                 [ylim[0]] * len(fBlocked),
@@ -1541,9 +1568,7 @@ def createLevel1matchQuicklook(
                 alpha=0.25,
                 label="blocked follower",
             )
-        except TypeError:
-            log.warning("no data to plot fBlocked")
-        try:
+        if not np.all(np.isnan(blowingSnowF)):
             bx.fill_between(
                 blowingSnowF,
                 [ylim[0]] * len(blowingSnowF),
@@ -1553,8 +1578,7 @@ def createLevel1matchQuicklook(
                 label="blow. snow follower",
                 hatch="///",
             )
-        except TypeError:
-            log.warning("no data to plot blowingSnowF")
+
         bx.set_ylim(ylim)
 
     ax[1].legend()
@@ -1679,7 +1703,9 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     )
 
     resets = [
-        np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
+        np.datetime64(
+            datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S")
+        ).astype(rotDat.file_starttime.dtype)
         for d in config.rotate.keys()
     ]
 
@@ -1921,7 +1947,9 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     isBlocked2 = isBlocked2[~np.isnan(isBlocked2)]
 
     resets = [
-        np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
+        np.datetime64(
+            datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S")
+        ).astype(rotDat.file_starttime.dtype)
         for d in config.rotate.keys()
     ]
 
@@ -2099,6 +2127,8 @@ def createLevel2detectQuicklook(
         axs[0, 0].set_title("no data")
     else:
         dat2 = xr.open_dataset(lv2)
+        # dat2 = dat2.where(dat2.qualityFlags == 0)
+        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
         fEvents1 = ff.listFiles("metaEvents")[0]
 
         try:
@@ -2149,49 +2179,66 @@ def createLevel2detectQuicklook(
         ax4.set_ylabel("Performance")
         ax4.legend()
 
+        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
+        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
+        processingFailed = quality.sel(flag="processingFailed", drop=True)
+        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
+        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
+
         for ax in axs[:, 0]:
             ax.set_title(None)
 
             ylim = ax.get_ylim()
-            cond = dat2.time.where(dat2.recordingFailed)
+            cond = quality.time.where(recordingFailed)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="pink",
                     alpha=0.25,
                     label="cameras off",
                 )
-            cond = dat2.time.where(dat2.processingFailed)
+            cond = quality.time.where(obervationsDiffer)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="magenta",
+                    alpha=0.25,
+                    label="observed # of particles differ",
+                )
+
+            cond = quality.time.where(processingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="purple",
                     alpha=0.25,
                     label="processing failed",
                 )
-            cond = dat2.time.where(dat2.blockedPixelRatio > 0.1)
+            cond = quality.time.where(cameraBlocked)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="red",
                     alpha=0.25,
-                    label="camera blocked > 10%",
+                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
                 )
-            cond = dat2.time.where(dat2.blowingSnowRatio > 0.1)
+            cond = quality.time.where(blowingSnow)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="orange",
                     alpha=0.25,
-                    label="blowing snow > 10%",
+                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
                 )  # , hatch='///')
             ax.set_ylim(ylim)
 
@@ -2242,8 +2289,7 @@ def createLevel2detectQuicklook(
 def createLevel2matchQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     camera = config.leader
     nodata = False
@@ -2261,7 +2307,9 @@ def createLevel2matchQuicklook(
     lv2match = ff.listFiles("level2match")
     if len(lv2match) == 0:
         if len(ff.listFilesExt("level2match")) == 0:
-            log.error(f"{case} level2match data not found")
+            log.error(
+                f"{case} level2match data not found {ff.fnamesPattern.level2match}"
+            )
             return None, None
         else:
             nodata = True
@@ -2301,6 +2349,8 @@ def createLevel2matchQuicklook(
         axs[0, 0].set_title("no data")
     else:
         dat2 = xr.open_dataset(lv2match)
+        # dat2 = dat2.where(dat2.qualityFlags == 0)
+        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
         fEvents1 = ff.listFiles("metaEvents")[0]
         fEvents2 = files.FilenamesFromLevel(fEvents1, config).filenamesOtherCamera(
             level="metaEvents"
@@ -2361,49 +2411,65 @@ def createLevel2matchQuicklook(
         ax4.set_ylabel("Performance")
         ax4.legend()
 
+        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
+        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
+        processingFailed = quality.sel(flag="processingFailed", drop=True)
+        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
+        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
+
         for ax in axs[:, 0]:
             ax.set_title(None)
 
             ylim = ax.get_ylim()
-            cond = dat2.time.where(dat2.recordingFailed)
+            cond = quality.time.where(obervationsDiffer)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="magenta",
+                    alpha=0.25,
+                    label="observed # of particles differ",
+                )
+            cond = quality.time.where(recordingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="pink",
                     alpha=0.25,
                     label="cameras off",
                 )
-            cond = dat2.time.where(dat2.processingFailed)
+            cond = quality.time.where(processingFailed)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="purple",
                     alpha=0.25,
                     label="processing failed",
                 )
-            cond = dat2.time.where(dat2.blockedPixelRatio.sel(camera="max") > 0.1)
+            cond = quality.time.where(cameraBlocked)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="red",
                     alpha=0.25,
-                    label="camera blocked > 10%",
+                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
                 )
-            cond = dat2.time.where(dat2.blowingSnowRatio.sel(camera="max") > 0.1)
+            cond = quality.time.where(blowingSnow)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="orange",
                     alpha=0.25,
-                    label="blowing snow > 10%",
+                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
                 )  # , hatch='///')
             ax.set_ylim(ylim)
 
@@ -2512,7 +2578,11 @@ def createLevel2trackQuicklook(
         axs[0, 0].set_title("no data")
     else:
         dat2 = xr.open_dataset(lv2track)
+        # dat2 = dat2.where(dat2.qualityFlags == 0)
+        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
+
         print(lv2track)
+
         fEvents1 = ff.listFiles("metaEvents")[0]
         fEvents2 = files.FilenamesFromLevel(fEvents1, config).filenamesOtherCamera(
             level="metaEvents"
@@ -2598,49 +2668,66 @@ def createLevel2trackQuicklook(
         ax4.set_ylabel("Performance")
         ax4.legend()
 
+        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
+        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
+        processingFailed = quality.sel(flag="processingFailed", drop=True)
+        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
+        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
+
         for ax in axs[:, 0]:
             ax.set_title(None)
 
             ylim = ax.get_ylim()
-            cond = dat2.time.where(dat2.recordingFailed)
+            cond = quality.time.where(recordingFailed)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="pink",
                     alpha=0.25,
                     label="cameras off",
                 )
-            cond = dat2.time.where(dat2.processingFailed)
+            cond = quality.time.where(obervationsDiffer)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="magenta",
+                    alpha=0.25,
+                    label="observed # of particles differ",
+                )
+
+            cond = quality.time.where(processingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="purple",
                     alpha=0.25,
                     label="processing failed",
                 )
-            cond = dat2.time.where(dat2.blockedPixelRatio.max("camera") > 0.1)
+            cond = quality.time.where(cameraBlocked)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="red",
                     alpha=0.25,
-                    label="camera blocked > 10%",
+                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
                 )
-            cond = dat2.time.where(dat2.blowingSnowRatio.max("camera") > 0.1)
+            cond = quality.time.where(blowingSnow)
             if cond.notnull().any():
                 ax.fill_between(
                     cond,
-                    [ylim[0]] * len(dat2.time),
-                    [ylim[1]] * len(dat2.time),
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
                     color="orange",
                     alpha=0.25,
-                    label="blowing snow > 10%",
+                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
                 )  # , hatch='///')
             ax.set_ylim(ylim)
 
@@ -2794,6 +2881,7 @@ def createLevel1matchParticlesQuicklook(
         fname1 = fname2.replace("level1match", "metaFrames")
         try:
             dat2 = xr.open_dataset(fname2)
+
         except FileNotFoundError:
             if os.path.isfile(f"{fname2}.nodata"):
                 continue
@@ -2822,7 +2910,7 @@ def createLevel1matchParticlesQuicklook(
             pair_id=(
                 (dat2.blur > minBlur).all("camera")
                 & (dat2.Dmax > minSize).all("camera")
-                & (dat2.matchScore > config.minMatchScore)
+                & (dat2.matchScore > config.quality.minMatchScore)
             )
         )
         # print(fname2, len(dat2.pair_id))

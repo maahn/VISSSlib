@@ -1672,10 +1672,10 @@ def matchParticles(
     nPairs = len(matchedDats["pair_id"])
     if nPairs > config.newFileInt:  # i.e at least one match per second
         matchScoreMedian = matchedDats.matchScore.median().values
-        if matchScoreMedian < config.minMatchScore:
+        if matchScoreMedian < config.quality.minMatchScore:
             raise RuntimeError(
                 f"minMatchScore is only {matchScoreMedian} and smaller than "
-                f"minMatchScore {config.minMatchScore} even though we "
+                f"minMatchScore {config.quality.minMatchScore} even though we "
                 f"found {nPairs} particles"
             )
 

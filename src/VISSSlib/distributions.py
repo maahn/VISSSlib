@@ -495,13 +495,36 @@ def createLevel2(
     )
 
     lv2Dat.complexityBW_mean.attrs.update(
+        dict(units="-", long_name="complexity distribution (based on shape only)")
+    )
+    lv2Dat.complexityBW_mean.attrs.update(
         dict(units="-", long_name="mean complexity (based on shape only)")
     )
     lv2Dat.complexityBW_std.attrs.update(
         dict(units="-", long_name="standard deviation complexity (based on shape only)")
     )
+
+    lv2Dat.normalizedRimeMass_mean.attrs.update(
+        dict(
+            units="-",
+            long_name="normalized rime mass distribution (based on shape only)",
+        )
+    )
+    lv2Dat.normalizedRimeMass_mean.attrs.update(
+        dict(units="-", long_name="mean normalized rime mass (based on shape only)")
+    )
+    lv2Dat.normalizedRimeMass_std.attrs.update(
+        dict(
+            units="-",
+            long_name="standard deviation normalized rime mass (based on shape only)",
+        )
+    )
+
     lv2Dat.counts.attrs.update(
-        dict(units="1/min", long_name="number of observed particles")
+        dict(
+            units="1/min",
+            long_name="number of observed particles (not calibrated to observation volume)",
+        )
     )
     if sublevel != "detect":
         lv2Dat.matchScore_mean.attrs.update(
@@ -527,8 +550,10 @@ def createLevel2(
     lv2Dat.qualityFlags.attrs.update(
         dict(
             units="m",
-            long_name="binary quality Flags for recordingFailed, "
-            "processingFailed, cameraBlocked, blowingSnow, obervationsDiffer. "
+            long_name="binary quality Flags",
+            comment="For recordingFailed, "
+            "processingFailed, cameraBlocked, blowingSnow, obervationsDiffer, "
+            "and tracksTooShort. "
             "Use VISSSlib.tools.unpackQualityFlags to unpack",
         )
     )
@@ -1313,7 +1338,7 @@ def createLevel2part(
     # level1dat_4timeAve = level1dat_4timeAve.load()
 
     log.info(f"add additonal variables")
-    level1dat_4timeAve = addPerParticleVariables(level1dat_4timeAve)
+    level1dat_4timeAve = addPerParticleVariables(level1dat_4timeAve, config)
 
     # split data in 1 min chunks
     level1datG = level1dat_4timeAve.groupby_bins(
@@ -1329,7 +1354,14 @@ def createLevel2part(
     del level1dat_4timeAve
 
     sizeDefinitions = ["Dmax", "Dequiv"]
-    data_vars = ["area", "angle", "aspectRatio", "perimeter"]
+    data_vars = [
+        "area",
+        "angle",
+        "aspectRatio",
+        "perimeter",
+        "complexityBW",
+        "normalizedRimeMass",
+    ]
     if sublevel == "track":
         data_vars += ["velocity", "track_angle"]
 
@@ -1475,7 +1507,7 @@ def createLevel2part(
     )
     meanValues = meanValues.rename({k: f"{k}_mean" for k in meanValues.data_vars})
     meanValues = meanValues.rename(time_bins="time")
-    # we want tiem stamps not intervals
+    # we want time stamps not intervals
     meanValues["time"] = [a.left for a in meanValues["time"].values]
 
     log.info("do temporal std values")
@@ -1505,15 +1537,60 @@ def createLevel2part(
     return calibDat
 
 
-def addPerParticleVariables(level1dat_camAve):
+def addPerParticleVariables(level1dat_camAve, config):
     # add area equivalent radius
     level1dat_camAve["Dequiv"] = np.sqrt(4 * level1dat_camAve["area"] / np.pi)
 
-    # based on Garrett, T. J., and S. E. Yuter, 2014: Observed influence of riming, temperature, and turbulence on the fallspeed of solid precipitation. Geophys. Res. Lett., 41, 6515–6522, doi:10.1002/2014GL061016.
+    # based on Garrett, T. J., and S. E. Yuter, 2014: Observed influence of riming,
+    # temperature, and turbulence on the fallspeed of solid precipitation.
+    # Geophys. Res. Lett., 41, 6515–6522, doi:10.1002/2014GL061016.
+
+    # N. Maherndl did not find a signficant difference between using variables
+    # considering holes and not considering holes
+
     level1dat_camAve["complexityBW"] = level1dat_camAve["perimeter"] / (
         np.pi * level1dat_camAve["Dequiv"]
     )
-    # level1dat_camAve["complexity"] = level1dat_camAve["complexityBW"] *
+
+    # for fit Complexity = a0 + a1Mlogd + a2d + a3Mlog
+    # Maherndl, N., M. Moser, J. Lucke, M. Mech, N. Risse, I. Schirmacher, and
+    # M. Maahn, 2024: Quantifying riming from airborne data during the HALO-(AC)3
+    # campaign. Atmos. Meas. Tech., 17, 1475–1495, doi:10.5194/amt-17-1475-2024.
+    # coefficients adapted to VISSS resolution
+
+    if config.visssGen == "visss":
+        a0, a1, a2, a3 = (
+            1.20692082,
+            -0.0051769,
+            -0.00143907,
+            -0.31902574,
+        )
+    elif config.visssGen == "visss2":
+        a0, a1, a2, a3 = (
+            1.22641410e00,
+            -4.12985039e-03,
+            -8.40670401e-04,
+            -3.04855738e-01,
+        )
+    elif config.visssGen == "visss3":
+        a0, a1, a2, a3 = (
+            1.22888785e00,
+            -4.40436778e-03,
+            -9.32105780e-04,
+            -3.04682514e-01,
+        )
+    else:
+        log.error(f"VISSS generation {config.visssGen} not implemented")
+        a0, a1, a2, a3 = (np.nan, np.nan, np.nan, np.nan)
+
+    M = 10 ** (
+        (a0 - level1dat_camAve["complexityBW"] + (a2 * level1dat_camAve["Dmax"]))
+        / -((a1 * level1dat_camAve["Dmax"]) + a3)
+    )
+
+    level1dat_camAve["normalizedRimeMass"] = M.where(
+        level1dat_camAve["Dmax"] >= config.quality.minSize4M
+    )
 
     return level1dat_camAve
 

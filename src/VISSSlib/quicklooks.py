@@ -2165,9 +2165,13 @@ def createLevel2detectQuicklook(
         ax2.set_ylabel("Size [m]")
         ax2.legend()
 
-        lns1 = dat2.complexityBW_mean.plot(ax=ax3, label="complexity")
+        lns1 = (
+            dat2.normalizedRimeMass_dist.sel(size_definition="Dmax")
+            .mean("D_bins")
+            .plot(ax=ax3, label="normalized rime mass [-]")
+        )
         lns2 = dat2.aspectRatio_mean.sel(fitMethod="cv2.fitEllipseDirect").plot(
-            ax=ax3, label="aspect ratio"
+            ax=ax3, label="aspect ratio [-]"
         )
         ax3.set_ylabel("Shape [-]")
         ax3.legend()
@@ -2396,9 +2400,11 @@ def createLevel2matchQuicklook(
         ax2.set_ylabel("Size [m]")
         ax2.legend()
 
-        dat2.complexityBW_mean.sel(camera="max").plot(ax=ax3, label="complexity")
+        dat2.normalizedRimeMass_dist.sel(camera="max", size_definition="Dmax").mean(
+            "D_bins"
+        ).plot(ax=ax3, label="normalized rime mass [-]")
         dat2.aspectRatio_mean.sel(camera="max", fitMethod="cv2.fitEllipseDirect").plot(
-            ax=ax3, label="aspect ratio"
+            ax=ax3, label="aspect ratio [-]"
         )
         ax3.set_ylabel("Shape [-]")
         ax3.legend()
@@ -2651,10 +2657,12 @@ def createLevel2trackQuicklook(
         ax2.set_ylabel("Size [m]")
         ax2.legend()
 
-        dat2.complexityBW_mean.sel(cameratrack="max").plot(ax=ax3, label="complexity")
+        dat2.normalizedRimeMass_dist.sel(
+            cameratrack="max", size_definition="Dmax"
+        ).mean("D_bins").plot(ax=ax3, label="normalized rime mass [-]")
         dat2.aspectRatio_mean.sel(
             cameratrack="min", fitMethod="cv2.fitEllipseDirect"
-        ).plot(ax=ax3, label="aspect ratio")
+        ).plot(ax=ax3, label="aspect ratio [-]")
         ax3.set_ylabel("Shape [-]")
         ax3.legend()
 

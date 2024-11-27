@@ -658,6 +658,10 @@ class detectedParticles(object):
             "pixCenter",
             "contourFFTsum",
             "contourFFTstd",
+            "solidity",
+            "solidityConsideringHoles",
+            "extent",
+            "extentConsideringHoles",
         ]:
             arr = []
             for i in self.all.values():
@@ -1035,6 +1039,23 @@ class singleParticle(object):
         self.contourFFTstd = contourFFT.std()
         self.contourFFT = contourFFT[:maxFFT]
         self.FFTfreqs = np.fft.fftfreq(N, 1 / N)[1 : maxFFT + 1]
+
+        hull = cv2.convexHull(self.cnt)
+        hullArea = cv2.contourArea(hull)
+        try:
+            self.solidity = self.area / hullArea
+            self.solidityConsideringHoles = self.areaConsideringHoles / hullArea
+        except ZeroDivisionError:
+            self.solidity = np.nan
+            self.solidityConsideringHoles = np.nan
+
+        rect_area = self.roi[2] * self.roi[3]
+        try:
+            self.extent = self.area / rect_area
+            self.extentConsideringHoles = self.areaConsideringHoles / rect_area
+        except ZeroDivisionError:
+            self.extent = np.nan
+            self.extentConsideringHoles = np.nan
 
         # remove mask from particle
         # particleMasked = self.particleBox

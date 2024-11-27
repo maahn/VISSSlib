@@ -1757,7 +1757,7 @@ def createMetaRotation(
     # check whether output exists
     if skipExisting and tools.checkForExisting(
         fnameMetaRotation,
-        events=fl.listFiles("metaEvents") + ff.listFiles(f"level1detect"),
+        events=fl.listFiles("metaEvents") + ff.listFiles(f"metaEvents"),
         parents=fl.listFiles(f"level1detect") + ff.listFiles(f"level1detect"),
     ):
         print("SKIPPING", fnameMetaRotation)

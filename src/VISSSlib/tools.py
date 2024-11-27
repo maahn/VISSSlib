@@ -39,7 +39,6 @@ from numba import jit
 DEFAULT_SETTINGS = {
     "correctForSmallOnes": False,
     "height_offset": 64,
-    "minMatchScore": 1e-3,
     "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
     "threshs": [20, 30, 40, 60, 80, 100, 120],
     "goodFiles": ["None", "None"],
@@ -56,6 +55,13 @@ DEFAULT_SETTINGS = {
     },
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
+    },
+    "quality": {
+        "obsRatioThreshold": 0.7,
+        "blowingSnowFrameThresh": 0.05,
+        "blockedPixThresh": 0.1,
+        "minMatchScore": 1e-3,
+        "minSize4M": 10,
     },
     "matchData": True,
     "processL2detect": True,
@@ -81,13 +87,16 @@ def nicerNames(string):
 
 
 def readSettings(fname):
-    # we have to flatten the dictionary so that update works
-    config = flatten_dict.flatten(DEFAULT_SETTINGS)
-    with open(fname, "r") as stream:
-        loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
-        config.update(loadedSettings)
-    # unflatten again and convert to addict.Dict
-    return DictNoDefault(flatten_dict.unflatten(config))
+    if type(fname) is str:
+        # we have to flatten the dictionary so that update works
+        config = flatten_dict.flatten(DEFAULT_SETTINGS)
+        with open(fname, "r") as stream:
+            loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
+            config.update(loadedSettings)
+        # unflatten again and convert to addict.Dict
+        return DictNoDefault(flatten_dict.unflatten(config))
+    else:
+        return fname
 
 
 def getDateRange(nDays, config, endYesterday=True):
@@ -361,7 +370,7 @@ def open_mflevel1match(fnamesExt, config, datVars="all"):
     return dat
 
 
-def identifyBlowingSnowData(fnames, config, timeIndex1, sublevel):
+def identifyBlockedBlowingSnowData(fnames, config, timeIndex1, sublevel):
     # handle blowing snow, estimate ratio of skipped frames
 
     # print("starting identifyBlowingSnowData", cam)
@@ -371,17 +380,37 @@ def identifyBlowingSnowData(fnames, config, timeIndex1, sublevel):
     movingObjects = xr.concat(movingObjects, dim="capture_time")
     # movingObjects = xr.open_mfdataset(fnames,  combine='nested', preprocess=preprocess).movingObjects.load()
     movingObjects = movingObjects.sortby("capture_time")
+
     tooManyMove = movingObjects > config[f"level1{sublevel}"].maxMovingObjects
     tooManyMove = tooManyMove.groupby_bins(
         "capture_time", timeIndex1, labels=timeIndex1[:-1]
     )
-    blowingSnowRatio = tooManyMove.sum() / tooManyMove.count()  # now a ratio
+
+    nFrames = tooManyMove.count()
+    # does not make sense for small number of frames
+    nFrames = nFrames.where(nFrames > 100)
+    blowingSnowRatio = tooManyMove.sum() / nFrames  # now a ratio
     # nan means nothing recorded, so no blowing snow either
     blowingSnowRatio = blowingSnowRatio.fillna(0)
     blowingSnowRatio = blowingSnowRatio.rename(capture_time_bins="time")
 
+    nDetected = (
+        movingObjects.groupby_bins("capture_time", timeIndex1, labels=timeIndex1[:-1])
+        .sum()
+        .fillna(0)
+    )
+    nDetected = nDetected.rename(capture_time_bins="time")
+
     # print("done identifyBlowingSnowData")
-    return blowingSnowRatio
+    return blowingSnowRatio, nDetected
+
+
+def compareNDetected(nDetectedL, nDetectedF):
+    minParticles = 1000
+    ratio = nDetectedL / nDetectedF
+    ratio.values[(nDetectedL < minParticles) | (nDetectedF < minParticles)] = np.nan
+
+    return ratio
 
 
 def removeBlockedBlowingData(dat1D, events, config, threshold=0.1):
@@ -935,6 +964,8 @@ def to_netcdf2(dat, file, **kwargs):
     like xarray netcdf open, but creating directories if needed
     remove to random file and move to final file to avoid errors due to race conditions or exisiting files
     """
+    print(f"saving {file}")
+
     createParentDir(file)
     if os.path.isfile(file):
         log.info(f"remove old version of {file}")
@@ -1079,29 +1110,31 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
 
 class TaskQueuePatched(taskqueue.TaskQueue):
     def is_empty_wait(self):
-        waitTime = 30
+        waitTime = 5
         # first delay everything if there are no jobs
         for i in range(4):
             if not self.is_empty():
                 break
             print(f"waiting for jobs... {i}", flush=True)
             time.sleep(waitTime)
-
         # if there are really no jobs, nothing to do
         if self.is_empty():
             return True
+        print("jobs present")
 
         # if there are jobs, check for killwitch file
         if os.path.isfile("VISSS_KILLSWITCH"):
             print(f"{ii}, found file VISSS_KILLSWITCH, stopping", flush=True)
             return True
+        print("no VISSS_KILLSWITCH")
 
-        # if tehre are jobsm check for memory and wait otherwise
+        # if there are jobsm check for memory and wait otherwise
         while True:
             if psutil.virtual_memory().percent < 95:
                 break
             print(f"waiting for available memory...", flush=True)
             time.sleep(waitTime)
+        print("sufficient memory")
         return self.is_empty()
 
 
@@ -1118,7 +1151,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
                 out = tq.poll(
                     verbose=True,
                     tally=True,
-                    stop_fn=tq.is_empty_wait,
+                    stop_fn=tq.is_empty,
                     lease_seconds=2,
                     backoff_exceptions=[BlockingIOError],
                 )
@@ -1128,7 +1161,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
                 if status is not None:
                     status[ww] = 0
         else:
-            print(f"worker {ww} queueu {queue} empty", flush=True)
+            print(f"worker {ww} queue {queue} empty", flush=True)
         if status is not None:
             if np.all([ss == 0 for ss in status]):
                 print(
@@ -1194,6 +1227,36 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
             )
             return False
     return True
+
+
+def unpackQualityFlags(quality, doubleTimestamps=False):
+    flags = xr.DataArray(
+        [
+            "recordingFailed",
+            "processingFailed",
+            "cameraBlocked",
+            "blowingSnow",
+            "obervationsDiffer",
+            "tracksTooShort",
+        ],
+        dims=["flag"],
+        name="flag",
+    )
+    qualityExpanded = np.unpackbits(
+        quality.values[..., np.newaxis], axis=-1, count=len(flags)
+    )
+    qualityExpanded = xr.DataArray(qualityExpanded, coords=[quality.time, flags])
+
+    # trick for plotting
+    if doubleTimestamps:
+        qualityExpanded2 = xr.DataArray(
+            qualityExpanded.values,
+            coords=[qualityExpanded.time + np.timedelta64(5, "m"), flags],
+        )
+        qualityExpanded = xr.concat(
+            (qualityExpanded, qualityExpanded2), dim="time"
+        ).sortby("time")
+    return qualityExpanded
 
 
 def timestamp2str(ts):

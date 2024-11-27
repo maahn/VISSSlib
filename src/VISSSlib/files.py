@@ -339,6 +339,15 @@ class FindFiles(object):
         )
 
     @functools.cache
+    def listNoData(self, level):
+        return sorted(
+            filter(
+                os.path.isfile,
+                glob.glob(self.fnamesPatternExt[level].replace(".[b,n]*", ".nodata")),
+            )
+        )
+
+    @functools.cache
     def listFilesWithNeighbors(self, level):
         fnames = self.listFiles(level)
         if len(fnames) > 0:
@@ -405,11 +414,29 @@ class FindFiles(object):
             nMissing = self.nL0 - len(self.listFilesExt(level))
 
         if nMissing < 0:
-            log.error(f"Likely duplicates for {level} in {self.fnamesPattern[level]}")
+            log.error(
+                f"Likely duplicates for {level} in {self.fnamesPattern[level]} ."
+                f"Or sth wrong in {self.fnamesPattern['level0txt']}"
+            )
 
         return nMissing
 
-    # @property
+    def reportDuplicates(self, level):
+        duplicates = []
+        if self.nMissing(level) < 0:
+            if level not in dailyLevels:
+                fnamesL0 = self.listFiles("level0txt")
+                for fname in fnamesL0:
+                    ff = Filenames(fname, self.config, self.version)
+                    lfiles = glob.glob(f"{ff.fname[level]}*")
+                    if len(lfiles) > 1:
+                        duplicates += lfiles
+            else:  # for daily levels
+                for fname in self.listFilesExt(level):
+                    duplicates += lfiles
+        return duplicates
+
+    #
     # def isCompleteL2match(self):
     #     return (len(self.listFiles("level0txt")) == len(self.listFilesExt("level2match")))
 
@@ -446,7 +473,7 @@ class Filenames(object):
         # double // can mess with checks whether file exist or not
         fname = fname.replace("//", "/")
 
-        self.fname = Dict(
+        self.fname = DictNoDefault(
             {
                 "level0": fname,
                 "level0txt": fname.replace(config.movieExtension, "txt"),

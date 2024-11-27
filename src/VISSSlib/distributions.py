@@ -97,8 +97,6 @@ def createLevel2detect(
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
-    blockedPixThresh=0.1,
-    blowingSnowFrameThresh=0.05,
     skipExisting=True,
     writeNc=True,
     applyFilters=[],
@@ -113,8 +111,6 @@ def createLevel2detect(
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
-        blockedPixThresh=blockedPixThresh,
-        blowingSnowFrameThresh=blowingSnowFrameThresh,
         skipExisting=skipExisting,
         writeNc=writeNc,
         applyFilters=applyFilters,
@@ -122,10 +118,12 @@ def createLevel2detect(
         camera=camera,
     )
     if doPlot:
+        print(f"Running createLevel2detectQuicklook for {case}")
         quicklooks.createLevel2detectQuicklook(
             case, config, camera, skipExisting=skipExisting
         )
     if doParticlePlot:
+        print(f"Running createLevel1detectQuicklook for {case}")
         quicklooks.createLevel1detectQuicklook(
             case, camera, config, skipExisting=skipExisting
         )
@@ -140,8 +138,6 @@ def createLevel2match(
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
-    blockedPixThresh=0.1,
-    blowingSnowFrameThresh=0.05,
     skipExisting=True,
     writeNc=True,
     applyFilters=[],
@@ -155,16 +151,16 @@ def createLevel2match(
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
-        blockedPixThresh=blockedPixThresh,
-        blowingSnowFrameThresh=blowingSnowFrameThresh,
         skipExisting=skipExisting,
         writeNc=writeNc,
         applyFilters=applyFilters,
         sublevel="match",
     )
     if doPlot:
+        print(f"Running createLevel2matchQuicklook for {case}")
         quicklooks.createLevel2matchQuicklook(case, config, skipExisting=skipExisting)
     if doParticlePlot:
+        print(f"Running createLevel1matchParticlesQuicklook for {case}")
         quicklooks.createLevel1matchParticlesQuicklook(
             case, config, skipExisting=skipExisting
         )
@@ -179,8 +175,6 @@ def createLevel2track(
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
-    blockedPixThresh=0.1,
-    blowingSnowFrameThresh=0.05,
     skipExisting=True,
     writeNc=True,
     applyFilters=[],
@@ -193,14 +187,13 @@ def createLevel2track(
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
-        blockedPixThresh=blockedPixThresh,
-        blowingSnowFrameThresh=blowingSnowFrameThresh,
         skipExisting=skipExisting,
         writeNc=writeNc,
         applyFilters=applyFilters,
         sublevel="track",
     )
     if doPlot:
+        print(f"Running createLevel2trackQuicklook for {case}")
         quicklooks.createLevel2trackQuicklook(case, config, skipExisting=skipExisting)
 
     return out
@@ -213,8 +206,6 @@ def createLevel2(
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
-    blockedPixThresh=0.1,
-    blowingSnowFrameThresh=0.05,
     skipExisting=True,
     writeNc=True,
     hStep=1,
@@ -240,10 +231,6 @@ def createLevel2(
         [description] (the default is ["Dmax", "Dequiv"], which [default_description])
     endTime : [type], optional
         [description] (the default is np.timedelta64(1, "D"), which [default_description])
-    blockedPixThresh : number, optional
-        [description] (the default is 0.1, which [default_description])
-    blowingSnowFrameThresh : number, optional
-        [description] (the default is 0.05, which [default_description])
     skipExisting : bool, optional
         [description] (the default is True, which [default_description])
     writeNc : bool, optional
@@ -400,7 +387,7 @@ def createLevel2(
         return lv2Dat, lv2File
 
     # fill up missing data
-    lv2Dat.reindex(time=timeIndex)
+    lv2Dat = lv2Dat.reindex(time=timeIndex)
 
     # missing variables
     lv2Dat = addVariables(
@@ -410,8 +397,6 @@ def createLevel2(
         timeIndex,
         timeIndex1,
         sublevel,
-        blockedPixThresh=blockedPixThresh,
-        blowingSnowFrameThresh=blowingSnowFrameThresh,
         camera=camera,
     )
 
@@ -515,14 +500,38 @@ def createLevel2(
     lv2Dat.blowingSnowRatio.attrs.update(
         dict(units="-", long_name="ratio of frames rejected due to blowing snow filter")
     )
+
+    lv2Dat.complexityBW_mean.attrs.update(
+        dict(units="-", long_name="complexity distribution (based on shape only)")
+    )
     lv2Dat.complexityBW_mean.attrs.update(
         dict(units="-", long_name="mean complexity (based on shape only)")
     )
     lv2Dat.complexityBW_std.attrs.update(
         dict(units="-", long_name="standard deviation complexity (based on shape only)")
     )
+
+    lv2Dat.normalizedRimeMass_mean.attrs.update(
+        dict(
+            units="-",
+            long_name="normalized rime mass distribution (based on shape only)",
+        )
+    )
+    lv2Dat.normalizedRimeMass_mean.attrs.update(
+        dict(units="-", long_name="mean normalized rime mass (based on shape only)")
+    )
+    lv2Dat.normalizedRimeMass_std.attrs.update(
+        dict(
+            units="-",
+            long_name="standard deviation normalized rime mass (based on shape only)",
+        )
+    )
+
     lv2Dat.counts.attrs.update(
-        dict(units="1/min", long_name="number of observed particles")
+        dict(
+            units="1/min",
+            long_name="number of observed particles (not calibrated to observation volume)",
+        )
     )
     if sublevel != "detect":
         lv2Dat.matchScore_mean.attrs.update(
@@ -531,7 +540,12 @@ def createLevel2(
         lv2Dat.matchScore_std.attrs.update(
             dict(units="-", long_name="standard deviation camera match score")
         )
-
+        lv2Dat.observationsRatio.attrs.update(
+            dict(
+                units="-",
+                long_name="ratio of detected particles by leader and follower",
+            )
+        )
     lv2Dat.obs_volume.attrs.update(dict(units="m^3", long_name="obs_volume"))
     lv2Dat.perimeter_dist.attrs.update(
         dict(units="m", long_name="perimeter distribution")
@@ -554,6 +568,15 @@ def createLevel2(
     )
     lv2Dat.recordingFailed.attrs.update(
         dict(units="-", long_name="flag for faild recording")
+    lv2Dat.qualityFlags.attrs.update(
+        dict(
+            units="m",
+            long_name="binary quality Flags",
+            comment="For recordingFailed, "
+            "processingFailed, cameraBlocked, blowingSnow, obervationsDiffer, "
+            "and tracksTooShort. "
+            "Use VISSSlib.tools.unpackQualityFlags to unpack",
+        )
     )
 
     if sublevel == "match":
@@ -1033,8 +1056,8 @@ def createLevel2part(
 
     else:  # match or track
         # apply matchScore threshold
-        if config.minMatchScore is not None:
-            matchCond = (level1dat.matchScore >= config.minMatchScore).values
+        if config.quality.minMatchScore is not None:
+            matchCond = (level1dat.matchScore >= config.quality.minMatchScore).values
             log.info(
                 tools.concat(
                     "matchCond applies to",
@@ -1346,7 +1369,7 @@ def createLevel2part(
     # level1dat_4timeAve = level1dat_4timeAve.load()
 
     log.info(f"add additonal variables")
-    level1dat_4timeAve = addPerParticleVariables(level1dat_4timeAve)
+    level1dat_4timeAve = addPerParticleVariables(level1dat_4timeAve, config)
 
     # split data in 1 min chunks
     level1datG = level1dat_4timeAve.groupby_bins(
@@ -1369,6 +1392,8 @@ def createLevel2part(
         "perimeter",
         "areaConsideringHoles",
         "perimeterConsideringHoles",
+        "complexityBW",
+        "normalizedRimeMass",
     ]
     if sublevel == "track":
         data_vars += ["velocity", "track_angle"]
@@ -1380,7 +1405,7 @@ def createLevel2part(
 
     if sublevel == "detect":
         # iterate through every 1 min piece
-        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout):
+        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout, desc=case):
             # estimate counts
             tmpXr = []
             for sizeDefinition in sizeDefinitions:
@@ -1438,7 +1463,7 @@ def createLevel2part(
             coordVar = "camera"
 
         # iterate through every 1 min piece
-        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout):
+        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout, desc=case):
             # print(interv)
             tmp = []
             # for each track&camera/min/max/mean seperately
@@ -1515,7 +1540,7 @@ def createLevel2part(
     )
     meanValues = meanValues.rename({k: f"{k}_mean" for k in meanValues.data_vars})
     meanValues = meanValues.rename(time_bins="time")
-    # we want tiem stamps not intervals
+    # we want time stamps not intervals
     meanValues["time"] = [a.left for a in meanValues["time"].values]
 
     log.info("do temporal std values")
@@ -1545,17 +1570,62 @@ def createLevel2part(
     return calibDat
 
 
-def addPerParticleVariables(level1dat_camAve):
+def addPerParticleVariables(level1dat_camAve, config):
     # add area equivalent radius
     level1dat_camAve["Dequiv"] = np.sqrt(
         4 * level1dat_camAve["areaConsideringHoles"] / np.pi
     )
 
-    # based on Garrett, T. J., and S. E. Yuter, 2014: Observed influence of riming, temperature, and turbulence on the fallspeed of solid precipitation. Geophys. Res. Lett., 41, 6515–6522, doi:10.1002/2014GL061016.
-    level1dat_camAve["complexityBW"] = level1dat_camAve["perimeterConsideringHoles"] / (
+    # based on Garrett, T. J., and S. E. Yuter, 2014: Observed influence of riming,
+    # temperature, and turbulence on the fallspeed of solid precipitation.
+    # Geophys. Res. Lett., 41, 6515–6522, doi:10.1002/2014GL061016.
+
+    # N. Maherndl did not find a signficant difference between using variables
+    # considering holes and not considering holes
+
+    level1dat_camAve["complexityBW"] = level1dat_camAve["perimeter"] / (
         np.pi * level1dat_camAve["Dequiv"]
     )
-    # level1dat_camAve["complexity"] = level1dat_camAve["complexityBW"] *
+
+    # for fit Complexity = a0 + a1Mlogd + a2d + a3Mlog
+    # Maherndl, N., M. Moser, J. Lucke, M. Mech, N. Risse, I. Schirmacher, and
+    # M. Maahn, 2024: Quantifying riming from airborne data during the HALO-(AC)3
+    # campaign. Atmos. Meas. Tech., 17, 1475–1495, doi:10.5194/amt-17-1475-2024.
+    # coefficients adapted to VISSS resolution
+
+    if config.visssGen == "visss":
+        a0, a1, a2, a3 = (
+            1.20692082,
+            -0.0051769,
+            -0.00143907,
+            -0.31902574,
+        )
+    elif config.visssGen == "visss2":
+        a0, a1, a2, a3 = (
+            1.22641410e00,
+            -4.12985039e-03,
+            -8.40670401e-04,
+            -3.04855738e-01,
+        )
+    elif config.visssGen == "visss3":
+        a0, a1, a2, a3 = (
+            1.22888785e00,
+            -4.40436778e-03,
+            -9.32105780e-04,
+            -3.04682514e-01,
+        )
+    else:
+        log.error(f"VISSS generation {config.visssGen} not implemented")
+        a0, a1, a2, a3 = (np.nan, np.nan, np.nan, np.nan)
+
+    M = 10 ** (
+        (a0 - level1dat_camAve["complexityBW"] + (a2 * level1dat_camAve["Dmax"]))
+        / -((a1 * level1dat_camAve["Dmax"]) + a3)
+    )
+
+    level1dat_camAve["normalizedRimeMass"] = M.where(
+        level1dat_camAve["Dmax"] >= config.quality.minSize4M
+    )
 
     return level1dat_camAve
 
@@ -1567,8 +1637,6 @@ def addVariables(
     timeIndex,
     timeIndex1,
     sublevel,
-    blockedPixThresh=0.1,
-    blowingSnowFrameThresh=0.05,
     camera="leader",
 ):
     # 1 min data
@@ -1597,20 +1665,30 @@ def addVariables(
         )
 
     # quality variables
-    recordingFailed, processingFailed, blockedPixels, blowingSnowRatio = getDataQuality(
-        case, config, timeIndex, timeIndex1, sublevel, camera=camera
-    )
+    (
+        recordingFailed,
+        processingFailed,
+        blockedPixels,
+        blowingSnowRatio,
+        observationsRatio,
+    ) = getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=camera)
     assert np.all(blockedPixels.time == calibDat.time)
 
     if sublevel == "detect":
         processingFailed.values[:] = False  # not relevant becuase it is about matching
-        cameraBlocked = blockedPixels > blockedPixThresh
-        blowingSnow = blowingSnowRatio > blowingSnowFrameThresh
+        cameraBlocked = blockedPixels > config.quality.blockedPixThresh
+        blowingSnow = blowingSnowRatio > config.quality.blowingSnowFrameThresh
+        obervationsDiffer = False
 
     else:
         recordingFailed = recordingFailed.any("camera")
-        cameraBlocked = blockedPixels.max("camera") > blockedPixThresh
-        blowingSnow = blowingSnowRatio.max("camera") > blowingSnowFrameThresh
+        cameraBlocked = blockedPixels.max("camera") > config.quality.blockedPixThresh
+        blowingSnow = (
+            blowingSnowRatio.max("camera") > config.quality.blowingSnowFrameThresh
+        )
+        obervationsDiffer = (observationsRatio < config.quality.obsRatioThreshold) | (
+            observationsRatio > (1 / config.quality.obsRatioThreshold)
+        )
 
     # apply quality
     log.info("apply quality filters...")
@@ -1642,26 +1720,52 @@ def addVariables(
             "% of data",
         )
     )
+    if sublevel != "detect":
+        log.info(
+            tools.concat(
+                "observationsRatio filter removed",
+                obervationsDiffer.values.sum() / len(cameraBlocked) * 100,
+                "% of data",
+            )
+        )
 
-    allFilter = recordingFailed | processingFailed | cameraBlocked | blowingSnow
+    allFilter = (
+        recordingFailed
+        | processingFailed
+        | cameraBlocked
+        | blowingSnow
+        | obervationsDiffer
+    )
     log.info(
         tools.concat(
-            "all filter together removed",
+            "all filter together applied to",
             allFilter.values.sum() / len(allFilter) * 100,
             "% of data",
         )
     )
 
+    qualityFlag = np.stack(
+        [
+            recordingFailed,
+            processingFailed,
+            cameraBlocked,
+            blowingSnow,
+            obervationsDiffer,
+        ],
+        axis=-1,
+    )
+    qualityFlag = np.packbits(qualityFlag, axis=-1).squeeze()
+    calibDat["qualityFlags"] = xr.DataArray(qualityFlag, coords=[calibDat.time])
+
     assert (allFilter.time == calibDat.time).all()
 
-    calibDatFilt = calibDat.where(~allFilter)
     # reverse for D_bins_left and D_bins_right
-    calibDatFilt["D_bins_left"] = calibDat["D_bins_left"]
-    calibDatFilt["D_bins_right"] = calibDat["D_bins_right"]
+    calibDat["D_bins_left"] = calibDat["D_bins_left"]
+    calibDat["D_bins_right"] = calibDat["D_bins_right"]
 
-    calibDatFilt["recordingFailed"] = recordingFailed
-    calibDatFilt["processingFailed"] = processingFailed
-    calibDatFilt["blowingSnowRatio"] = blowingSnowRatio
+    # calibDat["recordingFailed"] = recordingFailed
+    # calibDat["processingFailed"] = processingFailed
+    calibDat["blowingSnowRatio"] = blowingSnowRatio
     if sublevel == "match":
         blockedVars = (
             blockedPixels.max("camera"),
@@ -1670,7 +1774,7 @@ def addVariables(
             blockedPixels.sel(camera="leader", drop=True),
             blockedPixels.sel(camera="follower", drop=True),
         )
-        calibDatFilt["blockedPixelRatio"] = xr.concat(blockedVars, dim="camera").T
+        calibDat["blockedPixelRatio"] = xr.concat(blockedVars, dim="camera").T
         blowingVars = (
             blowingSnowRatio.max("camera"),
             blowingSnowRatio.mean("camera"),
@@ -1678,12 +1782,15 @@ def addVariables(
             blowingSnowRatio.sel(camera="leader", drop=True),
             blowingSnowRatio.sel(camera="follower", drop=True),
         )
-        calibDatFilt["blowingSnowRatio"] = xr.concat(blowingVars, dim="camera").T
+        calibDat["blowingSnowRatio"] = xr.concat(blowingVars, dim="camera").T
     else:
-        calibDatFilt["blockedPixelRatio"] = blockedPixels.T
-        calibDatFilt["blowingSnowRatio"] = blowingSnowRatio.T
+        calibDat["blockedPixelRatio"] = blockedPixels.T
+        calibDat["blowingSnowRatio"] = blowingSnowRatio.T
 
-    return calibDatFilt
+    if sublevel != "detect":
+        calibDat["observationsRatio"] = observationsRatio
+
+    return calibDat
 
 
 def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
@@ -2087,7 +2194,7 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     )
     processingFailed = xr.DataArray(processingFailed, dims=["time"], coords=[timeIndex])
 
-    blowingSnowRatio1 = tools.identifyBlowingSnowData(
+    blowingSnowRatio1, nDetected = tools.identifyBlockedBlowingSnowData(
         f1.listFilesWithNeighbors("metaDetection"), config, timeIndex1, sublevel
     )
 
@@ -2100,7 +2207,13 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     )
     blockedPixels1 = blockedPixels1.rename(file_starttime="time")
 
-    return recordingFailed1, processingFailed, blockedPixels1, blowingSnowRatio1
+    return (
+        recordingFailed1,
+        processingFailed,
+        blockedPixels1,
+        blowingSnowRatio1,
+        nDetected,
+    )
 
 
 def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
@@ -2110,6 +2223,7 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             processingFailed,
             blockedPixelsL,
             blowingSnowRatioL,
+            nDetectedL,
         ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
 
         (
@@ -2117,6 +2231,7 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             _________,
             blockedPixelsF,
             blowingSnowRatioF,
+            nDetectedF,
         ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "follower")
 
         recordingFailed = xr.concat((recordingFailedL, recordingFailedF), dim="camera")
@@ -2130,10 +2245,25 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
         )
         blowingSnowRatio["camera"] = ["leader", "follower"]
 
-        return recordingFailed, processingFailed, blockedPixels, blowingSnowRatio
+        observationsRatio = tools.compareNDetected(nDetectedL, nDetectedF)
+
+        return (
+            recordingFailed,
+            processingFailed,
+            blockedPixels,
+            blowingSnowRatio,
+            observationsRatio,
+        )
 
     else:
-        return getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera)
+        (
+            recordingFailed,
+            processingFailed,
+            blockedPixels,
+            blowingSnowRatio,
+            nDetected,
+        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera)
+        return recordingFailed, processingFailed, blockedPixels, blowingSnowRatio, 1
 
 
 def _createBox(p1, p2, p3, p4, p5, p6, p7, p8):
@@ -2433,7 +2563,9 @@ def estimateVolumes(
                     deltaFollowerExtra2=followerExtra[1],
                 )
             )
-            print(ii, dd, delta, leaderExtra, followerExtra, volumes[-1])
+            log.info(
+                tools.concat(ii, dd, delta, leaderExtra, followerExtra, volumes[-1])
+            )
 
         if interpolate:
             Ds_inter, volumes = interpolateVolumes(np.array(sizeBins), ddInter, volumes)

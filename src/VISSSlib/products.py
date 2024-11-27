@@ -478,14 +478,30 @@ class DataProduct(object):
     def listBroken(self):
         return self.fn.listBroken(self.level)
 
-    def cleanUpBroken(self, withParents=False):
+    def listNoData(self):
+        return self.fn.listNoData(self.level)
+
+    def cleanUpBroken(self, withParents=False, withNoData=False):
         for fname in self.listBroken():
             assert fname.endswith("broken.txt")
             os.remove(fname)
             log.warning(f"{fname} removed")
+        if withNoData:
+            for fname in self.listNoData():
+                assert fname.endswith("nodata")
+                os.remove(fname)
+                log.warning(f"{fname} removed")
         if withParents:
             for name, parent in self.parents.items():
-                parent.cleanUpBroken(withParents=False)
+                parent.cleanUpBroken(withParents=False, withNoData=withNoData)
+
+    def cleanUpDuplicates(self, withParents=False):
+        for fname in self.fn.reportDuplicates(self.level):
+            os.remove(fname)
+            log.warning(f"{fname} removed")
+        if withParents:
+            for name, parent in self.parents.items():
+                parent.cleanUpDuplicates(withParents=False)
 
 
 class allDone(DataProduct):
@@ -630,9 +646,15 @@ class DataProductRange(object):
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
-    def cleanUpBroken(self, withParents=False):
+    def cleanUpBroken(self, withParents=False, withNoData=False):
         for dd in self.days:
-            self.dailies[dd].cleanUpBroken(withParents=withParents)
+            self.dailies[dd].cleanUpBroken(
+                withParents=withParents, withNoData=withNoData
+            )
+
+    def cleanUpDuplicates(self, withParents=False):
+        for dd in self.days:
+            self.dailies[dd].cleanUpDuplicates(withParents=withParents)
 
 
 def submitAll(
@@ -645,6 +667,7 @@ def submitAll(
     checkForDuplicates=True,
     runWorkers=False,
     cleanUpBroken=False,
+    cleanUpDuplicates=False,
 ):
     if submitJobs:
         tq = taskqueue.TaskQueue(f"fq://{fileQueue}")
@@ -652,7 +675,9 @@ def submitAll(
 
         prod = DataProductRange("allDone", nDays, settings, fileQueue, "leader")
         if cleanUpBroken:
-            prod.cleanUpBroken(withParents=True)
+            prod.cleanUpBroken(withParents=True, withNoData=False)
+        if cleanUpDuplicates:
+            prod.cleanUpDuplicates(withParents=True)
         prod.submitCommands(
             checkForDuplicates=checkForDuplicates,
             skipExisting=skipExisting,

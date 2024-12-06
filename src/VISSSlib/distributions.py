@@ -1643,7 +1643,7 @@ def addVariables(
         processingFailed.values[:] = False  # not relevant becuase it is about matching
         cameraBlocked = blockedPixels > config.quality.blockedPixThresh
         blowingSnow = blowingSnowRatio > config.quality.blowingSnowFrameThresh
-        obervationsDiffer = False
+        obervationsDiffer = np.array([False] * len(blockedPixels))
 
     else:
         recordingFailed = recordingFailed.any("camera")

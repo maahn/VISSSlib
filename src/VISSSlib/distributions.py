@@ -43,6 +43,8 @@ def _preprocess(dat):
             "angle",
             "perimeter",
             "perimeterConsideringHoles",
+            "solidity",
+            "extent",
         ]
         if "pair_id" in dat.coords:
             del dat["pair_id"]
@@ -563,11 +565,20 @@ def createLevel2(
     lv2Dat.perimeterConsideringHoles_std.attrs.update(
         dict(units="m", long_name="standard deviation perimeter")
     )
-    lv2Dat.processingFailed.attrs.update(
-        dict(units="-", long_name="flag for faild processing")
+
+    lv2Dat.extent_dist.attrs.update(dict(units="m", long_name="extent distribution"))
+    lv2Dat.extent_mean.attrs.update(dict(units="m", long_name="mean extent"))
+    lv2Dat.extent_std.attrs.update(
+        dict(units="m", long_name="standard deviation extent")
     )
-    lv2Dat.recordingFailed.attrs.update(
-        dict(units="-", long_name="flag for faild recording")
+    lv2Dat.solidity_dist.attrs.update(
+        dict(units="m", long_name="solidity distribution")
+    )
+    lv2Dat.solidity_mean.attrs.update(dict(units="m", long_name="mean solidity"))
+    lv2Dat.solidity_std.attrs.update(
+        dict(units="m", long_name="standard deviation solidity")
+    )
+
     lv2Dat.qualityFlags.attrs.update(
         dict(
             units="m",
@@ -1249,6 +1260,8 @@ def createLevel2part(
             "angle",
             "perimeter",
             "perimeterConsideringHoles",
+            "solidity",
+            "extent",
         ]
 
         # promote capture_time to coordimnate for later
@@ -1321,6 +1334,8 @@ def createLevel2part(
             "perimeter",
             "perimeterConsideringHoles",
             "velocity",
+            "solidity",
+            "extent",
         ]
         for data_var in data_vars:
             level1dat_trackAve[data_var] = level1dat_trackAve[data_var].broadcast_like(
@@ -1394,6 +1409,8 @@ def createLevel2part(
         "perimeterConsideringHoles",
         "complexityBW",
         "normalizedRimeMass",
+        "solidity",
+        "extent",
     ]
     if sublevel == "track":
         data_vars += ["velocity", "track_angle"]
@@ -1678,7 +1695,7 @@ def addVariables(
         processingFailed.values[:] = False  # not relevant becuase it is about matching
         cameraBlocked = blockedPixels > config.quality.blockedPixThresh
         blowingSnow = blowingSnowRatio > config.quality.blowingSnowFrameThresh
-        obervationsDiffer = False
+        obervationsDiffer = np.array([False] * len(blockedPixels))
 
     else:
         recordingFailed = recordingFailed.any("camera")
@@ -1858,6 +1875,8 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
                 "perimeterConsideringHoles",
                 "position3D_centroid",
                 "capture_time",
+                "solidity",
+                "extent",
             ]
             + extraVars
         )

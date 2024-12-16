@@ -1492,6 +1492,7 @@ def reportLastFiles(
 
     output += "#" * 80
     output += "\n"
+    output += f"VISSSlib version {__version__}\n"
 
     if writeFile:
         fOut = f"{config['pathQuicklooks'].format(version=ff.version,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"

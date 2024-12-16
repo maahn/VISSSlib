@@ -195,7 +195,7 @@ class FindFiles(object):
 
         self.fnamesPatternExt = DictNoDefault({})
         for dL in fileLevels + dailyLevels + hourlyLevels:
-            self.fnamesPatternExt[dL] = "%s/%s_V%s_*%s*%s*nc.[b,n]*" % (
+            self.fnamesPatternExt[dL] = "%s/%s_V%s_*%s*%s*nc.[b,n][r,o]*" % (
                 self.outpath[dL],
                 dL,
                 version,
@@ -333,7 +333,7 @@ class FindFiles(object):
             filter(
                 os.path.isfile,
                 glob.glob(
-                    self.fnamesPatternExt[level].replace(".[b,n]*", ".broken.txt")
+                    self.fnamesPatternExt[level].replace(".[b,n][r,o]*", ".broken.txt")
                 ),
             )
         )
@@ -343,7 +343,9 @@ class FindFiles(object):
         return sorted(
             filter(
                 os.path.isfile,
-                glob.glob(self.fnamesPatternExt[level].replace(".[b,n]*", ".nodata")),
+                glob.glob(
+                    self.fnamesPatternExt[level].replace(".[b,n][r,o]*", ".nodata")
+                ),
             )
         )
 
@@ -415,7 +417,7 @@ class FindFiles(object):
 
         if nMissing < 0:
             log.error(
-                f"Likely duplicates for {level} in {self.fnamesPattern[level]} ."
+                f"Likely duplicates for {level} in {self.fnamesPattern[level]}* ."
                 f"Or sth wrong in {self.fnamesPattern['level0txt']}"
             )
 

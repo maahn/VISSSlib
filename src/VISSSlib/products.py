@@ -150,7 +150,12 @@ class DataProduct(object):
         # cache for this function
         isComplete = self.isComplete
 
-        if skipExisting and isComplete and self.youngerThanParents:
+        if (
+            skipExisting
+            and isComplete
+            and self.youngerThanParents
+            and self.parentsComplete
+        ):
             if withParents:
                 log.warning(f"{self.case} {self.relatives}: everything processed")
             return []

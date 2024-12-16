@@ -951,12 +951,30 @@ def concatImgX(im1, im2, background=0):
     return imT
 
 
-def open2(file, mode="r", **kwargs):
+def open2(file, mode="r", cleanUp=True, **kwargs):
     """
     like standard open, but creating directories if needed
     """
     createParentDir(file)
+
+    if cleanUp:
+        origFile = file.replace(".nc.nodata", ".nc").replace(".nc.broken.txt", ".nc")
+        tryRemovingFile(origFile)
+        tryRemovingFile(f"{origFile}.nodata")
+        tryRemovingFile(f"{origFile}.broken.txt")
+        pass
+
     return open(file, mode, **kwargs)
+
+
+def tryRemovingFile(file):
+    try:
+        os.remove(file)
+    except:
+        pass
+    else:
+        log.warning(f"removed {file}")
+    return
 
 
 def to_netcdf2(dat, file, **kwargs):
@@ -968,11 +986,7 @@ def to_netcdf2(dat, file, **kwargs):
 
     createParentDir(file)
     if os.path.isfile(file):
-        log.info(f"remove old version of {file}")
-        try:
-            os.remove(file)
-        except:
-            pass
+        tryRemovingFile(file)
 
     tmpFile = f"{file}.{np.random.randint(0, 99999 + 1)}.tmp.cdf"
     with warnings.catch_warnings():
@@ -985,18 +999,8 @@ def to_netcdf2(dat, file, **kwargs):
     os.rename(tmpFile, file)
     log.info(f"saved {file}")
 
-    try:
-        os.remove(f"{file}.nodata")
-    except FileNotFoundError:
-        pass
-    else:
-        log.info(f"{file}.nodata removed")
-    try:
-        os.remove(f"{file}.broken.txt")
-    except FileNotFoundError:
-        pass
-    else:
-        log.info(f"{file}.broken.txt removed")
+    tryRemovingFile(f"{file}.nodata")
+    tryRemovingFile(f"{file}.broken.txt")
 
     return res
 
@@ -1100,10 +1104,7 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
         except:
             pass
     if not running:
-        try:
-            os.remove(tmpFile)
-        except:
-            pass
+        tryRemovingFile(tmpFile)
 
     return success
 
@@ -1203,6 +1204,7 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60):
 
 
 def checkForExisting(ffOut, level0=None, events=None, parents=None):
+    # checks whether file exists and checks age of parents and meta files
     if not os.path.isfile(ffOut):
         return False
     if level0 is not None:
@@ -1226,6 +1228,7 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
                 ffOut,
             )
             return False
+
     return True
 
 

@@ -225,7 +225,7 @@ def createLevel1detectQuicklook(
         ffOut,
         level0=ff.listFiles("level0"),
         events=ff.listFiles("metaEvents"),
-        parents=ff.listFiles("level1detect"),
+        parents=ff.listFilesExt("level1detect"),
     ):
         return None, None
 
@@ -1246,7 +1246,7 @@ def createLevel1matchQuicklook(
         fOut,
         level0=fl.listFiles("level0") + ff.listFiles("level0"),
         events=fl.listFiles("metaEvents") + ff.listFiles("metaEvents"),
-        parents=fl.listFiles("level1match"),
+        parents=fl.listFilesExt("level1match"),
     ):
         return None, None
 
@@ -2830,7 +2830,7 @@ def createLevel1matchParticlesQuicklook(
         ffOut,
         level0=ff.listFiles("level0"),
         events=ff.listFiles("metaEvents"),
-        parents=ff.listFiles("level1match"),
+        parents=ff.listFilesExt("level1match"),
     ):
         return None, None
 

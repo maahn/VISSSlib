@@ -434,8 +434,7 @@ class FindFiles(object):
                     if len(lfiles) > 1:
                         duplicates += lfiles
             else:  # for daily levels
-                for fname in self.listFilesExt(level):
-                    duplicates += lfiles
+                duplicates = self.listFilesExt(level)
         return duplicates
 
     #

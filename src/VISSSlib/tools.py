@@ -42,7 +42,11 @@ DEFAULT_SETTINGS = {
     "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
     "threshs": [20, 30, 40, 60, 80, 100, 120],
     "goodFiles": ["None", "None"],
-    "level1detectQuicklook": {"minBlur": 500, "minSize": 10, "omitLabel4small": True},
+    "level1detectQuicklook": {
+        "minBlur": 500,
+        "minSize": 10,
+        "omitLabel4small": True,
+    },
     "rotate": {},
     "level1detect": {
         "maxMovingObjects": 1000,  # 60 until 18.9.24
@@ -62,6 +66,7 @@ DEFAULT_SETTINGS = {
         "blockedPixThresh": 0.1,
         "minMatchScore": 1e-3,
         "minSize4M": 10,
+        "trackLengthThreshold": 2,
     },
     "matchData": True,
     "processL2detect": True,
@@ -1100,6 +1105,7 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     if not success:
         shutil.copy(tmpFile, "%s.broken.txt" % tmpFile)
         try:
+            createParentDir(fOut)
             shutil.copy(tmpFile, "%s.broken.txt" % fOut)
         except:
             pass

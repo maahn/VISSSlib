@@ -2681,6 +2681,7 @@ def createLevel2trackQuicklook(
         processingFailed = quality.sel(flag="processingFailed", drop=True)
         blowingSnow = quality.sel(flag="blowingSnow", drop=True)
         cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
+        tracksTooShort = quality.sel(flag="tracksTooShort", drop=True)
 
         for ax in axs[:, 0]:
             ax.set_title(None)
@@ -2737,6 +2738,18 @@ def createLevel2trackQuicklook(
                     alpha=0.25,
                     label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
                 )  # , hatch='///')
+            cond = quality.time.where(tracksTooShort)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="blue",
+                    alpha=0.2,
+                    label=f"mean track length < {config.quality.trackLengthThreshold}",
+                    # hatch="X",
+                )
+
             ax.set_ylim(ylim)
 
             ax.tick_params(axis="both", labelsize=15)

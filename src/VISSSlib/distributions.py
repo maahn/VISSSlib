@@ -280,6 +280,15 @@ def createLevel2(
     #        print(len(fL.listFiles("level0")), "of", len(fL.listFiles("metaFrames")), "transmitted")
     #        return None, None
 
+    allBroken = np.all(
+        [f.endswith("broken.txt") for f in fL.listFilesExt(f"level1{sublevel}")]
+    )
+
+    if allBroken:
+        raise RuntimeError(
+            f"All level1{sublevel} in {fL.fnamesPatternExt[f'level1{sublevel}']} are broken."
+        )
+
     if sublevel == "match":
         if not fL.isCompleteL1match:
             log.error(
@@ -1644,6 +1653,7 @@ def addVariables(
         cameraBlocked = blockedPixels > config.quality.blockedPixThresh
         blowingSnow = blowingSnowRatio > config.quality.blowingSnowFrameThresh
         obervationsDiffer = np.array([False] * len(blockedPixels))
+        tracksTooShort = np.array([False] * len(blockedPixels))
 
     else:
         recordingFailed = recordingFailed.any("camera")
@@ -1654,6 +1664,12 @@ def addVariables(
         obervationsDiffer = (observationsRatio < config.quality.obsRatioThreshold) | (
             observationsRatio > (1 / config.quality.obsRatioThreshold)
         )
+        if sublevel == "match":
+            tracksTooShort = np.array([False] * len(cameraBlocked))
+        else:
+            tracksTooShort = (
+                calibDat.track_length_mean <= config.quality.trackLengthThreshold
+            )
 
     # apply quality
     log.info("apply quality filters...")
@@ -1693,13 +1709,21 @@ def addVariables(
                 "% of data",
             )
         )
-
+    if sublevel == "track":
+        log.info(
+            tools.concat(
+                "tracksTooShort filter removed",
+                tracksTooShort.values.sum() / len(cameraBlocked) * 100,
+                "% of data",
+            )
+        )
     allFilter = (
         recordingFailed
         | processingFailed
         | cameraBlocked
         | blowingSnow
         | obervationsDiffer
+        | tracksTooShort
     )
     log.info(
         tools.concat(
@@ -1716,6 +1740,7 @@ def addVariables(
             cameraBlocked,
             blowingSnow,
             obervationsDiffer,
+            tracksTooShort,
         ],
         axis=-1,
     )

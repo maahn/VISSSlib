@@ -17,6 +17,8 @@
 # __version__ = '20230106' # Dmax bugfix, clean up of variables, position_centroid missing until jan 31st!!
 # __version__ = '20231116' #adapted detection (lower thresholds), first workign tracking version
 # __version__ = '1.0.0' # new  version number scheme to allow better control about reprocessin, added FFT contour
+# __version__ = '1.1.0' # additional lv1 variables areaConsideringHoles, perimeterConsideringHoles
+# __version__ = '1.2.0' # additional lv1 variables solidity, extent, solidityConsideringHoles, extentConsideringHoles
 
 
 # Version is pulled from git tag!!

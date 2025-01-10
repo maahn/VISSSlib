@@ -979,11 +979,16 @@ def matchParticles(
     if not doRot:
         # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
+
+        if os.path.isfile(f"{fnameMetaRotation}.broken.txt"):
+            raise RuntimeError(f"{fnameMetaRotation}.broken.txt is broken")
+
         try:
             metaRotationDat = xr.open_dataset(fnameMetaRotation)
         except FileNotFoundError:
-            log.error(f"did not find{fnameMetaRotation}")
+            log.error(f"did not find {fnameMetaRotation}")
             errors["noMetaRot"] = True
+
             return fname1Match, None, None, None, None, None, None, errors
         try:
             metaRotationDat = metaRotationDat.where(
@@ -1789,6 +1794,10 @@ def createMetaRotation(
             deltaT = fflM.datetime64 - prevTime
             if deltaT > np.timedelta64(2, "D"):
                 print(
+                    f"Skipping, no previous data found! data in config file {round(deltaT/np.timedelta64(1,'h'))}h old which is more than 48h",
+                    fnameMetaRotation,
+                )
+                raise RuntimeError(
                     f"Skipping, no previous data found! data in config file {round(deltaT/np.timedelta64(1,'h'))}h old which is more than 48h",
                     fnameMetaRotation,
                 )

@@ -1646,19 +1646,24 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     # handle current year a bit differently
     if int(year) == int(datetime.datetime.utcnow().year):
         rotFiles1 = ff1.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
-        try:
-            rotDat1 = xr.open_mfdataset(rotFiles1, combine="by_coords")
-        except OSError:
-            pass
-        except ValueError:
-            rotDat1 = xr.open_mfdataset(rotFiles1, combine="nested")
-        else:
-            rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
+        rotFiles1 = sorted(glob.glob(rotFiles1))
+        rotDat1 = []
+        # open_mfdataset does not work due to duplicate file_starttimes...
+        for rotFile in rotFiles:
+            rotDat1.append(xr.open_dataset(rotFile))
+        if len(rotDat1) == 0:
+            log.error(f"{fPattern} not found")
+            return None, None
+        rotDat1 = xr.concat(rotDat1, "file_starttime")
+        rotDat1 = rotDat1.isel(
+            file_starttime=np.unique(rotDat1.file_starttime, return_index=True)[1]
+        ).sortby("file_starttime")
+        rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
         lastYear = np.datetime64(
             datetime.datetime.utcnow() - datetime.timedelta(days=365)
         )
         rotDat = rotDat.isel(file_starttime=(rotDat.file_starttime > lastYear))
-
+        rotDat = rotDat.sortby("file_starttime")
     fig, (ax1, ax2, ax3) = plt.subplots(
         3, figsize=(20, 15), gridspec_kw={"hspace": 0.0}, sharex=True
     )

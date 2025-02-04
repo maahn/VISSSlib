@@ -1776,6 +1776,8 @@ def createMetaRotation(
         )
         return None, None
 
+    print("running", fnameMetaRotation)
+
     # collect results here later
     metaRotation = []
 

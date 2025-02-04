@@ -32,7 +32,7 @@ from . import __version__, av, tools
 log = logging.getLogger(__name__)
 
 
-def statusText(fig, fnames):
+def statusText(fig, fnames, config, addLogo=True):
     if not isinstance(fnames, (list, tuple)):
         fnames = [fnames]
     try:
@@ -55,6 +55,15 @@ def statusText(fig, fnames):
         verticalalignment="bottom",
         horizontalalignment="left",
     )
+
+    if addLogo and ("logo" in config.keys()):
+        try:
+            im = Image.open(config.logo)
+        except FileNotFoundError:
+            log.error(f"Did not find {config.logo}")
+        else:
+            fig.figimage(np.asarray(im), 0, fig.bbox.ymax - im.height, zorder=10)
+
     return fig
 
 
@@ -1207,7 +1216,7 @@ def metaFramesQuicklook(
 
     ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
 
-    statusText(fig, ff.listFiles("metaFrames"))
+    statusText(fig, ff.listFiles("metaFrames"), config)
 
     tools.createParentDir(fOut)
     fig.savefig(fOut)
@@ -1275,7 +1284,7 @@ def createLevel1matchQuicklook(
         fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
         axcax.axis("off")
         axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
-        statusText(fig, [])
+        statusText(fig, [], config)
         tools.createParentDir(fOut)
         fig.savefig(fOut)
         return fOut, fig
@@ -1313,7 +1322,7 @@ def createLevel1matchQuicklook(
         axcax.set_title(
             f"VISSS level1match {config.name} {case} \n No precipitation (2)"
         )
-        statusText(fig, [])
+        statusText(fig, [], config)
         tools.createParentDir(fOut)
         fig.savefig(fOut)
         return fOut, fig
@@ -1598,7 +1607,7 @@ def createLevel1matchQuicklook(
     fig.tight_layout(w_pad=0.05, h_pad=0.005)
 
     print("DONE", fOut)
-    statusText(fig, fnames1M)
+    statusText(fig, fnames1M, config)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -1752,7 +1761,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     ax3.grid()
     ax3.set_xlabel("time")
 
-    statusText(fig, rotFiles)
+    statusText(fig, rotFiles, config)
 
     tools.createParentDir(fOut)
     fig.savefig(fOut)
@@ -2053,7 +2062,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ax1.legend(fontsize=15)
     ax3.legend(fontsize=15)
 
-    statusText(fig, ff.listFiles("metaRotation"))
+    statusText(fig, ff.listFiles("metaRotation"), config)
 
     tools.createParentDir(fOut)
     fig.savefig(fOut)
@@ -2280,7 +2289,7 @@ def createLevel2detectQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level2detect"))
+    statusText(fig, ff.listFiles("level2detect"), config)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -2513,7 +2522,7 @@ def createLevel2matchQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level2match"))
+    statusText(fig, ff.listFiles("level2match"), config)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 
@@ -2786,7 +2795,7 @@ def createLevel2trackQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level2track"))
+    statusText(fig, ff.listFiles("level2track"), config)
     tools.createParentDir(fOut)
     fig.savefig(fOut)
 

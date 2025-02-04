@@ -9,6 +9,7 @@ import psutil
 import taskqueue
 
 from . import (
+    aux,
     av,
     detection,
     distributions,

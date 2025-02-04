@@ -60,6 +60,9 @@ DEFAULT_SETTINGS = {
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
+    "level2" : {
+        "freq" : "1min"
+    }
     "quality": {
         "obsRatioThreshold": 0.7,
         "blowingSnowFrameThresh": 0.05,
@@ -70,6 +73,16 @@ DEFAULT_SETTINGS = {
     },
     "matchData": True,
     "processL2detect": True,
+    "aux": {
+        "meteo": {
+            "repository": "cloudnet",
+        },
+        "radar": {
+            "repository": "cloudnet",
+        },
+        "cloudnet": {},
+        "arm": {},
+    },
 }
 
 

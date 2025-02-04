@@ -88,6 +88,7 @@ log = logging.getLogger(__name__)
 
 from . import (
     analysis,
+    aux,
     av,
     detection,
     distributions,

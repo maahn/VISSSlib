@@ -1066,7 +1066,6 @@ def metaFramesQuicklook(
 
     isBlocked = events.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
     isBlocked = isBlocked.file_starttime.where(isBlocked).values
-    isBlocked = isBlocked[~np.isnan(isBlocked)]
 
     ylim = ax1.get_ylim()
     if isBlocked.any():
@@ -1953,12 +1952,10 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     )
     isBlocked = events.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
     isBlocked = isBlocked.file_starttime.where(isBlocked).values
-    isBlocked = isBlocked[~np.isnan(isBlocked)]
     isBlocked2 = (
         events2.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
     )
     isBlocked2 = isBlocked2.file_starttime.where(isBlocked2).values
-    isBlocked2 = isBlocked2[~np.isnan(isBlocked2)]
 
     resets = [
         np.datetime64(

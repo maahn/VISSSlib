@@ -15,6 +15,7 @@ from . import (
     distributions,
     files,
     fixes,
+    level3,
     matching,
     metadata,
     products,

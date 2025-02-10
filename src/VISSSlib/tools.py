@@ -60,9 +60,7 @@ DEFAULT_SETTINGS = {
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
-    "level2" : {
-        "freq" : "1min"
-    }
+    "level2": {"freq": "1min"},
     "quality": {
         "obsRatioThreshold": 0.7,
         "blowingSnowFrameThresh": 0.05,
@@ -75,16 +73,26 @@ DEFAULT_SETTINGS = {
     "processL2detect": True,
     "aux": {
         "meteo": {
-            "repository": "cloudnet",
+            "source": "cloudnetMeteo",
+            "downloadData": True,
         },
         "radar": {
-            "repository": "cloudnet",
+            "source": "cloudnetCategorize",
+            "downloadData": True,
+            "heightIndices": (1, 11),
+            "timeOffset": 120,
         },
         "cloudnet": {},
         "arm": {},
     },
+    "level3": {
+        "combinedRiming": {
+            "radarElevation": 90,
+            "habit": "mean",
+            "Zvar": "Ze_ground",
+        }
+    },
 }
-
 
 niceNames = (
     ("master", "leader"),

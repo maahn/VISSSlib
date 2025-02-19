@@ -55,43 +55,14 @@ class detectedParticles(object):
         self,
         config,
         pidOffset=0,
-        trainingSize=500,
         verbosity=0,
-        composite=True,
-        minContrast=20,
-        minDmax=0,
-        minBlur=10,
-        minArea=0,
-        erosionTestThreshold=0.06,
-        height_offset=64,
-        maskCorners=None,
-        cropImage=None,  # (offsetX, offsetY)
-        backSubKW={"dist2Threshold": 400, "detectShadows": False, "history": 100},
-        backSub=cv2.createBackgroundSubtractorKNN,
-        applyCanny2Particle=True,  # canny filter gets edges better
-        dilateIterations=1,
-        blurSigma=1,
-        minAspectRatio=None,  # testing only
-        dilateErodeFgMask=False,
-        check4childCntLength=True,
-        doubleDynamicRange=True,
-        dilateFgMask4Contours=True,
         testing=[],
     ):
         self.version = __version__.split(".")[0]
-
+        self.config = config
         self.verbosity = verbosity
-        self.composite = composite
 
-        self.minDmax = minDmax
-        self.minContrast = minContrast
         self.maxNParticle = config.level1detect.maxMovingObjects
-        self.minBlur = minBlur
-        self.minArea = minArea
-        self.erosionTestThreshold = erosionTestThreshold
-        self.height_offset = height_offset  # height of sttaus bar
-        self.maskCorners = maskCorners
-        self.cropImage = cropImage
 
         self.all = {}
         self.lastFrame = {}
@@ -109,16 +80,14 @@ class detectedParticles(object):
         self.nParticle = 0
 
         # history 500, threshold=400
-        self.backSub = backSub(**backSubKW)
-
-        self.applyCanny2Particle = applyCanny2Particle
-        self.dilateIterations = dilateIterations
-        self.blurSigma = blurSigma
-        self.minAspectRatio = minAspectRatio
-        self.dilateErodeFgMask = dilateErodeFgMask
-        self.doubleDynamicRange = doubleDynamicRange
-        self.check4childCntLength = check4childCntLength
-        self.dilateFgMask4Contours = dilateFgMask4Contours
+        if self.config.level1detect.backSub == "cv2.createBackgroundSubtractorKNN":
+            self.backSub = cv2.createBackgroundSubtractorKNN(
+                **self.config.level1detect.backSubKW
+            )
+        else:
+            raise ValueError(
+                f"Do not understand config.level1detect.backSub {self.config.level1detect.backSub}"
+            )
 
         self.testing = testing
         return
@@ -144,20 +113,32 @@ class detectedParticles(object):
         if self.verbosity > 20:
             print("particles.update", "FRAME", pp, "Start %s" % "update")
 
-        self.frame = frame[self.height_offset :]
+        self.frame = frame[self.config.height_offset :]
 
         # convert to gray scale if required
         if len(self.frame.shape) == 3:
             self.frame = av.cvtColor(self.frame)
 
-        if self.maskCorners is not None:
-            self.frame[: self.maskCorners, : self.maskCorners] = 0
-            self.frame[-self.maskCorners :, : self.maskCorners] = 0
-            self.frame[-self.maskCorners :, -self.maskCorners :] = 0
-            self.frame[: self.maskCorners, -self.maskCorners :] = 0
+        if self.config.level1detect.maskCorners is not None:
+            self.frame[
+                : self.config.level1detect.maskCorners,
+                : self.config.level1detect.maskCorners,
+            ] = 0
+            self.frame[
+                -self.config.level1detect.maskCorners :,
+                : self.config.level1detect.maskCorners,
+            ] = 0
+            self.frame[
+                -self.config.level1detect.maskCorners :,
+                -self.config.level1detect.maskCorners :,
+            ] = 0
+            self.frame[
+                : self.config.level1detect.maskCorners,
+                -self.config.level1detect.maskCorners :,
+            ] = 0
 
-        if self.cropImage is not None:
-            offsetX, offsetY = self.cropImage
+        if self.config.cropImage is not None:
+            offsetX, offsetY = self.config.cropImage
             self.frame = self.frame[offsetY:-offsetY, offsetX:-offsetX]
 
         if (not training) and ("input" in self.testing):
@@ -228,7 +209,7 @@ class detectedParticles(object):
             self.frame4drawing = av.cvtGray(self.frame)
 
         # sometimes, there is noise inside detected particles
-        if self.dilateErodeFgMask:
+        if self.config.level1detect.dilateErodeFgMask:
             # turns out to be not so smart because it makes holes insides particles smaller
             self.fgMask = cv2.erode(
                 cv2.dilate(self.fgMask, None, iterations=1), None, iterations=1
@@ -239,7 +220,7 @@ class detectedParticles(object):
 
         # avoids that blowing snow detection is falsely removing data for blury particles
         # larger conoturs are later corrected by canny filter
-        if self.dilateFgMask4Contours:
+        if self.config.level1detect.dilateFgMask4Contours:
             fgMask4Contours = cv2.dilate(self.fgMask, None, iterations=2)
             # tools.displayImage(fgMask4Contours)
         else:
@@ -273,7 +254,6 @@ class detectedParticles(object):
                 self.fgMask,
                 cnt,
                 verbosity=self.verbosity,
-                composite=self.composite,
             )
             added = added or added1
 
@@ -292,10 +272,13 @@ class detectedParticles(object):
         if logDebug:
             log.debug(
                 tools.concat(
-                    "applyCannyFilter", threshold1, threshold2, self.doubleDynamicRange
+                    "applyCannyFilter",
+                    threshold1,
+                    threshold2,
+                    self.config.level1detect.doubleDynamicRange,
                 )
             )
-        if self.doubleDynamicRange:
+        if self.config.level1detect.doubleDynamicRange:
             frame = av.doubleDynamicRange(frame)
 
         # if useSkimage:
@@ -314,8 +297,8 @@ class detectedParticles(object):
 
         # blur image, required to make algoprithm stable
         # print("self.blurSigma", self.blurSigma)
-        if self.blurSigma != 0:
-            frame = cv2.GaussianBlur(frame, (0, 0), self.blurSigma)
+        if self.config.level1detect.blurSigma != 0:
+            frame = cv2.GaussianBlur(frame, (0, 0), self.config.level1detect.blurSigma)
         # frame = cv2.bilateralFilter(frame, 5,70,2)
 
         # apply Canny filter, take low limits becuase we are reduced to moving parts
@@ -331,10 +314,10 @@ class detectedParticles(object):
             print("canny filter fgMaskCanny")
             tools.displayImage(fgMaskCanny, rescale=4)
 
-        if self.dilateIterations > 0:
+        if self.config.level1detect.dilateIterations > 0:
             # close gaps by finding contours, dillate, fill, and erode them
             fgMaskCanny = cv2.dilate(
-                fgMaskCanny, None, iterations=self.dilateIterations
+                fgMaskCanny, None, iterations=self.config.level1detect.dilateIterations
             )
             if "debugCanny" in self.testing:
                 print("canny filter fgMaskCanny dilate")
@@ -344,7 +327,9 @@ class detectedParticles(object):
                 fgMaskCanny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
             )[0]
             fgMaskCanny = cv2.fillPoly(fgMaskCanny, pts=cnts, color=255)
-            fgMaskCanny = cv2.erode(fgMaskCanny, None, iterations=self.dilateIterations)
+            fgMaskCanny = cv2.erode(
+                fgMaskCanny, None, iterations=self.config.level1detect.dilateIterations
+            )
 
         else:
             cnts = cv2.findContours(
@@ -381,7 +366,7 @@ class detectedParticles(object):
 
         # canny filter is expensive. so apply it of part of image taht is moving (plus a little extra otherwise edge detection does not work)
         # in case more than one particle is in one moving area, iterate over all of them
-        if self.applyCanny2Particle:
+        if self.config.level1detect.applyCanny2Particle:
             extra = 10
             particleBoxPlus, xOffset, yOffset, extraRoi = extractRoi(
                 roi, frame1, extra=extra
@@ -426,6 +411,7 @@ class detectedParticles(object):
             # try:
             self.lastParticle = singleParticle(
                 self,
+                self.config,
                 self.capture_id,
                 self.record_id,
                 self.capture_time,
@@ -454,7 +440,7 @@ class detectedParticles(object):
                     print(f"particles.add PID {str(self.lastParticle.pid)} empty")
             else:
                 ratio = self.lastParticle.perimeterEroded / self.lastParticle.perimeter
-                if self.lastParticle.Dmax <= self.minDmax:
+                if self.lastParticle.Dmax <= self.config.level1detect.minDmax:
                     if self.verbosity > 2:
                         print(
                             " ".join(
@@ -468,7 +454,10 @@ class detectedParticles(object):
                             )
                         )
 
-                elif self.lastParticle.particleContrast < self.minContrast:
+                elif (
+                    self.lastParticle.particleContrast
+                    < self.config.level1detect.minContrast
+                ):
                     if self.verbosity > 2:
                         print(
                             " ".join(
@@ -483,7 +472,7 @@ class detectedParticles(object):
                         )
 
                 elif (self.lastParticle.Dmax >= 8) and (
-                    self.lastParticle.blur < self.minBlur
+                    self.lastParticle.blur < self.config.level1detect.minBlur
                 ):  # do not apply blur test tp very small particles, blur estimation is uncertain
                     if self.verbosity > 2:
                         print(
@@ -498,7 +487,7 @@ class detectedParticles(object):
                             )
                         )
 
-                elif self.lastParticle.area <= self.minArea:
+                elif self.lastParticle.area <= self.config.level1detect.minArea:
                     if self.verbosity > 2:
                         print(
                             " ".join(
@@ -516,7 +505,7 @@ class detectedParticles(object):
                 elif (
                     (self.lastParticle.aspectRatio[-1] > 0.4)
                     and (self.lastParticle.Dmax > 5)
-                    and (ratio < self.erosionTestThreshold)
+                    and (ratio < self.config.level1detect.erosionTestThreshold)
                 ):
                     if self.verbosity > 2:
                         print(
@@ -527,15 +516,17 @@ class detectedParticles(object):
                                     "%i" % self.lastParticle.pid,
                                     "particle not properly detected",
                                     "%.2f" % ratio,
-                                    "%.2f" % self.erosionTestThreshold,
+                                    "%.2f"
+                                    % self.config.level1detect.erosionTestThreshold,
                                     "%.2f" % self.lastParticle.aspectRatio[-1],
                                 ]
                             )
                         )
 
                 # only for testing
-                elif (self.minAspectRatio is not None) and (
-                    self.lastParticle.aspectRatio[-1] < self.minAspectRatio
+                elif (self.config.level1detect.minAspectRatio is not None) and (
+                    self.lastParticle.aspectRatio[-1]
+                    < self.config.level1detect.minAspectRatio
                 ):
                     if self.verbosity > 2:
                         print(
@@ -546,7 +537,7 @@ class detectedParticles(object):
                                     "%i" % self.lastParticle.pid,
                                     "particle below arThresh",
                                     "%.2f" % self.lastParticle.aspectRatio[-1],
-                                    "%.2f" % self.minAspectRatio,
+                                    "%.2f" % self.config.level1detect.minAspectRatio,
                                 ]
                             )
                         )
@@ -776,6 +767,7 @@ class singleParticle(object):
     def __init__(
         self,
         parent,
+        config,
         capture_id,
         record_id,
         capture_time,
@@ -790,7 +782,6 @@ class singleParticle(object):
         yOffset,
         testing,
         verbosity=0,
-        composite=True,
     ):
         self.verbosity = verbosity
         self.pid = pp1  # np.random.randint(-999,-1)
@@ -801,7 +792,6 @@ class singleParticle(object):
         self.nThread = nThread
         self.cnt = cnt
         self.cntChild = []
-        self.composite = composite
         self.version = __version__.split(".")[0]
         self.testing = testing
 
@@ -815,7 +805,7 @@ class singleParticle(object):
 
         for cc, cntChild1 in enumerate(cntChild):
             # dont be bothered by too small holes
-            if parent.check4childCntLength and (
+            if config.level1detect.check4childCntLength and (
                 (len(cntChild1) < minCntSize) or (cv2.contourArea(cntChild1) <= 4)
             ):
                 continue
@@ -835,7 +825,7 @@ class singleParticle(object):
                 tools.displayImage(particleBoxHoles, rescale=4)
 
             # remove single pixel holes
-            if not parent.check4childCntLength:
+            if not config.level1detect.check4childCntLength:
                 particleBoxHoles = cv2.erode(
                     cv2.dilate(particleBoxHoles, None, iterations=1),
                     None,
@@ -1263,22 +1253,6 @@ def detectParticles(
     testing=[],
     writeImg=True,
     writeNc=True,
-    trainingSize=100,
-    testMovieFile=True,
-    backSubKW={"dist2Threshold": 400, "detectShadows": False, "history": 100},
-    backSub=cv2.createBackgroundSubtractorKNN,
-    applyCanny2Particle=True,
-    dilateIterations=1,
-    blurSigma=1,
-    minBlur=10,
-    erosionTestThreshold=0.06,
-    minArea=0,
-    minDmax=0,
-    dilateErodeFgMask=False,
-    doubleDynamicRange=True,
-    check4childCntLength=True,
-    dilateFgMask4Contours=True,
-    minContrast=20,
     stopAfter=None,
     version=__version__,
     verbosity=0,
@@ -1298,36 +1272,6 @@ def detectParticles(
         [description] (the default is True)
     writeNc : bool, optional
         [description] (the default is True)
-    trainingSize : number, optional
-        [description] (the default is 100)
-    testMovieFile : bool, optional
-        [description] (the default is True)
-    backSubKW : dict, optional
-        dist2Threshold of 100 was extensively tested, but this makes small particles larger even though it helps with wings etc.
-     this is compensated by the canny filter, but not for holes in the particles (the default is {"dist2Threshold": 400,
-                                   "detectShadows": False, "history": 100})
-    backSub : [type], optional
-        [description] (the default is cv2.createBackgroundSubtractorKNN)
-    applyCanny2Particle : bool, optional
-        canny filter gets the edges better than the movement detection (the default is True)
-    dilateIterations : number, optional
-        to close gaps in canny edges (the default is 1 whic is sufficient)
-    blurSigma : number, optional
-        [description] (the default is 1.5)
-    minBlur : number, optional
-        [description] (the default is 10)
-    erosionTestThreshold : number, optional
-        [description] (the default is 0.06)
-    minArea : number, optional
-        [description] (the default is 1)
-    minDmax : number, optional
-        [description] (the default is 2)
-    dilateErodeFgMask : bool, optional
-         turns out to be not so smart because it makes holes insides particles smaller (the default is False)
-    doubleDynamicRange : bool, optional
-        [description] (the default is True)
-    check4childCntLength : bool, optional
-        discard short child contours instead of dilate/erose (the default is True)
     stopAfter : [type], optional
         [description] (the default is None)
     version : [type], optional
@@ -1357,11 +1301,10 @@ def detectParticles(
     fps = config["fps"]
     minMovingPixels = np.array(config["minMovingPixels"])
     nThreads = config["nThreads"]
-    cropImage = config["cropImage"]
     site = config["site"]
     goodFiles = config["goodFiles"]
-    minBlur4write = config["level1detect"]["minBlur"]
-    minDmax4write = config["level1detect"]["minSize"]
+    minBlur4write = config["level1detect"]["minBlur4picturewrite"]
+    minDmax4write = config["level1detect"]["minSize4picturewrite"]
 
     fn = files.Filenames(fname, config, version=version)
     log.info(f"running {fn.fname.level1detect}")
@@ -1446,7 +1389,11 @@ def detectParticles(
             f.write("no data")
         return 0
 
-    if testMovieFile and (goodFile is not None) and (goodFile != "None"):
+    if (
+        config.level1detect.testMovieFile
+        and (goodFile is not None)
+        and (goodFile != "None")
+    ):
         for fnameV in fnamesV.values():
             # check for broken files:
             process = subprocess.Popen(
@@ -1513,13 +1460,15 @@ def detectParticles(
 
     nFrames = len(metaData.capture_time)
 
-    trainingFrames = _getTrainingFrames(fnamesV, trainingSize, config)
+    trainingFrames = _getTrainingFrames(
+        fnamesV, config.level1detect.trainingSize, config
+    )
     log.info(f"found {len(trainingFrames)} for training.")
 
     # to few data in trainign data, look into previous files
     fname1 = deepcopy(fname)
     ii = 0
-    while len(trainingFrames) < trainingSize:
+    while len(trainingFrames) < config.level1detect.trainingSize:
         fname11 = files.Filenames(fname1, config, version=version).prevFile()
 
         if (ii > 20) or (fname11 is None):
@@ -1535,35 +1484,20 @@ def detectParticles(
             return None
 
         fnamesV1 = files.Filenames(fname11, config, version=version).fnameMovAllThreads
-        trainingFrames1 = _getTrainingFrames(fnamesV1, trainingSize, config)
+        trainingFrames1 = _getTrainingFrames(
+            fnamesV1, config.level1detect.trainingSize, config
+        )
         log.info(f"added {len(trainingFrames1)} from {ii} previous file {fname11}.")
         trainingFrames = trainingFrames1 + trainingFrames
 
         fname1 = fname11
         ii += 1
     # just in case we have now too many frames by adding older files
-    trainingFrames = trainingFrames[-trainingSize:]
+    trainingFrames = trainingFrames[-config.level1detect.trainingSize :]
 
     snowParticles = detectedParticles(
         config,
         verbosity=verbosity,
-        trainingSize=trainingSize,
-        backSubKW=backSubKW,
-        cropImage=cropImage,
-        applyCanny2Particle=applyCanny2Particle,
-        dilateIterations=dilateIterations,
-        blurSigma=blurSigma,
-        minBlur=minBlur,
-        backSub=backSub,
-        erosionTestThreshold=erosionTestThreshold,
-        minArea=minArea,
-        minDmax=minDmax,
-        minAspectRatio=config.level1detect.minAspectRatio,
-        dilateErodeFgMask=dilateErodeFgMask,
-        doubleDynamicRange=doubleDynamicRange,
-        check4childCntLength=check4childCntLength,
-        minContrast=minContrast,
-        dilateFgMask4Contours=dilateFgMask4Contours,
         testing=testing,
     )
 

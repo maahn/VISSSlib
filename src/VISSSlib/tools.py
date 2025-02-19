@@ -80,6 +80,7 @@ DEFAULT_SETTINGS = {
         "doubleDynamicRange": True,
         "dilateFgMask4Contours": True,
         "testMovieFile": True,
+        "writeImg": True,
     },
     "level1match": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
@@ -100,8 +101,28 @@ DEFAULT_SETTINGS = {
     },
     "matchData": True,
     "processL2detect": True,
+    "aux": {
+        "meteo": {
+            "source": "cloudnetMeteo",
+            "downloadData": True,
+        },
+        "radar": {
+            "source": "cloudnetCategorize",
+            "downloadData": True,
+            "heightIndices": (1, 11),
+            "timeOffset": 120,
+        },
+        "cloudnet": {},
+        "arm": {},
+    },
+    "level3": {
+        "combinedRiming": {
+            "radarElevation": 90,
+            "habit": "mean",
+            "Zvar": "Ze_ground",
+        }
+    },
 }
-
 
 niceNames = (
     ("master", "leader"),
@@ -130,7 +151,7 @@ def readSettings(fname):
             config.update(loadedSettings)
         # unflatten again and convert to addict.Dict
         return DictNoDefault(flatten_dict.unflatten(config))
-    else:
+    else:  # is already config
         return fname
 
 

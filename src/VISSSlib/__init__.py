@@ -90,11 +90,13 @@ log = logging.getLogger(__name__)
 
 from . import (
     analysis,
+    aux,
     av,
     detection,
     distributions,
     files,
     fixes,
+    level3,
     matching,
     metadata,
     products,

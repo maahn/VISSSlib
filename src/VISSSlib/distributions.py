@@ -95,7 +95,6 @@ _select = {
 def createLevel2detect(
     case,
     config,
-    freq="1min",
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -109,7 +108,6 @@ def createLevel2detect(
     out = createLevel2(
         case,
         config,
-        freq=freq,
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
@@ -136,7 +134,6 @@ def createLevel2detect(
 def createLevel2match(
     case,
     config,
-    freq="1min",
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -149,7 +146,6 @@ def createLevel2match(
     out = createLevel2(
         case,
         config,
-        freq=freq,
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
@@ -173,7 +169,6 @@ def createLevel2match(
 def createLevel2track(
     case,
     config,
-    freq="1min",
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -185,7 +180,6 @@ def createLevel2track(
     out = createLevel2(
         case,
         config,
-        freq=freq,
         DbinsPixel=DbinsPixel,
         sizeDefinitions=sizeDefinitions,
         endTime=endTime,
@@ -204,7 +198,6 @@ def createLevel2track(
 def createLevel2(
     case,
     config,
-    freq="1min",
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
     endTime=np.timedelta64(1, "D"),
@@ -225,8 +218,6 @@ def createLevel2(
         [description]
     config : [type]
         [description]
-    freq : str, optional
-        [description] (the default is "1min", which [default_description])
     DbinsPixel : [type], optional
         [description] (the default is range(301), which [default_description])
     sizeDefinitions : list, optional
@@ -340,10 +331,16 @@ def createLevel2(
     #     return None, None
 
     timeIndex = pd.date_range(
-        start=case, end=fL.datetime64 + endTime, freq=freq, inclusive="left"
+        start=case,
+        end=fL.datetime64 + endTime,
+        freq=config.level2.freq,
+        inclusive="left",
     )
     timeIndex1 = pd.date_range(
-        start=case, end=fL.datetime64 + endTime, freq=freq, inclusive="both"
+        start=case,
+        end=fL.datetime64 + endTime,
+        freq=config.level2.freq,
+        inclusive="both",
     )
 
     allEmpty = False
@@ -351,7 +348,7 @@ def createLevel2(
         lv2Dat = createLevel2part(
             case,
             config,
-            freq=freq,
+            freq=config.level2.freq,
             DbinsPixel=DbinsPixel,
             sizeDefinitions=sizeDefinitions,
             endTime=endTime,
@@ -376,7 +373,7 @@ def createLevel2(
             lv2Dat1 = createLevel2part(
                 case1,
                 config,
-                freq=freq,
+                freq=config.level2.freq,
                 DbinsPixel=DbinsPixel,
                 sizeDefinitions=sizeDefinitions,
                 endTime=np.timedelta64(1, "h"),

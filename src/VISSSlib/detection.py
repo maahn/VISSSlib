@@ -1251,7 +1251,6 @@ def detectParticles(
     fname,
     config,
     testing=[],
-    writeImg=True,
     writeNc=True,
     stopAfter=None,
     version=__version__,
@@ -1268,8 +1267,6 @@ def detectParticles(
         VISSS config
     testing : list, optional
         [description] (the default is [])
-    writeImg : bool, optional
-        [description] (the default is True)
     writeNc : bool, optional
         [description] (the default is True)
     stopAfter : [type], optional
@@ -1285,8 +1282,7 @@ def detectParticles(
 
     assert os.path.isfile(fname)
 
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     path = config["path"]
     pathTmp = config["pathTmp"]
@@ -1554,7 +1550,7 @@ def detectParticles(
         assert nFrames > 0
     frame = None
 
-    if writeImg:
+    if config.level1detect.writeImg:
         imagesL1detect = tools.imageZipFile(
             fn.fname.imagesL1detect, mode="w", compresslevel=9
         )
@@ -1661,7 +1657,7 @@ def detectParticles(
         for part in snowParticles.lastFrame.values():
             hasData = True
 
-            if writeImg:
+            if config.level1detect.writeImg:
                 if (part.Dmax >= minDmax4write) and (part.blur >= minBlur4write):
                     pidStr = "%07i" % part.pid
                     # imName = '%s/%s/%s.npy' % (tarRoot, pidStr[:4], pidStr)
@@ -1681,7 +1677,7 @@ def detectParticles(
 
             part.dropImages()
 
-    if writeImg:
+    if config.level1detect.writeImg:
         nFiles = len(imagesL1detect.namelist())
         try:
             imagesL1detect.close()

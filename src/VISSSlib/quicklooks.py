@@ -193,6 +193,58 @@ def crop(image):
     ]
 
 
+def createLevel1detectQuicklookHourly(
+    case,
+    camera,
+    config,
+    hours=range(1, 24),
+    version=__version__,
+    container_width=200,
+    container_height_max=600,
+    nTiles=120,
+    nRows=4,
+    extra=1,
+    readParticlesFromFiles=True,
+    skipExisting=True,
+    ffOut="default",
+    timeStep="fixed",
+    minBlur="config",
+    minSize=8,
+    omitLabel4small="config",
+    timedelta=np.timedelta64(1, "h"),
+):
+    """
+    Create hourly version of particle quicklook. See createLevel1detectQuicklook for details
+    """
+    config = tools.readSettings(config)
+
+    for hh in hours:
+        timestamp = f"{case}-{hh:02d}"
+        f = createLevel1detectQuicklook(
+            timestamp,
+            camera,
+            config,
+            version=version,
+            container_width=container_width,
+            container_height_max=container_height_max,
+            nTiles=nTiles,
+            nRows=nRows,
+            extra=extra,
+            readParticlesFromFiles=readParticlesFromFiles,
+            skipExisting=skipExisting,
+            ffOut=ffOut,
+            timeStep=timeStep,  # attempt to fill plot equally
+            minBlur=minBlur,
+            minSize=minSize,
+            omitLabel4small=omitLabel4small,
+            timedelta=timedelta,
+            returnFig=False,
+        )
+        print(f)
+
+    return
+
+
 def createLevel1detectQuicklook(
     timestamp,
     camera,
@@ -213,8 +265,7 @@ def createLevel1detectQuicklook(
     timedelta=np.timedelta64(1, "D"),
     returnFig=True,
 ):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
     if minBlur == "config":
         minBlur = config["level1detectQuicklook"]["minBlur"]
     if minSize == "config":
@@ -874,8 +925,7 @@ class Packer_patched(packer.Packer):
 
 
 def level0Quicklook(case, camera, config, version=__version__, skipExisting=True):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     global metaDats
     metaDats = []
@@ -934,8 +984,7 @@ def metaFramesQuicklook(
 
     """
 
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     global metaDats
     metaDats = []
@@ -1617,8 +1666,7 @@ def createLevel1matchQuicklook(
 
 
 def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=True):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     ff = files.FindFiles(f"{year}0101", config.leader, config, version)
     ff1 = files.FindFiles(f"{int(year)-1}0101", config.leader, config, version)
@@ -1782,8 +1830,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
 
 def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     camera = config.leader
 
@@ -2080,8 +2127,7 @@ def createLevel2detectQuicklook(
 ):
     version = __version__
 
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     camera = config[camera1]
     nodata = False
@@ -2538,8 +2584,7 @@ def createLevel2matchQuicklook(
 def createLevel2trackQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     camera = config.leader
     nodata = False
@@ -2827,15 +2872,12 @@ def createLevel1matchParticlesQuicklook(
     timedelta=np.timedelta64(1, "D"),
     returnFig=True,
 ):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
     camera = config["leader"]
 
     # for convinience, do the other L1match quicklook as well
     createLevel1matchQuicklook(timestamp, config, skipExisting=skipExisting)
 
-    if type(config) is str:
-        config = tools.readSettings(config)
     if minBlur == "config":
         minBlur = config["level1detectQuicklook"]["minBlur"]
     if minSize == "config":

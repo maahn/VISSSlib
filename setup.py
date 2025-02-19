@@ -23,11 +23,12 @@ setuptools.setup(
     ],
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),
-    python_requires=">=3.6",
+    python_requires=">=3.11",
     install_requires=[
         "numpy",
         "scipy",
         "xarray",
+        "xarray-extras",
         "dask[complete]",
         "pandas",
         "pyyaml",
@@ -49,6 +50,9 @@ setuptools.setup(
         "manifold3d",
         "task-queue",
         "psutil",
+        "scikit-image",
+        "tqdm",
+        "pangaeapy",
     ],
     setup_requires=["setuptools_scm"],
 )

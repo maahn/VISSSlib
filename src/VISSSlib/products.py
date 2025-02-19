@@ -110,6 +110,13 @@ class DataProduct(object):
                 f"leader_metaEvents",
                 f"follower_metaEvents",
             ]
+        elif level == "level3combinedRiming":
+            assert camera == "leader"
+            self.parentNames = [
+                f"{camera}_level2track",
+                f"leader_metaEvents",
+                f"follower_metaEvents",
+            ]
         elif level == "allDone":
             assert camera == "leader"
             self.parentNames = [
@@ -126,6 +133,11 @@ class DataProduct(object):
                     "leader_level2detect",
                     "follower_level2detect",
                 ]
+            if self.config.level3.combinedRiming.processRetrieval:
+                self.parentNames += [
+                    "leader_level3combinedRiming",
+                ]
+
         else:
             raise ValueError(f"Do not understand {level}")
 
@@ -257,6 +269,13 @@ class DataProduct(object):
         elif self.level == "level2track":
             return self.commandTemplateDaily(
                 "distributions.createLevel2track",
+                skipExisting=skipExisting,
+                nCPU=nCPU,
+                bin=bin,
+            )
+        elif self.level == "level3combinedRiming":
+            return self.commandTemplateDaily(
+                "level3.retrieveCombinedRiming",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,

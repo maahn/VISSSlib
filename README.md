@@ -17,7 +17,9 @@ Install conda/mamba dependencies
 
 Install PIP dependencies
 
-    pip install image-packer flatten_dict pyOptimalEstimation vg manifold3d==2.2.2
+    pip install image-packer flatten_dict pyOptimalEstimation vg manifold3d==2.2.2 pangaeapy
+
+Level3 products also require https://github.com/igmk/pamtra. 
 
 Clone the library with 
 

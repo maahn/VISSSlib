@@ -330,19 +330,25 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
 
     radarDat, frequency = aux.getRadarData(case, config)
     meteoDat = aux.getMeteoData(case, config)
+    if meteoDat is None:
+        return None, None
+
     lv2DatA = xr.open_dataset(fL.listFilesExt(f"level2track")[0])
 
-    lv2Dat = lv2DatA.sel(size_definition="Dmax", cameratrack="max", drop=True)
+    lv2Dat = lv2DatA.sel(cameratrack="max", drop=True)
+    lv2Dat = lv2Dat.sel(size_definition="Dmax")
     lv2Dat["velocity_dist"] = lv2DatA["velocity_dist"].sel(
         size_definition="Dmax", cameratrack="mean", dim3D="z", drop=True
     )
 
     lv2Dat = xr.merge((lv2Dat, meteoDat, radarDat))
 
-    coldEnough = lv2Dat.air_temperature < 272.15
-    isPrecip = lv2Dat[config.level3.combinedRiming.Zvar] >= -10
+    coldEnough = lv2Dat.air_temperature < config.level3.combinedRiming.maxTemp
+    isPrecip = (
+        lv2Dat[config.level3.combinedRiming.Zvar] >= config.level3.combinedRiming.minZe
+    )
     goodQuality = lv2Dat.qualityFlags == 0
-    enoughParticles = lv2Dat.nParticles >= 100
+    enoughParticles = lv2Dat.nParticles >= config.level3.combinedRiming.minNParticles
 
     if np.all(~coldEnough | ~isPrecip | ~goodQuality | ~enoughParticles):
         with tools.open2("%s.nodata" % lv3File, "w") as f:
@@ -360,8 +366,11 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
             "MDV_ground",
             "Ze_std",
             "MDV_std",
+            "Ze_ground_fitResidual",
+            "MDV_ground_fitResidual",
             "air_temperature",
             "air_pressure",
+            "relative_humidity",
         ]
     ]
     lv3Dat = lv3Dat.sel(time=lv2Dat.time)
@@ -503,6 +512,28 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
         lv3Dat["SR_M_heymsfield10_dist"].sum("D_bins") * 3600
     )  # mm/h
 
+    # some variables are zero when unknown
+    for var in [
+        "IWC",
+        "SR_M",
+        "SR_M_dist",
+        "SR_M_heymsfield10",
+        "SR_M_heymsfield10_dist",
+        "Ze_combinedRetrieval",
+        "massSizeA",
+        "massSizeB",
+        "velocity_dist_heymsfield10",
+    ]:
+        lv3Dat[var] = lv3Dat[var].where(lv3Dat.combinedNormalizedRimeMass.notnull())
+
+    lv3Dat = tools.finishNc(
+        lv3Dat,
+        config.site,
+        config.visssGen,
+        extra={"settings": str(config.level3.combinedRiming)},
+    )
+    h1, h2 = config.aux.radar.heightRange
+
     lv3Dat.combinedNormalizedRimeMass.attrs.update(
         dict(
             units="-",
@@ -518,38 +549,52 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
     lv3Dat.Ze_0.attrs.update(
         dict(
             units="dBz",
-            long_name="measured radar reflectivity at lowest altitude",
+            long_name=f"measured radar reflectivity at lowest used altitude at {h1} m",
         )
     )
-    a, b = config.aux.radar.heightIndices
     lv3Dat.Ze_ground.attrs.update(
         dict(
             units="dBz",
-            long_name=f"measured radar reflectivity extrapolated to 0 m AGL using range gates {a} to {b}",
+            long_name=f"measured radar reflectivity extrapolated to 0 m AGL using data from {h1} to {h2} m",
         )
     )
     lv3Dat.Ze_std.attrs.update(
         dict(
             units="dBz",
-            long_name=f"standard deviation of measured radar reflectivity using range gates {a} to {b}",
+            long_name=f"standard deviation of measured radar reflectivity using data from {h1} to {h2} m",
         )
     )
+
+    lv3Dat.Ze_ground_fitResidual.attrs.update(
+        dict(
+            units="dBz",
+            long_name=f"residual of the linear fit using measured radar reflectivity using data from {h1} to {h2} m",
+        )
+    )
+
     lv3Dat.MDV_0.attrs.update(
         dict(
             units="m/s",
-            long_name="measured mean Doppler velocity at lowest altitude",
+            long_name=f"measured mean Doppler velocity at lowest used altitude at {h1} m",
         )
     )
     lv3Dat.MDV_ground.attrs.update(
         dict(
             units="m/s",
-            long_name=f"measured mean Doppler velocity extrapolated to 0 m AGL using range gates {a} to {b}",
+            long_name=f"measured mean Doppler velocity extrapolated to 0 m AGL using data from {h1} to {h2} m",
         )
     )
+    lv3Dat.MDV_ground_fitResidual.attrs.update(
+        dict(
+            units="m/s",
+            long_name=f"residual of the linear fit using measured mean Doppler velocity using data from {h1} to {h2} m",
+        )
+    )
+
     lv3Dat.MDV_std.attrs.update(
         dict(
             units="m/s",
-            long_name=f"standard deviation of measured mean Doppler velocity using range gates {a} to {b}",
+            long_name=f"standard deviation of measured mean Doppler velocity using data from {h1} to {h2} m",
         )
     )
     lv3Dat.massSizeA.attrs.update(
@@ -567,7 +612,7 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
     lv3Dat.IWC.attrs.update(
         dict(
             units="kg/m^3",
-            long_name="ice wtaer content",
+            long_name="ice water content",
         )
     )
     lv3Dat.SR_M_dist.attrs.update(
@@ -582,6 +627,13 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
             long_name="spectral snowfall rate using Heymsfield10 fall velocity",
         )
     )
+    lv3Dat.velocity_dist_heymsfield10.attrs.update(
+        dict(
+            units="m/s",
+            long_name="spectral fall velocity using Heymsfield10",
+        )
+    )
+
     lv3Dat.SR_M.attrs.update(
         dict(
             units="mm/h water equivalent",
@@ -592,6 +644,24 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
         dict(
             units="mm/h water equivalent",
             long_name="snowfall rate using Heymsfield10 fall velocity",
+        )
+    )
+    lv3Dat.relative_humidity.attrs.update(
+        dict(
+            units="-",
+            long_name="2m relative humidity by weather station",
+        )
+    )
+    lv3Dat.air_pressure.attrs.update(
+        dict(
+            units="Pa",
+            long_name="surface air pressure",
+        )
+    )
+    lv3Dat.air_temperature.attrs.update(
+        dict(
+            units="K",
+            long_name="2m air temperature",
         )
     )
 

@@ -80,6 +80,7 @@ DEFAULT_SETTINGS = {
         "doubleDynamicRange": True,
         "dilateFgMask4Contours": True,
         "testMovieFile": True,
+        "writeImg": True,
     },
     "level1match": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
@@ -150,7 +151,7 @@ def readSettings(fname):
             config.update(loadedSettings)
         # unflatten again and convert to addict.Dict
         return DictNoDefault(flatten_dict.unflatten(config))
-    else:
+    else:  # is already config
         return fname
 
 

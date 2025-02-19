@@ -116,9 +116,6 @@ def loopMetaRotationQuicklooks(
         print("camera matching disabled in config file")
         return
 
-    instruments = config["instruments"]
-    computers = config["computers"]
-
     days = tools.getDateRange(nDays, config, endYesterday=False)
 
     years = []
@@ -130,7 +127,7 @@ def loopMetaRotationQuicklooks(
         case = f"{year}{month}{day}"
         print(case)
         fOut, fig = quicklooks.metaRotationQuicklook(
-            case, config, version=version, skipExisting=skipExisting
+            case, settings, version=version, skipExisting=skipExisting
         )
         try:
             fig.close()
@@ -140,7 +137,7 @@ def loopMetaRotationQuicklooks(
     if doYearly:
         for year in set(years):
             fOut, fig = quicklooks.metaRotationYearlyQuicklook(
-                year, config, version=version, skipExisting=skipExisting
+                year, settings, version=version, skipExisting=skipExisting
             )
 
 

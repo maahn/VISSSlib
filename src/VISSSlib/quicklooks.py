@@ -1738,10 +1738,11 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
         firstReset = True
         for reset in resets:
+            print(reset)
             if firstReset:
-                ax.axvline(reset, color="k", label="rotation from config", alpha=0.2)
+                ax.axvline(reset, color="k", label="rotation from config", alpha=0.5)
             else:
-                ax.axvline(reset, color="k", alpha=0.2)
+                ax.axvline(reset, color="k", alpha=0.5)
             firstReset = False
 
     ax1.set_xlim(rotDat.file_starttime.min(), rotDat.file_starttime.max())

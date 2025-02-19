@@ -27,6 +27,7 @@ dailyLevels = [
     "level2detect",
     "level2match",
     "level2track",
+    "level3combinedRiming",
     "allDone",
 ]
 hourlyLevels = []
@@ -270,6 +271,12 @@ class FindFiles(object):
             self.quicklookCurrent[
                 qL
             ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_current.png"
+
+    @property
+    def yesterday(self):
+        return FindFiles(
+            self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
+        ).case.split("-")[0]
 
     @functools.cache
     def getEvents(self, skipExisting=True):

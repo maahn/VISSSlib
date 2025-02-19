@@ -21,6 +21,7 @@ import ipywidgets
 import numpy as np
 import pandas as pd
 import portalocker
+import psutil
 import skimage
 import taskqueue
 import xarray as xr
@@ -50,9 +51,35 @@ DEFAULT_SETTINGS = {
     "rotate": {},
     "level1detect": {
         "maxMovingObjects": 1000,  # 60 until 18.9.24
+        "minAspectRatio": None,  # testing only
+        "minBlur4picturewrite": 250,
+        "minSize4picturewrite": 8,
+        "trainingSize": 100,
+        "minContrast": 20,
+        "minDmax": 0,
+        "minBlur": 10,
+        "minArea": 0,
+        "erosionTestThreshold": 0.06,
+        "height_offset": 64,
+        "maskCorners": None,
+        "cropImage": None,  # (offsetX, offsetY)
+        "backSubKW": {
+            "dist2Threshold": 400,
+            "detectShadows": False,
+            "history": 100,
+        },  #       dist2Threshold of 100 was extensively tested, but this makes small particles larger even though it helps with wings etc.
+        #  this is compensated by the canny filter, but not for holes in the particles (the default is {"dist2Threshold": 400,
+        #                               "detectShadows": False, "history": 100})
+        "backSub": "cv2.createBackgroundSubtractorKNN",
+        "applyCanny2Particle": True,  # canny filter gets edges better
+        "dilateIterations": 1,  # to close gaps in canny edges (the default is 1 whic is sufficient)
+        "blurSigma": 1,
         "minAspectRatio": None,
-        "minBlur": 250,
-        "minSize": 8,
+        "dilateErodeFgMask": False,  # turns out to be not so smart because it makes holes insides particles smaller
+        "check4childCntLength": True,  # discard short child contours instead of dilate/erose
+        "doubleDynamicRange": True,
+        "dilateFgMask4Contours": True,
+        "testMovieFile": True,
     },
     "level1match": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
@@ -60,7 +87,9 @@ DEFAULT_SETTINGS = {
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
-    "level2": {"freq": "1min"},
+    "level2": {
+        "freq": "1min",
+    },
     "quality": {
         "obsRatioThreshold": 0.7,
         "blowingSnowFrameThresh": 0.05,
@@ -759,6 +788,9 @@ def createParentDir(file):
 
 
 def ncAttrs(site, visssGen, extra={}):
+    my_process = psutil.Process(os.getpid())
+    myCommand = " ".join(my_process.cmdline())
+
     if os.environ.get("USER") is not None:
         user = f" by user {os.environ.get('USER')}"
     else:
@@ -767,6 +799,7 @@ def ncAttrs(site, visssGen, extra={}):
         "title": f"Video In Situ Snowfall Sensor (VISSS) observations at {site}",
         "source": f"{visssGen} observations at {site}",
         "history": f"{str(datetime.datetime.utcnow())}: created with VISSSlib {__versionFull__} and OpenCV {cv2.__version__} on {socket.getfqdn()}{user}",
+        "command": myCommand,
         "references": "Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introducing the Video In Situ Snowfall Sensor (VISSS). Atmospheric Measurement Techniques, 17, 899–919, https://doi.org/10.5194/amt-17-899-2024.",
     }
 

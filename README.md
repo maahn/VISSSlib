@@ -13,11 +13,11 @@ This repository contains the VISSS data acquisition software. Please see also
 
 Install conda/mamba dependencies
 
-    conda install numpy  scipy  xarray  dask[complete]  pandas pyyaml matplotlib bottleneck pillow  addict opencv  netcdf4 ipywidgets trimesh=4.0.5 scikit-image tqdm filterpy flox portalocker numba xarray-extras
+    conda install numpy  scipy  xarray  dask[complete]  pandas pyyaml matplotlib bottleneck pillow  addict opencv  netcdf4 ipywidgets trimesh scikit-image tqdm filterpy flox portalocker numba xarray-extras
 
 Install PIP dependencies
 
-    pip install image-packer flatten_dict pyOptimalEstimation vg manifold3d==2.2.2
+    pip install image-packer flatten_dict pyOptimalEstimation vg manifold3d
 
 Clone the library with 
 

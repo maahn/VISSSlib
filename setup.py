@@ -49,6 +49,8 @@ setuptools.setup(
         "manifold3d",
         "task-queue",
         "psutil",
+        "scikit-image",
+        "tqdm",
     ],
     setup_requires=["setuptools_scm"],
 )

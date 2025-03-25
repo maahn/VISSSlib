@@ -942,8 +942,7 @@ def trackParticles(
     showFits=False,
     verbosity=0,
 ):
-    if type(config) is str:
-        config = tools.readSettings(config)
+    config = tools.readSettings(config)
 
     ffl1 = files.FilenamesFromLevel(fnameLv1Detect, config)
 

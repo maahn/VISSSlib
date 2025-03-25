@@ -18,7 +18,16 @@ import portalocker
 import taskqueue
 import xarray as xr
 
-from . import __version__, distributions, files, matching, metadata, quicklooks, tools
+from . import (
+    __version__,
+    aux,
+    distributions,
+    files,
+    matching,
+    metadata,
+    quicklooks,
+    tools,
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +64,53 @@ def loopLevel0Quicklook(settings, version=__version__, skipExisting=True, nDays=
             quicklooks.level0Quicklook(
                 case, camera, config, version=version, skipExisting=skipExisting
             )
+
+
+def loopDownloadAux(settings, nDays=0):
+    """
+    helper script to download aux data
+
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    """
+    config = tools.readSettings(settings)
+
+    days = tools.getDateRange(nDays, config, endYesterday=False)
+
+    if "source" in config.aux.meteo:
+        for dd in days:
+            year = str(dd.year)
+            month = "%02i" % dd.month
+            day = "%02i" % dd.day
+            case = f"{year}{month}{day}"
+            try:
+                aux.getMeteoData(case, config)
+            except Exception as e:
+                log.error(f"failed for {case} {settings}")
+                print(e)
+    else:
+        log.warning(f"source not in config.aux.meteo")
+
+    if "source" in config.aux.radar:
+        for dd in days:
+            year = str(dd.year)
+            month = "%02i" % dd.month
+            day = "%02i" % dd.day
+            case = f"{year}{month}{day}"
+            try:
+                aux.getRadarData(case, config)
+            except Exception as e:
+                log.error(f"failed for {case} {settings}")
+                print(e)
+    else:
+        log.warning(f"source not in config.aux.radar")
+
+    return
 
 
 def loopMetaFramesQuicklooks(settings, version=__version__, skipExisting=True, nDays=0):

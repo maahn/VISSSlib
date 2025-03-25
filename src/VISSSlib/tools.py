@@ -88,6 +88,7 @@ DEFAULT_SETTINGS = {
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
+    "level1shape": {},
     "level2": {
         "freq": "1min",
     },
@@ -103,11 +104,11 @@ DEFAULT_SETTINGS = {
     "processL2detect": True,
     "aux": {
         "meteo": {
-            "source": "cloudnetMeteo",
+            # "source": "cloudnetMeteo",
             "downloadData": True,
         },
         "radar": {
-            "source": "cloudnetCategorize",
+            # "source": "cloudnetCategorize",
             "downloadData": True,
             "heightRange": (120, 360),
             "minHeightBins": 4,

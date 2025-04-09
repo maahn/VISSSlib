@@ -19,6 +19,7 @@ Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introduc
    :hidden:
    :maxdepth: 1
 
+   data_acquisition
    installation
    processing
    metaRotation

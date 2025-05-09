@@ -30,7 +30,8 @@ def getCloudnet(date, site, path, kind, item):
     }
     metadata = requests.get(url, payload).json()
     if (len(metadata) == 0) or ("status" in metadata[0].keys()):
-        raise FileNotFoundError(url)
+        log.warning(f"Did not find {url}")
+        return []
     fnames = []
     for row in metadata[:1]:
         res = requests.get(row["downloadUrl"])

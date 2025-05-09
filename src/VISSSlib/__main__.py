@@ -217,6 +217,16 @@ def main():
 
         distributions.createLevel2track(case, settings, skipExisting=skipExisting)
 
+    elif sys.argv[1] == "level3.retrieveCombinedRiming":
+        settings = sys.argv[2]
+        case = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        level3.retrieveCombinedRiming(case, settings, skipExisting=skipExisting)
+
     elif sys.argv[1] == "scripts.loopCreateLevel1detect":
         settings = sys.argv[2]
         nDays = sys.argv[3]

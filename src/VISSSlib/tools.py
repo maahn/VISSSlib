@@ -88,6 +88,7 @@ DEFAULT_SETTINGS = {
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
+    "level1shape": {},
     "level2": {
         "freq": "1min",
     },
@@ -96,33 +97,40 @@ DEFAULT_SETTINGS = {
         "blowingSnowFrameThresh": 0.05,
         "blockedPixThresh": 0.1,
         "minMatchScore": 1e-3,
-        "minSize4M": 10,
+        "minSize4insituM": 10,
         "trackLengthThreshold": 2,
     },
     "matchData": True,
     "processL2detect": True,
     "aux": {
         "meteo": {
-            "source": "cloudnetMeteo",
+            # "source": "cloudnetMeteo",
             "downloadData": True,
         },
         "radar": {
-            "source": "cloudnetCategorize",
+            # "source": "cloudnetCategorize",
             "downloadData": True,
-            "heightIndices": (1, 11),
+            "heightRange": (120, 360),
+            "minHeightBins": 4,
             "timeOffset": 120,
         },
         "cloudnet": {},
         "arm": {},
+        "pangaea": {},
     },
     "level3": {
         "combinedRiming": {
+            "processRetrieval": False,
             "radarElevation": 90,
-            "habit": "mean",
-            "Zvar": "Ze_ground",
+            "habit": "mean",  # SSRG particle habit
+            "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
+            "maxTemp": 272.15,
+            "minZe": -10,
+            "minNParticles": 100,
         }
     },
 }
+
 
 niceNames = (
     ("master", "leader"),
@@ -811,6 +819,10 @@ def ncAttrs(site, visssGen, extra={}):
 def finishNc(dat, site, visssGen, extra={}):
     # todo: add yaml dump of config file
 
+    extra = deepcopy(extra)
+    for k in extra.keys():
+        extra[k] = str(extra[k])
+
     dat.attrs.update(ncAttrs(site, visssGen, extra=extra))
 
     for k in list(dat.data_vars) + list(dat.coords):
@@ -1040,7 +1052,7 @@ def tryRemovingFile(file):
 def to_netcdf2(dat, file, **kwargs):
     """
     like xarray netcdf open, but creating directories if needed
-    remove to random file and move to final file to avoid errors due to race conditions or exisiting files
+    write to random file and move to final file to avoid errors due to race conditions or exisiting files
     """
     print(f"saving {file}")
 

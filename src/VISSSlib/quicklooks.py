@@ -564,7 +564,9 @@ def createLevel1detectQuicklook(
                     y2, x2 = text.shape
 
                     # only add label if large enough
-                    if omitLabel4small and x1 < x2:
+                    if (omitLabel4small == "all") or (
+                        (omitLabel4small == True) and (x1 < x2)
+                    ):
                         imT = im
                     else:
                         y3 = y1 + y2

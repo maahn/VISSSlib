@@ -1652,7 +1652,7 @@ def addPerParticleVariables(level1dat_camAve, config):
     )
 
     level1dat_camAve["normalizedRimeMass"] = M.where(
-        level1dat_camAve["Dmax"] >= config.quality.minSize4M
+        level1dat_camAve["Dmax"] >= config.quality.minSize4insituM
     )
 
     return level1dat_camAve

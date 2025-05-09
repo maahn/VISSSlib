@@ -100,6 +100,9 @@ def _getMeteoData1(case, config):
     if config.aux.meteo.source == "ARMmet":
         return getMeteoDataARM(case, config)
 
+    if config.aux.meteo.source == "RPG":
+        return getMeteoDataRPG(case, config)
+
     else:
         raise ValueError(
             f"Do not understand config.aux.meteo.source:{config.aux.meteo.source}"
@@ -188,6 +191,53 @@ def getMeteoDataARM(case, config):
     dat["relative_humidity"] = dat["relative_humidity"] / 100
     dat["air_pressure"] = dat["air_pressure"] * 1000
 
+    return dat
+
+
+def getMeteoDataRPG(case, config):
+    fn = files.FindFiles(case, config.leader, config)
+    date = f"{fn.year}-{fn.month}-{fn.day}"
+
+    path = config.aux.meteo.path.format(year=fn.year, month=fn.month, day=fn.day)
+    fStr = f"{path}/*ZEN.LV1.NC"
+    fnames = glob.glob(fStr)
+
+    if len(fnames) == 0:
+        raise FileNotFoundError(f"Did not find {fStr}")
+    dat = xr.open_mfdataset(fnames)
+    assert config.level2.freq == "1min"
+
+    vars = [
+        "SurfTemp",
+        "SurfRelHum",
+        "SurfPres",
+        "SurfWS",
+        "SurfWD",
+    ]
+
+    dat = dat[vars]
+
+    dat = dat.rename(
+        {
+            "SurfTemp": "air_temperature",
+            "SurfRelHum": "relative_humidity",
+            "SurfPres": "air_pressure",
+            "SurfWS": "wind_speed",
+            "SurfWD": "wind_direction",
+            "Time": "time",
+        }
+    )
+
+    dat["relative_humidity"] = dat["relative_humidity"] / 100
+    dat["air_pressure"] = dat["air_pressure"] * 1000
+    dat["time"] = netCDF4.num2date(
+        dat.time.values,
+        "seconds since 2001-01-01T00:00:00",
+        only_use_python_datetimes=True,
+        only_use_cftime_datetimes=False,
+    )
+
+    dat = dat.resample(time=config.level2.freq, label="left").nearest()
     return dat
 
 

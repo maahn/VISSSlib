@@ -28,6 +28,7 @@ class DataProduct(object):
         relatives=None,
         addRelatives=True,
         fileObject=None,
+        childrensRelatives=tools.DictNoDefault({}),
     ):
         """
         Class for processing VISSS data
@@ -41,6 +42,7 @@ class DataProduct(object):
             self.relatives = f"{relatives}.{level}"
         else:
             self.relatives = level
+        self.childrensRelatives = childrensRelatives
         if camera == "leader":
             self.cameraFull = self.config.leader
         elif camera == "follower":
@@ -94,6 +96,9 @@ class DataProduct(object):
         elif level == "level1track":
             assert camera == "leader"
             self.parentNames = [f"{camera}_level1match"]
+        # elif level == "level1shape":
+        #     assert camera == "leader"
+        #     self.parentNames = [f"{camera}_level1track"]
         elif level == "level2detect":
             self.parentNames = [f"{camera}_level1detect", f"{camera}_metaEvents"]
         elif level == "level2match":
@@ -140,13 +145,17 @@ class DataProduct(object):
 
         else:
             raise ValueError(f"Do not understand {level}")
-
         if addRelatives:
             self.addRelatives()
 
     def addRelatives(self):
         for parentCam in self.parentNames:
             camera, parent = parentCam.split("_")
+            # save time by not adding a product more than once
+            if parentCam in self.childrensRelatives.keys():
+                # print(f"{self.relatives}, found {parentCam} from other relative")
+                self.parents[parentCam] = self.childrensRelatives[parentCam]
+                continue
             self.parents[parentCam] = DataProduct(
                 parent,
                 self.case,
@@ -154,9 +163,10 @@ class DataProduct(object):
                 self.tq,
                 camera,
                 relatives=f"{self.relatives}",
+                childrensRelatives=self.parents,
             )
-
             self.parents.update(self.parents[parentCam].parents)
+            self.childrensRelatives.update(self.parents)
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
         # cache for this function
@@ -252,6 +262,12 @@ class DataProduct(object):
             return self.commandTemplateL1(
                 originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
+        # elif self.level == "level1shape":
+        #     originLevel = "level1track"
+        #     call = "particleshape.classifyParticles"
+        #     return self.commandTemplateL1(
+        #         originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
+        #     )
         elif self.level == "level2detect":
             return self.commandTemplateDaily(
                 "distributions.createLevel2detect",
@@ -566,6 +582,11 @@ class metaRotation(DataProduct):
 class level1detect(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
         super().__init__("level1detect", case, settings, fileQueue, camera)
+
+
+# class level1shape(DataProduct):
+#     def __init__(self, case, settings, fileQueue, camera="leader"):
+#         super().__init__("level1shape", case, settings, fileQueue, camera)
 
 
 class metaFrames(DataProduct):

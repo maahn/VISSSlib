@@ -3,6 +3,7 @@ import logging
 import os
 import warnings
 
+import netCDF4
 import numpy as np
 import pandas as pd
 import requests
@@ -92,7 +93,8 @@ def getMeteoData(case, config):
             dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
         )
         dat = dat.isel(time=today)
-    dat.load()
+    if dat is not None:
+        dat.load()
     return dat
 
 
@@ -477,12 +479,11 @@ def getMeteoDataPangaea(case, config):
     if config.aux.meteo.downloadData and (len(fnames) == 0):
         # for pangaea, we do not know the doi of the monthly dataset
         # therefore download everything which is available
-        fnames = downloadPangaea(
-            config.aux.meteo.doi, path, config.site, "weatherstation"
-        )
+        downloadPangaea(config.aux.meteo.doi, path, config.site, "weatherstation")
+        fnames = glob.glob(fStr)
 
     if len(fnames) == 0:
-        print("No Pangaea meteo data yet")
+        print(f"No Pangaea meteo data yet, check http://doi.org/{config.aux.meteo.doi}")
         return None
 
     print(f"Opening {fnames}")

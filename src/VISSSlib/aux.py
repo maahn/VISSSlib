@@ -3,6 +3,7 @@ import logging
 import os
 import warnings
 
+import netCDF4
 import numpy as np
 import pandas as pd
 import requests
@@ -215,7 +216,8 @@ def getRadarData(
     datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
 
     # merge data
-    dat = xr.concat((datY, dat), dim="time")
+    if datY is not None:
+        dat = xr.concat((datY, dat), dim="time")
     today = (dat.time >= fn.datetime64) & (
         dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
     )
@@ -237,6 +239,9 @@ def _getRadarData1(case, config, fn):
         raise ValueError(
             f"Do not understand config.aux.radar.source:{config.aux.radar.source}"
         )
+
+    if dat is None:
+        return None, None
 
     h1, h2 = config.aux.radar.heightRange
     heightIndices = (dat.range >= h1) & (dat.range <= h2)
@@ -294,7 +299,8 @@ def getRadarDataCloudnetCategorize(case, config, fn):
         )
 
     if len(fnames) == 0:
-        raise FileNotFoundError(f"Did not find {fStr}")
+        log.warning(f"Did not find {fStr}")
+        return None, None
 
     print(f"Opening {fStr}")
     dat = xr.open_mfdataset(

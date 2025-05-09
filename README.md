@@ -13,7 +13,7 @@ This repository contains the VISSS data acquisition software. Please see also
 
 Install conda/mamba dependencies
 
-    conda install numpy  scipy  xarray  dask[complete]  pandas pyyaml matplotlib bottleneck pillow  addict opencv  netcdf4 ipywidgets trimesh=4.0.5 scikit-image tqdm filterpy flox portalocker numba xarray-extras
+    conda install numpy  scipy  xarray  dask[complete]  pandas pyyaml matplotlib bottleneck pillow  addict opencv  netcdf4 ipywidgets trimesh=4.0.5 scikit-image tqdm filterpy flox portalocker numba xarray-extras scikit-learn==1.6.1
 
 Install PIP dependencies
 

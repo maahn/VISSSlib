@@ -18,6 +18,7 @@ from . import (
     level3,
     matching,
     metadata,
+    particleshape,
     products,
     quicklooks,
     scripts,
@@ -184,6 +185,12 @@ def main():
         settings = sys.argv[3]
 
         tracking.trackParticles(fname, settings)
+
+    elif sys.argv[1] == "particleshape.classifyParticles":
+        fname = sys.argv[2]
+        settings = sys.argv[3]
+
+        particleshape.classifyParticles(fname, settings)
 
     elif sys.argv[1] == "distributions.createLevel2detect":
         settings = sys.argv[2]

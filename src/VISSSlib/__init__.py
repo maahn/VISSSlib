@@ -97,6 +97,7 @@ from . import (
     level3,
     matching,
     metadata,
+    particleshape,
     products,
     quicklooks,
     scripts,

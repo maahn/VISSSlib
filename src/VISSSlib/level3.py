@@ -329,6 +329,8 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
         return None, lv3File
 
     radarDat, frequency = aux.getRadarData(case, config)
+    if radarDat is None:
+        return None, None
     meteoDat = aux.getMeteoData(case, config)
     if meteoDat is None:
         return None, None

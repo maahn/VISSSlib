@@ -22,7 +22,12 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     package_dir={"": "src"},
-    packages=setuptools.find_packages(where="src"),
+    packages=setuptools.find_namespace_packages(where="src"),
+    package_data={
+        # Include any *.pkl files found in the "data" subdirectory of the
+        # "VISSSlib" package:
+        "VISSSlib": ["data/*.pkl"],
+    },
     python_requires=">=3.11",
     install_requires=[
         "numpy",
@@ -51,6 +56,7 @@ setuptools.setup(
         "task-queue",
         "psutil",
         "scikit-image",
+        "scikit-learn==1.6.1",
         "tqdm",
         "pangaeapy",
     ],

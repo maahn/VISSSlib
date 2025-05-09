@@ -35,7 +35,7 @@ fileLevels = [
     "level1detect",
     "level1match",
     "level1track",
-    # "level1shape",
+    "level1shape",
     "metaFrames",
     "metaDetection",
     "imagesL1detect",
@@ -47,7 +47,7 @@ quicklookLevelsSep = [
     "level1detect",
     "level1match",
     "level1matchParticles",
-    # "level1shape",
+    "level1shape",
     "metaRotation",
     "level2detect",
 ]

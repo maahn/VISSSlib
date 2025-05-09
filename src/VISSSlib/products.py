@@ -96,9 +96,9 @@ class DataProduct(object):
         elif level == "level1track":
             assert camera == "leader"
             self.parentNames = [f"{camera}_level1match"]
-        # elif level == "level1shape":
-        #     assert camera == "leader"
-        #     self.parentNames = [f"{camera}_level1track"]
+        elif level == "level1shape":
+            assert camera == "leader"
+            self.parentNames = [f"{camera}_level1track"]
         elif level == "level2detect":
             self.parentNames = [f"{camera}_level1detect", f"{camera}_metaEvents"]
         elif level == "level2match":
@@ -262,12 +262,12 @@ class DataProduct(object):
             return self.commandTemplateL1(
                 originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
-        # elif self.level == "level1shape":
-        #     originLevel = "level1track"
-        #     call = "particleshape.classifyParticles"
-        #     return self.commandTemplateL1(
-        #         originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
-        #     )
+        elif self.level == "level1shape":
+            originLevel = "level1track"
+            call = "particleshape.classifyParticles"
+            return self.commandTemplateL1(
+                originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
+            )
         elif self.level == "level2detect":
             return self.commandTemplateDaily(
                 "distributions.createLevel2detect",
@@ -584,9 +584,9 @@ class level1detect(DataProduct):
         super().__init__("level1detect", case, settings, fileQueue, camera)
 
 
-# class level1shape(DataProduct):
-#     def __init__(self, case, settings, fileQueue, camera="leader"):
-#         super().__init__("level1shape", case, settings, fileQueue, camera)
+class level1shape(DataProduct):
+    def __init__(self, case, settings, fileQueue, camera="leader"):
+        super().__init__("level1shape", case, settings, fileQueue, camera)
 
 
 class metaFrames(DataProduct):

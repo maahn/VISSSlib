@@ -88,7 +88,10 @@ DEFAULT_SETTINGS = {
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
-    "level1shape": {},
+    "level1shape": {
+        "classifier": "DEFAULT",
+        "minDmax": 8,
+    },
     "level2": {
         "freq": "1min",
     },

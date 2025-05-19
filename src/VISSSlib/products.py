@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import pdb
 import random
 import string
 import sys
@@ -34,7 +35,8 @@ class DataProduct(object):
         Class for processing VISSS data
 
         """
-        log.info(f"create object for level {level} {camera}")
+        log.info(f"created  {level} {camera} for {case} with {childrensRelatives}.")
+        # pdb.set_trace()
         self.level = level
         self.config = tools.readSettings(settings)
         self.settings = settings
@@ -148,14 +150,22 @@ class DataProduct(object):
         if addRelatives:
             self.addRelatives()
 
+    def __repr__(self):
+        reprstr = (
+            f"<VISSSlib.products.DataProduct object {self.level} for "
+            f"{self.settings} using {self.camera} on {self.case}>"
+        )
+        return reprstr
+
     def addRelatives(self):
         for parentCam in self.parentNames:
-            camera, parent = parentCam.split("_")
             # save time by not adding a product more than once
             if parentCam in self.childrensRelatives.keys():
                 # print(f"{self.relatives}, found {parentCam} from other relative")
                 self.parents[parentCam] = self.childrensRelatives[parentCam]
+                assert self.case == self.childrensRelatives[parentCam].case
                 continue
+            camera, parent = parentCam.split("_")
             self.parents[parentCam] = DataProduct(
                 parent,
                 self.case,
@@ -640,6 +650,9 @@ class DataProductRange(object):
                 self.tq,
                 camera,
                 addRelatives=addRelatives,
+                childrensRelatives=tools.DictNoDefault(
+                    {}
+                ),  # not sure why this is requried, bugs appear otehrwise
             )
 
     def generateAllCommands(self, skipExisting=True, withParents=True):

@@ -1112,13 +1112,18 @@ def createLevel2part(
             raise ValueError(
                 "selectCameraStr must be max, min or mean, received %s", selectCameraStr
             )
-        matchCond = _operators[opStr](thisDat, filerValue).values
+        
+        if isinstance(filerValue, list):
+            matchCond = _operators[opStr](thisDat, (filerValue[0] + filerValue[1]*level1dat['Dmax']).max(dim='camera')).values
+
+        else:
+            matchCond = _operators[opStr](thisDat, filerValue).values
+
         level1dat = level1dat.isel(pair_id=matchCond)
 
         if len(level1dat.matchScore) == 0:
             log.warning(
-                "no data remains after additional filtering %s %s" % applyFilter,
-                lv2File,
+                "no data remains after additional filtering"
             )
             return None
 

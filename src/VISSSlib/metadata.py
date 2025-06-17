@@ -57,7 +57,6 @@ def getMetaData(
     camera,
     config,
     stopAfter=-1,
-    detectMotion4oldVersions=False,
     testMovieFile=False,
     includeHeader=False,
     idOffset=0,
@@ -93,7 +92,6 @@ def getMetaData(
             camera,
             config,
             stopAfter=stopAfter,
-            detectMotion4oldVersions=detectMotion4oldVersions,
             testMovieFile=testMovieFile,
             goodFile=goodFile,
             includeHeader=includeHeader,
@@ -295,7 +293,6 @@ def _getMetaData1(
     camera,
     config,
     stopAfter=-1,
-    detectMotion4oldVersions=False,
     testMovieFile=True,
     goodFile=None,
     includeHeader=True,
@@ -516,12 +513,11 @@ def _getMetaData1(
             print("REPAIRED ", fname)
 
     if asciiVersion in [0.1, 0.2]:
-        if not detectMotion4oldVersions:
+        fn = files.Filenames(metaFname, config, version=version)
+        helperFname = f'{config["pathOut"].format(level="metaFrames_nMovingPixel", version=version)}/{config.site}_{camera}_{fn.year}{fn.month}{fn.day}.nc'
+        if os.path.isfile(helperFname):
             # for MOSAiC we can use an exisiting estimate of the numbe rof moving pixels even though it is not in the ASCII data
-            fn = files.Filenames(metaFname, config, version=version)
-            helperDat = xr.open_dataset(
-                f'{config["pathOut"].format(level="metaFrames_nMovingPixel", version=version)}/{config.site}_{camera}_{fn.year}{fn.month}{fn.day}.nc'
-            )
+            helperDat = xr.open_dataset(helperFname)
             try:
                 helperDat = helperDat.sel(record_starttime=fn.datetime64, drop=True)
                 helperDat = helperDat.sel(record_id=metaDat.record_id.values, drop=True)
@@ -541,7 +537,9 @@ def _getMetaData1(
             )
             helperDat.close()
         else:
-            log.info("%s: counting moving pixels" % (fname))
+            log.warning(
+                "%s: did not find %s, counting moving pixels" % (fname, helperFname)
+            )
 
             inVid = cv2.VideoCapture(fname)
 

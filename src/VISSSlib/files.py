@@ -280,9 +280,13 @@ class FindFiles(object):
 
     @property
     def yesterday(self):
+        return self.yesterdayObject.case.split("-")[0]
+
+    @property
+    def yesterdayObject(self):
         return FindFiles(
             self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
-        ).case.split("-")[0]
+        )
 
     @functools.cache
     def getEvents(self, skipExisting=True):

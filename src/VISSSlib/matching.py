@@ -1734,6 +1734,7 @@ def createMetaRotation(
     completeDaysOnly=True,
     writeNc=True,
     stopOnFailure=False,
+    maxAgeDaysPrevFile=1,
 ):
     nL = None
     nF = None
@@ -1784,10 +1785,22 @@ def createMetaRotation(
     # try to estimate first guess from previous data
     if rotate == "config":
         # get previous rotation filename
-        prevFile = fflM.prevFile2("metaRotation", maxOffset=np.timedelta64(24, "h"))
+        prevFile = []
+        flyesterday = fl.yesterdayObject
+        for ii in range(maxAgeDaysPrevFile):
+            prevFile = flyesterday.listFiles("metaRotation")
+            if len(prevFile) == 0:
+                flyesterday = flyesterday.yesterdayObject
+            else:
+                log.warning(f"Taking metaRotation start from {flyesterday.case}")
+                prevFile = prevFile[0]
+                break
+        # prevFile = fflM.prevFile2(
+        #     "metaRotation", maxOffset=np.timedelta64(maxAgeDaysPrevFile, "h")
+        # )
 
         # handle case that there is no previous file, make sure time in config is not too old
-        if (prevFile is None) and (
+        if (len(prevFile) == 0) and (
             datetime.datetime.strptime(config.start, "%Y-%m-%d") != fl.datetime.date()
         ):
             _, prevTime = tools.getPrevRotationEstimate(
@@ -1805,8 +1818,8 @@ def createMetaRotation(
                 )
                 return None, None
 
-        # add previous configuration to config file
-        elif prevFile is not None:
+        # add previous configuration to config file structure
+        else:
             prevDat = xr.open_dataset(prevFile)
             prevDat = prevDat.where(prevDat.camera_Ofz.notnull(), drop=True)
             config = tools.rotXr2dict(prevDat, config)

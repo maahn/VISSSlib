@@ -198,6 +198,11 @@ def readHeaderData(fname, returnLasttime=False):
             gitBranch = f.readline().split(":")[1].lstrip().rstrip()
             skip = f.readline()
         elif firstLine.startswith("# VISSS file format version: 0.6"):
+            asciiVersion = 0.6
+            gitTag = f.readline().split(":")[1].lstrip().rstrip()
+            gitBranch = f.readline().split(":")[1].lstrip().rstrip()
+            skip = f.readline()
+        elif firstLine.startswith("# VISSS file format version: 0.7"):
             raise NotImplementedError
 
         else:
@@ -225,6 +230,11 @@ def readHeaderData(fname, returnLasttime=False):
             cameraTemperature = -99.0
             transferQueueCurrentBlockCount = -99
             transferMaxBlockSize = -99.0
+
+        if asciiVersion >= 0.6:
+            ptpStatus = f.readline().split(":")[1].lstrip().rstrip()
+        else:
+            ptpStatus = "n/a"
 
         _ = f.readline()
         capture_firsttime = f.readline()
@@ -285,6 +295,7 @@ def readHeaderData(fname, returnLasttime=False):
         cameraTemperature,
         transferQueueCurrentBlockCount,
         transferMaxBlockSize,
+        ptpStatus,
     )
 
 
@@ -327,6 +338,7 @@ def _getMetaData1(
         cameraTemperature,
         transferQueueCurrentBlockCount,
         transferMaxBlockSize,
+        ptpStatus,
     ) = res
 
     if record_starttime is None:
@@ -353,7 +365,7 @@ def _getMetaData1(
             "capture_id",
         ] + list(threshs)
         asciiVersion = "0.3a"
-    elif (asciiVersion == 0.3) or (asciiVersion == 0.4) or (asciiVersion == 0.5):
+    elif asciiVersion in [0.3, 0.4, 0.5, 0.6]:
         asciiNames = ["capture_time", "record_time", "capture_id", "queue_size"] + list(
             threshs
         )
@@ -605,7 +617,7 @@ def _getMetaData1(
                 threshs, dims=["nMovingPixelThresh"], name="nMovingPixelThresh"
             ),
         ).T
-        if asciiVersion in [0.3, 0.4, 0.5]:
+        if asciiVersion in [0.3, 0.4, 0.5, 0.6]:
             # remove threshs columns which are not needed any more due to the concat above
             if includeHeader:
                 metaDat = metaDat[
@@ -662,6 +674,8 @@ def _getMetaData1(
                         "nMovingPixel",
                     ]
                 ]
+        else:
+            raise ValueError(f"unknown asciiVersion {asciiVersion}")
 
         # else:
         #    metaDat = metaDat[['capture_time', 'record_time', 'capture_id', 'capture_starttime',
@@ -754,6 +768,7 @@ def getEvents(fnames0, config, fname0status=None):
             cameraTemperature,
             transferQueueCurrentBlockCount,
             transferMaxBlockSize,
+            ptpStatus,
         ) = res
 
         record_starttime = np.datetime64(record_starttime)

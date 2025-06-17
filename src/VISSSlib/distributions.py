@@ -45,7 +45,6 @@ def _preprocess(dat):
             "perimeterConsideringHoles",
             "solidity",
             "extent",
-            "complexityBW",
         ]
         if "pair_id" in dat.coords:
             del dat["pair_id"]
@@ -1095,6 +1094,9 @@ def createLevel2part(
                 return None
 
     # only for debuging
+
+    level1dat = addPerParticleVariables(level1dat, config)
+
     for aa, applyFilter in enumerate(applyFilters):
         assert (
             len(applyFilter) == 5

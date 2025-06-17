@@ -45,6 +45,7 @@ def _preprocess(dat):
             "perimeterConsideringHoles",
             "solidity",
             "extent",
+            "complexityBW",
         ]
         if "pair_id" in dat.coords:
             del dat["pair_id"]

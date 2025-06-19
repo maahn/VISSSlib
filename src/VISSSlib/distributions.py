@@ -2150,7 +2150,7 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     )
 
     # apply resolution
-    calibDat["D_bins"] = calibDat["D_bins"] / slope / 1e6
+    calibDat = calibDat.assign_coords(D_bins=calibDat["D_bins"].values / slope / 1e6)
     calibDat["obs_volume"] = calibDat["obs_volume"] / slope**3 / 1e6**3
 
     # go from intervals to center values

@@ -124,7 +124,7 @@ DEFAULT_SETTINGS = {
             "radarElevation": 90,
             "habit": "mean",  # SSRG particle habit
             "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
-            "maxTemp": 272.15,
+            "maxTemp": 275.15,  # +2°C
             "minZe": -10,
             "minNParticles": 100,
         }

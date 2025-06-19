@@ -3,6 +3,7 @@ import logging
 import os
 import warnings
 
+import netCDF4
 import numpy as np
 import pandas as pd
 import requests
@@ -29,7 +30,8 @@ def getCloudnet(date, site, path, kind, item):
     }
     metadata = requests.get(url, payload).json()
     if (len(metadata) == 0) or ("status" in metadata[0].keys()):
-        raise FileNotFoundError(url)
+        log.warning(f"Did not find {url}")
+        return []
     fnames = []
     for row in metadata[:1]:
         res = requests.get(row["downloadUrl"])
@@ -92,7 +94,8 @@ def getMeteoData(case, config):
             dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
         )
         dat = dat.isel(time=today)
-    dat.load()
+    if dat is not None:
+        dat.load()
     return dat
 
 
@@ -261,7 +264,8 @@ def getRadarData(
     datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
 
     # merge data
-    dat = xr.concat((datY, dat), dim="time")
+    if datY is not None:
+        dat = xr.concat((datY, dat), dim="time")
     today = (dat.time >= fn.datetime64) & (
         dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
     )
@@ -283,6 +287,9 @@ def _getRadarData1(case, config, fn):
         raise ValueError(
             f"Do not understand config.aux.radar.source:{config.aux.radar.source}"
         )
+
+    if dat is None:
+        return None, None
 
     h1, h2 = config.aux.radar.heightRange
     heightIndices = (dat.range >= h1) & (dat.range <= h2)
@@ -340,7 +347,8 @@ def getRadarDataCloudnetCategorize(case, config, fn):
         )
 
     if len(fnames) == 0:
-        raise FileNotFoundError(f"Did not find {fStr}")
+        log.warning(f"Did not find {fStr}")
+        return None, None
 
     print(f"Opening {fStr}")
     dat = xr.open_mfdataset(
@@ -477,12 +485,11 @@ def getMeteoDataPangaea(case, config):
     if config.aux.meteo.downloadData and (len(fnames) == 0):
         # for pangaea, we do not know the doi of the monthly dataset
         # therefore download everything which is available
-        fnames = downloadPangaea(
-            config.aux.meteo.doi, path, config.site, "weatherstation"
-        )
+        downloadPangaea(config.aux.meteo.doi, path, config.site, "weatherstation")
+        fnames = glob.glob(fStr)
 
     if len(fnames) == 0:
-        print("No Pangaea meteo data yet")
+        print(f"No Pangaea meteo data yet, check http://doi.org/{config.aux.meteo.doi}")
         return None
 
     print(f"Opening {fnames}")

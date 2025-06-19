@@ -322,6 +322,8 @@ required to record data in real-time for VISSS2.
       |                | TC12080        | working        | working        |
       |                |                | distance)      | distance)      |
       +----------------+----------------+----------------+----------------+
+      | F Value        | 8              | 8              | 9.6            |
+      +----------------+----------------+----------------+----------------+
       | Maker          | University of  | University of  | Leipzig        |
       |                | Colorado       | Cologne        | University     |
       |                | Boulder        |                |                |

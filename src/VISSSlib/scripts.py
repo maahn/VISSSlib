@@ -860,7 +860,12 @@ def loopCreateMetaFrames(
 
 
 def loopCreateMetaRotation(
-    settings, skipExisting=True, nDays=0, doPlot=True, stopOnFailure=False
+    settings,
+    skipExisting=True,
+    nDays=0,
+    doPlot=True,
+    stopOnFailure=False,
+    maxAgeDaysPrevFile=1,
 ):
     """
     Lopp thourgh days to create metaRotation product
@@ -870,6 +875,7 @@ def loopCreateMetaRotation(
     settings : str
         VISSS settings YAML file
     skipExisting : bool, optional
+
         Skip existing files? (the default is True)
     nDays : number or str, optional
         number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
@@ -894,7 +900,11 @@ def loopCreateMetaRotation(
         case = f"{year}{month}{day}"
         print("createMetaRotation", case)
         matching.createMetaRotation(
-            case, config, skipExisting=skipExisting, stopOnFailure=stopOnFailure
+            case,
+            config,
+            skipExisting=skipExisting,
+            stopOnFailure=stopOnFailure,
+            maxAgeDaysPrevFile=maxAgeDaysPrevFile,
         )
 
     if doPlot:

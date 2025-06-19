@@ -170,6 +170,10 @@ def main():
             skipExisting = bool(int(sys.argv[4]))
         except IndexError:
             skipExisting = True
+        try:
+            maxAgeDaysPrevFile = int(sys.argv[5])
+        except IndexError:
+            maxAgeDaysPrevFile = 1
 
         matching.createMetaRotation(case, settings, skipExisting=skipExisting)
 
@@ -373,8 +377,17 @@ def main():
             skipExisting = bool(int(sys.argv[4]))
         except IndexError:
             skipExisting = True
+        try:
+            maxAgeDaysPrevFile = int(sys.argv[5])
+        except IndexError:
+            maxAgeDaysPrevFile = 1
 
-        scripts.loopCreateMetaRotation(settings, nDays=nDays, skipExisting=skipExisting)
+        scripts.loopCreateMetaRotation(
+            settings,
+            nDays=nDays,
+            skipExisting=skipExisting,
+            maxAgeDaysPrevFile=maxAgeDaysPrevFile,
+        )
 
     elif sys.argv[1] == "scripts.loopMetaRotationQuicklooks":
         settings = sys.argv[2]

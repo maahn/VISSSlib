@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import pdb
 import random
 import string
 import sys
@@ -28,12 +29,14 @@ class DataProduct(object):
         relatives=None,
         addRelatives=True,
         fileObject=None,
+        childrensRelatives=tools.DictNoDefault({}),
     ):
         """
         Class for processing VISSS data
 
         """
-        log.info(f"create object for level {level} {camera}")
+        log.info(f"created  {level} {camera} for {case} with {childrensRelatives}.")
+        # pdb.set_trace()
         self.level = level
         self.config = tools.readSettings(settings)
         self.settings = settings
@@ -41,6 +44,7 @@ class DataProduct(object):
             self.relatives = f"{relatives}.{level}"
         else:
             self.relatives = level
+        self.childrensRelatives = childrensRelatives
         if camera == "leader":
             self.cameraFull = self.config.leader
         elif camera == "follower":
@@ -94,6 +98,9 @@ class DataProduct(object):
         elif level == "level1track":
             assert camera == "leader"
             self.parentNames = [f"{camera}_level1match"]
+        # elif level == "level1shape":
+        #     assert camera == "leader"
+        #     self.parentNames = [f"{camera}_level1track"]
         elif level == "level2detect":
             self.parentNames = [f"{camera}_level1detect", f"{camera}_metaEvents"]
         elif level == "level2match":
@@ -140,12 +147,24 @@ class DataProduct(object):
 
         else:
             raise ValueError(f"Do not understand {level}")
-
         if addRelatives:
             self.addRelatives()
 
+    def __repr__(self):
+        reprstr = (
+            f"<VISSSlib.products.DataProduct object {self.level} for "
+            f"{self.settings} using {self.camera} on {self.case}>"
+        )
+        return reprstr
+
     def addRelatives(self):
         for parentCam in self.parentNames:
+            # save time by not adding a product more than once
+            if parentCam in self.childrensRelatives.keys():
+                # print(f"{self.relatives}, found {parentCam} from other relative")
+                self.parents[parentCam] = self.childrensRelatives[parentCam]
+                assert self.case == self.childrensRelatives[parentCam].case
+                continue
             camera, parent = parentCam.split("_")
             self.parents[parentCam] = DataProduct(
                 parent,
@@ -154,9 +173,10 @@ class DataProduct(object):
                 self.tq,
                 camera,
                 relatives=f"{self.relatives}",
+                childrensRelatives=self.parents,
             )
-
             self.parents.update(self.parents[parentCam].parents)
+            self.childrensRelatives.update(self.parents)
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
         # cache for this function
@@ -252,6 +272,12 @@ class DataProduct(object):
             return self.commandTemplateL1(
                 originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
+        # elif self.level == "level1shape":
+        #     originLevel = "level1track"
+        #     call = "particleshape.classifyParticles"
+        #     return self.commandTemplateL1(
+        #         originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
+        #     )
         elif self.level == "level2detect":
             return self.commandTemplateDaily(
                 "distributions.createLevel2detect",
@@ -568,6 +594,11 @@ class level1detect(DataProduct):
         super().__init__("level1detect", case, settings, fileQueue, camera)
 
 
+# class level1shape(DataProduct):
+#     def __init__(self, case, settings, fileQueue, camera="leader"):
+#         super().__init__("level1shape", case, settings, fileQueue, camera)
+
+
 class metaFrames(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
         super().__init__("metaFrames", case, settings, fileQueue, camera)
@@ -619,6 +650,9 @@ class DataProductRange(object):
                 self.tq,
                 camera,
                 addRelatives=addRelatives,
+                childrensRelatives=tools.DictNoDefault(
+                    {}
+                ),  # not sure why this is requried, bugs appear otehrwise
             )
 
     def generateAllCommands(self, skipExisting=True, withParents=True):

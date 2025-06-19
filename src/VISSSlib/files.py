@@ -17,7 +17,7 @@ from addict import Dict
 log = logging.getLogger(__name__)
 
 from . import __version__, metadata
-from .tools import DictNoDefault, nicerNames, otherCamera
+from .tools import DictNoDefault, nicerNames, otherCamera, readSettings
 
 # to do merge to single class using different constructors with @classmethod?
 
@@ -35,6 +35,7 @@ fileLevels = [
     "level1detect",
     "level1match",
     "level1track",
+    # "level1shape",
     "metaFrames",
     "metaDetection",
     "imagesL1detect",
@@ -46,10 +47,15 @@ quicklookLevelsSep = [
     "level1detect",
     "level1match",
     "level1matchParticles",
+    # "level1shape",
     "metaRotation",
     "level2detect",
 ]
-quicklookLevelsComb = ["level2match", "level2track"]
+quicklookLevelsComb = [
+    "level2match",
+    "level2track",
+    "level3combinedRiming",
+]
 imageLevels = ["imagesL1detect"]
 
 
@@ -60,7 +66,7 @@ class FindFiles(object):
 
         for level 0, only thread 0 files are returned!
         """
-        assert type(config) is not str
+        config = readSettings(config)
 
         if type(case) is not str:
             self.case = pn.to_datetime(case).strftime("%Y%m%d-%H%M%S")
@@ -274,9 +280,13 @@ class FindFiles(object):
 
     @property
     def yesterday(self):
+        return self.yesterdayObject.case.split("-")[0]
+
+    @property
+    def yesterdayObject(self):
         return FindFiles(
             self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
-        ).case.split("-")[0]
+        )
 
     @functools.cache
     def getEvents(self, skipExisting=True):
@@ -474,7 +484,7 @@ class Filenames(object):
         create matching filenames based on mov file
         Use always thread 0 file!
         """
-        assert type(config) is not str
+        config = readSettings(config)
         if fname.endswith("txt"):
             fname = fname.replace("txt", config.movieExtension)
 
@@ -949,7 +959,7 @@ class FilenamesFromLevel(Filenames):
         get all filenames from a level 1 or level 2 file
         """
 
-        assert type(config) is not str
+        config = readSettings(config)
         (
             level,
             version,
@@ -965,7 +975,6 @@ class FilenamesFromLevel(Filenames):
         case = ts.split(".")[0]
         camera = "_".join((visssType, visssSerial))
 
-        config = config
         basename = "_".join((computer, visssGen, visssType, visssSerial, case))
 
         year = case[:4]

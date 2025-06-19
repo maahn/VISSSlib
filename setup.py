@@ -53,6 +53,7 @@ setuptools.setup(
         "scikit-image",
         "tqdm",
         "pangaeapy",
+        "netCDF4",
     ],
     setup_requires=["setuptools_scm"],
 )

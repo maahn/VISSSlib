@@ -1098,6 +1098,7 @@ def createLevel2part(
     
 
     for aa, applyFilter in enumerate(applyFilters):
+
         assert (
             len(applyFilter) == 5
         ), "applyFilters elements must contain filterVar, operator, filterValue, extraDims"
@@ -1119,6 +1120,9 @@ def createLevel2part(
             )
         
         if isinstance(filterValue, list):
+
+            assert(len(filterValue) == 2), 'filterValue is list, but contains not 2 elements; at the moment only linear functions of Dmax are supported'
+
             matchCond = _operators[opStr](thisDat, (filterValue[0] + filterValue[1]*level1dat['Dmax']).max(dim='camera')).values
 
         else:

@@ -1095,8 +1095,6 @@ def createLevel2part(
 
     # only for debuging
 
-    
-
     for aa, applyFilter in enumerate(applyFilters):
 
         assert (
@@ -1104,8 +1102,8 @@ def createLevel2part(
         ), "applyFilters elements must contain filterVar, operator, filterValue, extraDims"
         filterVar, opStr, filterValue, selectCameraStr, extraDims = applyFilter
 
-        #add complexity to data if filtered by complexity
-        if filterVar in ['complexityBW']:
+        # add complexity to data if filtered by complexity
+        if filterVar in ["complexityBW"]:
             level1dat = addPerParticleVariables(level1dat, config)
 
         if selectCameraStr == "max":
@@ -1118,13 +1116,16 @@ def createLevel2part(
             raise ValueError(
                 "selectCameraStr must be max, min or mean, received %s", selectCameraStr
             )
-        
+
         if isinstance(filterValue, list):
 
-            assert(
+            assert (
                 len(filterValue) == 2
-            ), 'filterValue is list, but contains not 2 elements; at the moment only linear functions of Dmax are supported'
-            matchCond = _operators[opStr](thisDat, (filterValue[0] + filterValue[1]*level1dat['Dmax']).max(dim='camera')).values
+            ), "filterValue is list, but contains not 2 elements; at the moment only linear functions of Dmax are supported"
+            matchCond = _operators[opStr](
+                thisDat,
+                (filterValue[0] + filterValue[1] * level1dat["Dmax"]).max(dim="camera"),
+            ).values
 
         else:
             matchCond = _operators[opStr](thisDat, filterValue).values
@@ -1132,9 +1133,7 @@ def createLevel2part(
         level1dat = level1dat.isel(pair_id=matchCond)
 
         if len(level1dat.matchScore) == 0:
-            log.warning(
-                "no data remains after additional filtering"
-            )
+            log.warning("no data remains after additional filtering")
             return None
 
     try:
@@ -2179,9 +2178,7 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     calibDat["area_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeter_mean"] = calibDat["perimeter_mean"] / slope / 1e6
     calibDat["perimeter_std"] = calibDat["perimeter_std"] / slope / 1e6
-    calibDat["areaConsideringHoles_mean"] = (
-        calibDat["area_mean"] / slope**2 / 1e6**2
-    )
+    calibDat["areaConsideringHoles_mean"] = calibDat["area_mean"] / slope**2 / 1e6**2
     calibDat["areaConsideringHoles_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeterConsideringHoles_mean"] = (
         calibDat["perimeter_mean"] / slope / 1e6

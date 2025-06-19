@@ -666,7 +666,7 @@ def createLevel2part(
     Each filter is a tuple with:
     1) variable name (e.g. aspectRatio, all lv1 variables work)
     2) Operator, one of '>','<','>=','<=','=='
-    3) Value for comparison
+    3) Value for comparison or a list of two values, used as intercept and slope  (in this order) for comparison with a linear function of Dmax
     4) if variable contains extra dimensions, which one to select, {} otherwise
 
     Example to get all particles > 10 pixels (using max of both cameras) with aspectRatio >= 0.7 (using min of both cameras)

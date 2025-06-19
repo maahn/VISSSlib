@@ -1100,8 +1100,8 @@ def createLevel2part(
     for aa, applyFilter in enumerate(applyFilters):
         assert (
             len(applyFilter) == 5
-        ), "applyFilters elements must contain filterVar, operator, filerValue, extraDims"
-        filterVar, opStr, filerValue, selectCameraStr, extraDims = applyFilter
+        ), "applyFilters elements must contain filterVar, operator, filterValue, extraDims"
+        filterVar, opStr, filterValue, selectCameraStr, extraDims = applyFilter
 
         #add complexity to data if filtered by complexity
         if filterVar in ['complexityBW']:
@@ -1118,11 +1118,11 @@ def createLevel2part(
                 "selectCameraStr must be max, min or mean, received %s", selectCameraStr
             )
         
-        if isinstance(filerValue, list):
-            matchCond = _operators[opStr](thisDat, (filerValue[0] + filerValue[1]*level1dat['Dmax']).max(dim='camera')).values
+        if isinstance(filterValue, list):
+            matchCond = _operators[opStr](thisDat, (filterValue[0] + filterValue[1]*level1dat['Dmax']).max(dim='camera')).values
 
         else:
-            matchCond = _operators[opStr](thisDat, filerValue).values
+            matchCond = _operators[opStr](thisDat, filterValue).values
 
         level1dat = level1dat.isel(pair_id=matchCond)
 

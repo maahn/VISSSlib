@@ -1095,13 +1095,18 @@ def createLevel2part(
 
     # only for debuging
 
-    level1dat = addPerParticleVariables(level1dat, config)
+    
 
     for aa, applyFilter in enumerate(applyFilters):
         assert (
             len(applyFilter) == 5
         ), "applyFilters elements must contain filterVar, operator, filerValue, extraDims"
         filterVar, opStr, filerValue, selectCameraStr, extraDims = applyFilter
+
+        #add complexity to data if filtered by complexity
+        if filterVar in ['complexityBW']:
+            level1dat = addPerParticleVariables(level1dat, config)
+
         if selectCameraStr == "max":
             thisDat = level1dat[filterVar].sel(**extraDims).max("camera")
         elif selectCameraStr == "min":

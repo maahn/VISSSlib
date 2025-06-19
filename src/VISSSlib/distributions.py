@@ -237,7 +237,7 @@ def createLevel2(
         Each filter is a tuple with:
         1) variable name (e.g. aspectRatio, all lv1 variables work)
         2) Operator, one of '>','<','>=','<=','=='
-        3) Value for comparison
+        3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
         4) if variable contains extra dimensions, which one to select, {} otherwise
 
         Example to get all particles > 10 pixels (using max of both cameras) with
@@ -666,7 +666,7 @@ def createLevel2part(
     Each filter is a tuple with:
     1) variable name (e.g. aspectRatio, all lv1 variables work)
     2) Operator, one of '>','<','>=','<=','=='
-    3) Value for comparison
+    3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
     4) if variable contains extra dimensions, which one to select, {} otherwise
 
     Example to get all particles > 10 pixels (using max of both cameras) with aspectRatio >= 0.7 (using min of both cameras)
@@ -1094,11 +1094,18 @@ def createLevel2part(
                 return None
 
     # only for debuging
+
     for aa, applyFilter in enumerate(applyFilters):
+
         assert (
             len(applyFilter) == 5
-        ), "applyFilters elements must contain filterVar, operator, filerValue, extraDims"
-        filterVar, opStr, filerValue, selectCameraStr, extraDims = applyFilter
+        ), "applyFilters elements must contain filterVar, operator, filterValue, extraDims"
+        filterVar, opStr, filterValue, selectCameraStr, extraDims = applyFilter
+
+        # add complexity to data if filtered by complexity
+        if filterVar in ["complexityBW"]:
+            level1dat = addPerParticleVariables(level1dat, config)
+
         if selectCameraStr == "max":
             thisDat = level1dat[filterVar].sel(**extraDims).max("camera")
         elif selectCameraStr == "min":
@@ -1109,14 +1116,24 @@ def createLevel2part(
             raise ValueError(
                 "selectCameraStr must be max, min or mean, received %s", selectCameraStr
             )
-        matchCond = _operators[opStr](thisDat, filerValue).values
+
+        if isinstance(filterValue, list):
+
+            assert (
+                len(filterValue) == 2
+            ), "filterValue is list, but contains not 2 elements; at the moment only linear functions of Dmax are supported"
+            matchCond = _operators[opStr](
+                thisDat,
+                (filterValue[0] + filterValue[1] * level1dat["Dmax"]).max(dim="camera"),
+            ).values
+
+        else:
+            matchCond = _operators[opStr](thisDat, filterValue).values
+
         level1dat = level1dat.isel(pair_id=matchCond)
 
         if len(level1dat.matchScore) == 0:
-            log.warning(
-                "no data remains after additional filtering %s %s" % applyFilter,
-                lv2File,
-            )
+            log.warning("no data remains after additional filtering")
             return None
 
     try:
@@ -2161,9 +2178,7 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     calibDat["area_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeter_mean"] = calibDat["perimeter_mean"] / slope / 1e6
     calibDat["perimeter_std"] = calibDat["perimeter_std"] / slope / 1e6
-    calibDat["areaConsideringHoles_mean"] = (
-        calibDat["area_mean"] / slope**2 / 1e6**2
-    )
+    calibDat["areaConsideringHoles_mean"] = calibDat["area_mean"] / slope**2 / 1e6**2
     calibDat["areaConsideringHoles_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeterConsideringHoles_mean"] = (
         calibDat["perimeter_mean"] / slope / 1e6

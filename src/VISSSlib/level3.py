@@ -8,7 +8,7 @@ import pandas as pd
 import pyOptimalEstimation as pyOE
 import xarray as xr
 
-from . import __version__, aux, files, tools
+from . import __version__, aux, files, quicklooks, tools
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -274,7 +274,9 @@ def heymsfield10_particles_M(Dmax, M, temperature, press, shape):
     return velSpec
 
 
-def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
+def retrieveCombinedRiming(
+    case, config, skipExisting=True, writeNc=True, doQuicklook=True
+):
     """
     apply combined riming retrieval following
     Maherndl, N., M. Maahn, F. Tridon, J. Leinonen, D. Ori, and S. Kneifel, 2023:
@@ -669,4 +671,8 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
 
     if writeNc:
         tools.to_netcdf2(lv3Dat, lv3File)
+
+    if doQuicklook:
+        quicklooks.createLevel3RimingQuicklook(case, config)
+
     return lv3Dat, lv3File

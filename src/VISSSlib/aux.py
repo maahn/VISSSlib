@@ -211,7 +211,7 @@ def getRadarData(
 
     dat, frequency = _getRadarData1(case, config, fn)
 
-    # add data of previous files - new fiels are not always started at 00:00
+    # add data of previous files - new files are not always started at 00:00
     fnY = files.FindFiles(fn.yesterday, config.leader, config)
     datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
 
@@ -304,7 +304,10 @@ def getRadarDataCloudnetCategorize(case, config, fn):
 
     print(f"Opening {fStr}")
     dat = xr.open_mfdataset(
-        fnames, preprocess=lambda dat: dat[["v", "Z", "altitude", "radar_frequency"]]
+        fnames,
+        preprocess=lambda dat: dat[
+            ["v", "Z", "altitude", "radar_frequency", "radar_melting_atten"]
+        ],
     )
 
     dat = dat.rename(v="MDV", Z="Ze", height="range")
@@ -314,6 +317,11 @@ def getRadarDataCloudnetCategorize(case, config, fn):
             "MDV",
         ]
     ]
+
+    # fix Cloudnet bug - solid precipitation at the ground should never need a melting layer attenuation correction
+    # https://github.com/actris-cloudnet/cloudnetpy/issues/121
+    dat1["Ze"] = dat1["Ze"] - dat.radar_melting_atten
+
     dat1["range"] = dat1.range - float(dat.altitude.values)
     dat1["Ze"] = 10 ** (0.1 * dat1["Ze"])
 

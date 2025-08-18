@@ -6,7 +6,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pyOptimalEstimation as pyOE
 import xarray as xr
 
 from . import __version__, aux, files, tools
@@ -41,6 +40,21 @@ def classifyParticles(fnameLv1Detect, config, writeNc=True):
     else:
         log.error(f"NO DATA lv1track yet {fnameTracking}")
         return None, fnameLv1Shape
+
+    largeEnough = lv1track.Dmax.max("camera") >= config.level1shape.minDmax
+    sharpEnough = lv1track.blur.max("camera") >= config.level1shape.minBlur
+    matchedEnough = lv1track.matchScore >= config.quality.minMatchScore
+    goodQuality = largeEnough & sharpEnough & matchedEnough
+
+    if np.sum(goodQuality) == 0:
+        log.warning(
+            "no data, all particles too small/too blurry/not matched %s" % fnameLv1Shape
+        )
+        with tools.open2(f"{fnameLv1Shape}.nodata", "w") as f:
+            f.write("no data, all particles too small")
+        return None, fnameLv1Shape
+
+    lv1track = lv1track.where(goodQuality)
 
     lv1shape = applyClassifier(lv1track, config)
 
@@ -92,6 +106,8 @@ def applyClassifier(DaTa, config):
     """
 
     vars_to_subs = [
+        "Droi",
+        "Dmax",
         "Dfit",
         "contourFFT",
         "amp_rat",
@@ -99,6 +115,8 @@ def applyClassifier(DaTa, config):
 
     DaTa = add_variables(DaTa)
     DaTa["Dfit"] = (DaTa["Dfit"]) / config.calibration.slope / 1e6
+    DaTa["Droi"] = (DaTa["Droi"]) / config.calibration.slope / 1e6
+    DaTa["Dmax"] = (DaTa["Dmax"]) / config.calibration.slope / 1e6
 
     diff_dataset = xr.Dataset()
     max_dataset = xr.Dataset()
@@ -124,23 +142,26 @@ def applyClassifier(DaTa, config):
 
     combined_ds["pair_id"] = DaTa["pair_id"]
 
-    combined_ds = combined_ds.where(
-        DaTa.Dmax.max("camera") >= config.level1shape.minDmax
-    )
-
     combined_ds_nan_free = combined_ds.dropna(dim="pair_id", how="any")
+    combined_ds_nan_free = combined_ds_nan_free.sel(
+        FFTfreqs=[1.0, 2.0, 3.0, 6.0, 4.0, 8.0, 9.0, 16.0, 12.0], drop=True
+    )
 
     if len(combined_ds_nan_free.pair_id) == 0:
         print("no data left")
         return None
 
     selected_variables = [
+        "Droi_max",
+        "Droi_diff",
         "Dfit_min",
         "Dfit_diff",
         "contourFFT_min",
         "contourFFT_diff",
         "amp_rat_max",
         "amp_rat_diff",
+        "Dmax_max",
+        "Dmax_diff",
     ]
 
     data_dict = {}
@@ -170,7 +191,7 @@ def applyClassifier(DaTa, config):
 
     if config.level1shape.classifier == "DEFAULT":
         pkg = importlib.resources.files("VISSSlib")
-        cFile = pkg / "data" / "classifier_20250325.pkl"
+        cFile = pkg / "data" / "classifier_20250730.pkl"
     else:
         cFile = config.level1shape.classifier
     classifier = joblib.load(cFile)
@@ -192,9 +213,7 @@ def applyClassifier(DaTa, config):
     # sphericals = prob[:, 3]
     # stellars = prob[:, 4]
 
-    print("prob and pred add to data")
-
-    shapes = ["graupel", "needles_columns", "plates", "sphericals", "stellars"]
+    shapes = classifier.classes_
     prob = xr.DataArray(
         prob, dims=["pair_id", "shape"], coords=[combined_ds_nan_free.pair_id, shapes]
     )

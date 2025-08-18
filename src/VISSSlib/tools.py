@@ -91,6 +91,7 @@ DEFAULT_SETTINGS = {
     "level1shape": {
         "classifier": "DEFAULT",
         "minDmax": 8,
+        "minBlur": 500,
     },
     "level2": {
         "freq": "1min",

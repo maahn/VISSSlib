@@ -32,6 +32,59 @@ from . import __version__, av, tools
 log = logging.getLogger(__name__)
 
 
+def loop(level, nDays, settings, version=__version__, skipExisting=True):
+    config = tools.readSettings(settings)
+    days = tools.getDateRange(nDays, config, endYesterday=False)
+
+    if level in ["level0", "level1detect", "metaFrames", "level2detect"]:
+        cameras = config["instruments"]
+    else:
+        cameras = [config.leader]
+
+    for dd in days:
+        year = str(dd.year)
+        month = "%02i" % dd.month
+        day = "%02i" % dd.day
+        case = f"{year}{month}{day}"
+        print(case)
+        for camera in cameras:
+            if level == "level0":
+                level0Quicklook(
+                    case, camera, config, version=version, skipExisting=skipExisting
+                )
+            elif level == "metaFrames":
+                metaFramesQuicklook(
+                    case, config, version=version, skipExisting=skipExisting
+                )
+            elif level == "level1detect":
+                createLevel1detectQuicklook(
+                    case, camera, config, version=version, skipExisting=skipExisting
+                )
+            elif level == "level1match":
+                createLevel1matchParticlesQuicklook(
+                    case, config, version=version, skipExisting=skipExisting
+                )
+            elif level == "level2detect":
+                createLevel2detectQuicklook(
+                    case, config, camera, version=version, skipExisting=skipExisting
+                )
+            elif level == "level2match":
+                createLevel2matchQuicklook(
+                    case, config, version=version, skipExisting=skipExisting
+                )
+            elif level == "level2track":
+                createLevel2matchQuicklook(
+                    case, config, version=version, skipExisting=skipExisting
+                )
+            elif level == "level3combinedRiming":
+                createLevel3RimingQuicklook(
+                    case, config, version=version, skipExisting=skipExisting
+                )
+            else:
+                raise ValueError(f"Do not know level {level}")
+    return
+
+
 def statusText(fig, fnames, config, addLogo=True):
     if not isinstance(fnames, (list, tuple)):
         fnames = [fnames]
@@ -460,8 +513,8 @@ def createLevel1detectQuicklook(
                         log.warning(f"is broken {fn.fname.imagesL1detect}")
 
                 nPids = len(pids)
-                np.random.seed(tt)
-                np.random.shuffle(pids)
+                rng = np.random.default_rng(tt)
+                rng.shuffle(pids)
 
                 containerSize = container_width * container_height_max
 
@@ -549,6 +602,7 @@ def createLevel1detectQuicklook(
                     text = np.full((100, 100), background, dtype=np.uint8)
 
                     textStr = "%i.%i" % (fid, pid)
+                    print(textStr)
                     text = cv2.putText(
                         text,
                         textStr,
@@ -2873,12 +2927,14 @@ def createLevel1matchParticlesQuicklook(
     omitLabel4small="config",
     timedelta=np.timedelta64(1, "D"),
     returnFig=True,
+    doLevel1matchQuicklook=True,
 ):
     config = tools.readSettings(config)
     camera = config["leader"]
 
     # for convinience, do the other L1match quicklook as well
-    createLevel1matchQuicklook(timestamp, config, skipExisting=skipExisting)
+    if doLevel1matchQuicklook:
+        createLevel1matchQuicklook(timestamp, config, skipExisting=skipExisting)
 
     if minBlur == "config":
         minBlur = config["level1detectQuicklook"]["minBlur"]
@@ -3082,7 +3138,7 @@ def createLevel1matchParticlesQuicklook(
                         else:
                             log.error(f"no zip file for {case} {camera}")
                 tars = {}
-                for fname in fnames:
+                for fname in np.unique(fnames):
                     fn = files.FilenamesFromLevel(fname, config)
                     # tarRoot = fn.fname.imagesL1detect.split("/")[-1].replace(".tar.bz2","")
                     # tars[fname] = (tools.imageTarFile.open(fn.fname.imagesL1detect, "r:bz2"), tarRoot)
@@ -3090,8 +3146,13 @@ def createLevel1matchParticlesQuicklook(
                     tars[fname] = tools.imageZipFile(fn.fname.imagesL1detect, mode="r")
 
                 nPids = fpair_ids.shape[0]
-                np.random.seed(tt)
-                np.random.shuffle(fpair_ids)
+                # import pdb
+
+                # pdb.set_trace()
+                rng = np.random.default_rng(tt)
+                rng.shuffle(fpair_ids)
+                # apply shuffling
+                thisDat = thisDat.sel(fpair_id=fpair_ids)
 
                 containerSize = container_width * container_height_max
 
@@ -3121,7 +3182,7 @@ def createLevel1matchParticlesQuicklook(
                 for fp, fpair_id in enumerate(fpair_ids):
                     im = [None, None]
                     fname2, pair_id = fpair_id
-                    particle_pair = thisDat.isel(fpair_id=fp)
+                    particle_pair = thisDat.sel(fpair_id=fpair_id)
                     for cc, camera in enumerate(config.instruments):
                         particle = particle_pair.sel(camera=camera)
                         pid = particle.pid.values
@@ -3159,6 +3220,7 @@ def createLevel1matchParticlesQuicklook(
                     text = np.full((100, 100), background, dtype=np.uint8)
 
                     textStr = "%i.%i" % (fid, pid)
+
                     text = cv2.putText(
                         text,
                         textStr,
@@ -3299,3 +3361,246 @@ def createLevel1matchParticlesQuicklook(
         return ffOut, new_im
     else:
         return ffOut
+
+
+def createLevel3RimingQuicklook(
+    case,
+    config,
+    skipExisting=True,
+    version=__version__,
+    returnFig=True,
+):
+    config = tools.readSettings(config)
+
+    camera = config.leader
+    nodata = False
+    # get level 0 file names
+    ff = files.FindFiles(case, camera, config, version)
+    fOut = ff.quicklook.level3combinedRiming
+
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        events=ff.listFiles("metaEvents"),
+        parents=ff.listFiles("level3combinedRiming"),
+    ):
+        return None, None
+
+    lv3 = ff.listFiles("level3combinedRiming")
+    if len(lv3) == 0:
+        if len(ff.listFilesExt("level3combinedRiming")) == 0:
+            log.error(
+                f"{case} level3combinedRiming data not found {ff.fnamesPattern.level3combinedRiming}"
+            )
+            return None, None
+        else:
+            nodata = True
+    else:
+        lv3 = lv3[0]
+
+    if len(ff.listFiles("metaEvents")) == 0:
+        log.error(f"{case} event data not found")
+        return None, None
+
+    log.info(f"running {case} {fOut}")
+
+    fig, axs = plt.subplots(
+        nrows=4,
+        ncols=1,
+        figsize=(20, 20),
+        gridspec_kw={
+            # "width_ratios": [1, 0.01],
+            "height_ratios": [1, 1, 1, 1],
+            "hspace": 0.02,
+            "wspace": 0.1,
+        },
+    )
+    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
+    fig.suptitle(
+        "VISSS level3combinedRiming \n"
+        + f"{ff.year}-{ff.month}-{ff.day}"
+        + ", "
+        + config["name"]
+        + "",
+        fontsize=25,
+        y=0.995,
+        fontweight="bold",
+        x=mid,
+    )
+    if nodata:
+        axs[0].set_title("no data")
+    else:
+        dat3 = xr.open_dataset(lv3)  # .sel(size_definition="Dmax", drop=True)
+
+        dat2 = xr.open_dataset(ff.listFiles("level2track")[0]).sel(
+            size_definition="Dmax", cameratrack="max", drop=True
+        )
+
+        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
+
+        fEvents1 = ff.listFiles("metaEvents")[0]
+        fEvents2 = files.FilenamesFromLevel(fEvents1, config).filenamesOtherCamera(
+            level="metaEvents"
+        )[0]
+
+        try:
+            events1 = xr.open_dataset(fEvents1)
+        except:
+            print(f"{fEvents1} broken")
+            return None, None
+        try:
+            events2 = xr.open_dataset(fEvents2)
+        except:
+            print(f"{fEvents2} broken")
+            return None, None
+
+        events = xr.concat((events1, events2), dim="file_starttime")
+
+        (ax1, ax2, ax3, ax4) = axs
+
+        dat3.Ze_0.plot(ax=ax1, label="Ze_0")
+        dat3.Ze_ground.plot(ax=ax1, label="Ze_ground")
+        dat3.Ze_combinedRetrieval.plot(ax=ax1, label="Ze_combinedRetrieval")
+        dat3.Ze_ground_fitResidual.where(dat3.Ze_0 > -10).plot(
+            ax=ax1, label="Ze_ground_fitResidual"
+        )
+        dat3.Ze_std.where(dat3.Ze_0 > -10).plot(ax=ax1, label="Ze_std")
+
+        ax1.set_ylabel("Ze [dBz]")
+        ax1.legend()
+        ax1.set_ylim(-20, 40)
+
+        dat3.combinedNormalizedRimeMass.plot(ax=ax2, label="M (combined)")
+        dat2.normalizedRimeMass_mean.plot(ax=ax2, label="M (in situ weighted mean)")
+        dat2.normalizedRimeMass_dist.mean("D_bins").plot(
+            ax=ax2, label="M (in situ weighted mean)"
+        )
+
+        ax2.set_ylabel("M [-]")
+        ax2.set_yscale("log")
+        ax2.legend()
+        ax2.set_ylim(1e-3, 10)
+
+        dat3.IWC.plot(ax=ax3, label="IWC (combined)")
+        ax3.set_ylabel("IWC [kg/m$^3$]")
+        ax3.set_yscale("log")
+        ax3.legend()
+
+        dat3.SR_M.plot(ax=ax4, label="SR (combined with meas. fall vel.)")
+        dat3.SR_M_heymsfield10.plot(ax=ax4, label="SR (combined with param. fall vel.)")
+        ax4.set_ylabel("SR [mm/h w.e.]")
+        ax4.set_yscale("log")
+        ax4.legend()
+
+        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
+        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
+        processingFailed = quality.sel(flag="processingFailed", drop=True)
+        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
+        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
+        tracksTooShort = quality.sel(flag="tracksTooShort", drop=True)
+
+        for ax in axs:
+            ax.set_title(None)
+
+            ylim = ax.get_ylim()
+            cond = quality.time.where(recordingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="pink",
+                    alpha=0.25,
+                    label="cameras off",
+                )
+            cond = quality.time.where(obervationsDiffer)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="magenta",
+                    alpha=0.25,
+                    label="observed # of particles differ",
+                )
+
+            cond = quality.time.where(processingFailed)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="purple",
+                    alpha=0.25,
+                    label="processing failed",
+                )
+            cond = quality.time.where(cameraBlocked)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="red",
+                    alpha=0.25,
+                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
+                )
+            cond = quality.time.where(blowingSnow)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="orange",
+                    alpha=0.25,
+                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
+                )  # , hatch='///')
+            cond = quality.time.where(tracksTooShort)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="blue",
+                    alpha=0.2,
+                    label=f"mean track length < {config.quality.trackLengthThreshold}",
+                    # hatch="X",
+                )
+
+            ax.set_ylim(ylim)
+
+            ax.tick_params(axis="both", labelsize=15)
+            ax.grid()
+            ax.set_xlim(
+                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
+                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
+                + np.timedelta64(1, "D"),
+            )
+
+        for ax in axs[:-1]:
+            ax.set_xticklabels([])
+
+        # mark relaunch
+        firstEvent = True
+        for event in events.event:
+            if str(event.values).startswith("start") or str(event.values).startswith(
+                "launch"
+            ):
+                for ax in axs[:]:
+                    if firstEvent:
+                        label = "restarted"
+                        firstEvent = False
+                    else:
+                        label = None
+                    ax.axvline(
+                        event.file_starttime.values, color="red", ls=":", label=label
+                    )
+
+        ax1.legend()
+        ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
+        dat2.close()
+        dat3.close()
+    fig.tight_layout()
+    statusText(fig, ff.listFiles("level3combinedRiming"), config)
+    tools.createParentDir(fOut)
+    fig.savefig(fOut)
+
+    return fig

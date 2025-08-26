@@ -86,14 +86,17 @@ def getMeteoData(case, config):
     if config.aux.meteo.source == "ARMmet":
         # add data of previous files - new fiels ar enot always reated at 00:00
         fnY = files.FindFiles(fn.yesterday, config.leader, config)
-        datY = _getMeteoData1(fn.yesterday, config)
-
-        # merge data
-        dat = xr.concat((datY, dat), dim="time")
-        today = (dat.time >= fn.datetime64) & (
-            dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
-        )
-        dat = dat.isel(time=today)
+        try:
+            datY = _getMeteoData1(fn.yesterday, config)
+        except FileNotFoundError:
+            log.warning(f"Did not find meteo data for yesterday {fn.yesterday}")
+        else:
+            # merge data
+            dat = xr.concat((datY, dat), dim="time")
+            today = (dat.time >= fn.datetime64) & (
+                dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
+            )
+            dat = dat.isel(time=today)
     if dat is not None:
         dat.load()
     return dat
@@ -259,17 +262,20 @@ def getRadarData(
 
     dat, frequency = _getRadarData1(case, config, fn)
 
-    # add data of previous files - new fiels are not always started at 00:00
+    # add data of previous files - new files are not always started at 00:00
     fnY = files.FindFiles(fn.yesterday, config.leader, config)
-    datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
-
-    # merge data
-    if datY is not None:
+    try:
+        datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
+    except FileNotFoundError:
+        log.warning(f"Did not find radar data for yesterday {fn.yesterday}")
+    else:
+        # merge data
         dat = xr.concat((datY, dat), dim="time")
-    today = (dat.time >= fn.datetime64) & (
-        dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
-    )
-    dat = dat.isel(time=today).load()
+
+        today = (dat.time >= fn.datetime64) & (
+            dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
+        )
+        dat = dat.isel(time=today).load()
     return dat, frequency
 
 
@@ -352,7 +358,10 @@ def getRadarDataCloudnetCategorize(case, config, fn):
 
     print(f"Opening {fStr}")
     dat = xr.open_mfdataset(
-        fnames, preprocess=lambda dat: dat[["v", "Z", "altitude", "radar_frequency"]]
+        fnames,
+        preprocess=lambda dat: dat[
+            ["v", "Z", "altitude", "radar_frequency", "radar_melting_atten"]
+        ],
     )
 
     dat = dat.rename(v="MDV", Z="Ze", height="range")
@@ -362,6 +371,11 @@ def getRadarDataCloudnetCategorize(case, config, fn):
             "MDV",
         ]
     ]
+
+    # fix Cloudnet bug - solid precipitation at the ground should never need a melting layer attenuation correction
+    # https://github.com/actris-cloudnet/cloudnetpy/issues/121
+    dat1["Ze"] = dat1["Ze"] - dat.radar_melting_atten
+
     dat1["range"] = dat1.range - float(dat.altitude.values)
     dat1["Ze"] = 10 ** (0.1 * dat1["Ze"])
 

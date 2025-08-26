@@ -165,6 +165,7 @@ def readSettings(fname):
 
 
 def getDateRange(nDays, config, endYesterday=True):
+    config = readSettings(config)
     if config["end"] == "today":
         end = datetime.datetime.utcnow()
         if endYesterday:

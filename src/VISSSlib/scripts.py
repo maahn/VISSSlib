@@ -2196,3 +2196,25 @@ def loopCreateBatch(
         iL2MQ,
         iL2TQ,
     )
+
+
+def copyLastMetaFrames(config, fromCase, ToCase):
+    config = tools.readSettings(config)
+    ff = files.FindFiles(fromCase, config.leader, config)
+    if len(ff.listFiles("metaRotation")) == 0:
+        log.error("no rotation file yet")
+        # return None
+
+    fname = ff.listFiles("metaRotation")[0]
+    metaRot = xr.open_dataset(fname)
+    metaRotLast = metaRot.isel(file_starttime=-1)
+    metaRotLast.attrs = {}
+
+    ffnew = files.FindFiles(toCase, config.leader, config)
+    newTime = ffnew.datetime64 + np.timedelta64(1439, "m")
+    fnameNew = fname.replace(f"/{ff.year}/", f"/{ffnew.year}/").replace(
+        fromCase, toCase
+    )
+    metaRotLast = metaRotLast.assign_coords(file_starttime=[newTime])
+    metaRotLast
+    tools.to_netcdf2(metaRotLast, fnameNew)

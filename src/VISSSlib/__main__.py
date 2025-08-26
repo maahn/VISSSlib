@@ -437,6 +437,12 @@ def main():
         taskQueue = sys.argv[4]
         products.submitAll(nDays, settings, taskQueue)
 
+    elif sys.argv[1] == "scripts.copyLastMetaFrames":
+        settings = sys.argv[2]
+        fromCase = sys.argv[3]
+        ToCase = sys.argv[4]
+        scripts.copyLastMetaFrames(settings, fromCase, ToCase)
+
     elif sys.argv[1] == "worker":
         # alternatives to consider
         # https://github.com/Nukesor/pueue

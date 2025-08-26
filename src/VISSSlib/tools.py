@@ -157,6 +157,7 @@ def readSettings(fname):
         with open(fname, "r") as stream:
             loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
             config.update(loadedSettings)
+        config["filename"] = fname
         # unflatten again and convert to addict.Dict
         return DictNoDefault(flatten_dict.unflatten(config))
     else:  # is already config

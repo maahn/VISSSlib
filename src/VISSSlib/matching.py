@@ -1807,14 +1807,22 @@ def createMetaRotation(
                 fflM.datetime64, "transformation", config
             )
             deltaT = fflM.datetime64 - prevTime
+            prevCase = np.datetime_as_string(prevTime, unit="D").replace("-", "")
+
             if deltaT > np.timedelta64(2, "D"):
                 print(
-                    f"Skipping, no previous data found! data in config file {round(deltaT/np.timedelta64(1,'h'))}h old which is more than 48h",
-                    fnameMetaRotation,
+                    f"Skipping, no previous data found for {fnameMetaRotation}"
+                    "! data in config file "
+                    f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "
+                    f"than 48h. Try running 'python -m VISSSlib scripts.copyLastMetaFrames "
+                    f"{config.filename} {prevCase} {fflM.case}' if instrument was offline",
                 )
                 raise RuntimeError(
-                    f"Skipping, no previous data found! data in config file {round(deltaT/np.timedelta64(1,'h'))}h old which is more than 48h",
-                    fnameMetaRotation,
+                    f"Skipping, no previous data found for {fnameMetaRotation}"
+                    "! data in config file "
+                    f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "
+                    f"than 48h. Try running 'python -m VISSSlib scripts.copyLastMetaFrames "
+                    f"{config.filename} {prevCase} {fflM.case}' if instrument was offline",
                 )
                 return None, None
 

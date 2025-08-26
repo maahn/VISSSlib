@@ -8,7 +8,7 @@ import pandas as pd
 import pyOptimalEstimation as pyOE
 import xarray as xr
 
-from . import __version__, aux, files, tools
+from . import __version__, aux, files, quicklooks, tools
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -17,6 +17,59 @@ warnings.filterwarnings("ignore", category=Warning)
 
 # for performance
 logDebug = log.isEnabledFor(logging.DEBUG)
+
+
+def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
+    x_vars = ["M"]
+    y_vars = ["Ze"]
+    nBins = len(psd)
+    x_a = np.float64(-1.0)  # a priori
+    S_a = np.array([1.0**2])  # a priori uncertainty
+
+    S_y = np.array([1.5**2])  # ([0.5**2]) # measurement uncertainty
+
+    psd_data = {
+        "ice": psd,
+        "alt": 5,
+        "temp": air_temperature,
+        "bins": nBins,
+        "dmean": Dmean,
+        "dbound": Dbound,
+        "shape": config.level3.combinedRiming.habit,
+        "frequency": frequency,
+        "elevation": config.level3.combinedRiming.radarElevation,
+    }
+
+    # try:
+    # print(x_vars, x_a, S_a, y_vars, y_obs, S_y)
+    oe = pyOE.optimalEstimation(
+        x_vars,  # state variable names
+        x_a,  # a priori
+        S_a,  # a priori uncertainty
+        y_vars,  # measurement variable names
+        y_obs,  # observations
+        S_y,  # observation uncertainty
+        reflec_logM,  # forward Operator
+        forwardKwArgs=psd_data,  # additonal function arguments
+    )
+
+    oe.doRetrieval(maxIter=10, maxTime=1.0)
+
+    # how many successes
+
+    try:
+        # x
+        M_oe = oe.x_op.iloc[0]
+        # y
+        Ze_combinedRetrieval = oe.y_op.iloc[0]
+        # errors
+        M_err = oe.S_op.iloc[0]
+    except AttributeError:
+        M_oe = np.nan
+        Ze_combinedRetrieval = np.nan
+        M_err = np.nan
+
+    return M_oe, M_err, Ze_combinedRetrieval
 
 
 def ssrga_parameter(M, elevation):
@@ -274,7 +327,9 @@ def heymsfield10_particles_M(Dmax, M, temperature, press, shape):
     return velSpec
 
 
-def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
+def retrieveCombinedRiming(
+    case, config, skipExisting=True, writeNc=True, doQuicklook=True
+):
     """
     apply combined riming retrieval following
     Maherndl, N., M. Maahn, F. Tridon, J. Leinonen, D. Ori, and S. Kneifel, 2023:
@@ -379,13 +434,6 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
     lv3Dat = lv3Dat.sel(time=lv2Dat.time)
 
     #### do retrieval ####
-    x_a = np.float64(-1.0)  # a priori
-    S_a = np.array([1.0**2])  # a priori uncertainty
-
-    S_y = np.array([1.5**2])  # ([0.5**2]) # measurement uncertainty
-
-    x_vars = ["M"]
-    y_vars = ["Ze"]
 
     Dbound = np.append(
         lv2Dat.D_bins_left.mean("time").values,
@@ -393,71 +441,25 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
     )
     Dmean = lv2Dat.D_bins.values
     psd = np.ma.masked_invalid(lv2Dat.PSD.values).filled(0.0)
-    nBins = np.shape(psd)[1]
-
-    good = 0
-    bad = 0
 
     M_oe = np.empty(lv2Dat.time.size) * np.nan
     Ze_combinedRetrieval = np.empty(lv2Dat.time.size) * np.nan
     M_err = np.empty(lv2Dat.time.size) * np.nan
 
     for j in np.where(goodData)[0]:
-        y_obs = lv2Dat[config.level3.combinedRiming.Zvar].isel(time=j).values
+        Ze_obs = lv2Dat[config.level3.combinedRiming.Zvar].isel(time=j).values
 
-        print(j, y_obs)
+        print(j, Ze_obs)
 
-        psd_data = {
-            "ice": psd[j],
-            "alt": 5,
-            "temp": lv2Dat.air_temperature.values[j],
-            "bins": nBins,
-            "dmean": Dmean,
-            "dbound": Dbound,
-            "shape": config.level3.combinedRiming.habit,
-            "frequency": frequency,
-            "elevation": config.level3.combinedRiming.radarElevation,
-        }
-
-        # try:
-        # print(x_vars, x_a, S_a, y_vars, y_obs, S_y)
-        oe = pyOE.optimalEstimation(
-            x_vars,  # state variable names
-            x_a,  # a priori
-            S_a,  # a priori uncertainty
-            y_vars,  # measurement variable names
-            y_obs,  # observations
-            S_y,  # observation uncertainty
-            reflec_logM,  # forward Operator
-            forwardKwArgs=psd_data,  # additonal function arguments
+        M_oe[j], M_err[j], Ze_combinedRetrieval[j] = retrieveM(
+            Ze_obs,
+            psd[j],
+            lv2Dat.air_temperature.values[j],
+            Dmean,
+            Dbound,
+            frequency,
+            config,
         )
-
-        oe.doRetrieval(maxIter=10, maxTime=1.0)
-
-        # how many successes
-        good += 1
-
-        try:
-            # x
-            M_oe[j] = oe.x_op.iloc[0]
-            # y
-            Ze_combinedRetrieval[j] = oe.y_op.iloc[0]
-            # errors
-            M_err[j] = oe.S_op.iloc[0]
-        except AttributeError:
-            bad += 1
-
-            M_oe[j] = np.nan
-            Ze_combinedRetrieval[j] = np.nan
-            M_err[j] = np.nan
-
-        # except FileNotFoundError:
-        #     # how many failures
-        #     bad += 1
-
-        #     M_oe[j] = np.nan
-        #     Ze_combinedRetrieval[j] = np.nan
-        #     M_err[j] = np.nan
 
     Mlog = xr.DataArray(M_oe, coords=[lv2Dat.time])
     M_err = xr.DataArray(M_err, coords=[lv2Dat.time])
@@ -670,4 +672,8 @@ def retrieveCombinedRiming(case, config, skipExisting=True, writeNc=True):
 
     if writeNc:
         tools.to_netcdf2(lv3Dat, lv3File)
+
+    if doQuicklook:
+        quicklooks.createLevel3RimingQuicklook(case, config)
+
     return lv3Dat, lv3File

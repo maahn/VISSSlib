@@ -513,8 +513,8 @@ def createLevel1detectQuicklook(
                         log.warning(f"is broken {fn.fname.imagesL1detect}")
 
                 nPids = len(pids)
-                np.random.seed(tt)
-                np.random.shuffle(pids)
+                rng = np.random.default_rng(tt)
+                rng.shuffle(pids)
 
                 containerSize = container_width * container_height_max
 
@@ -602,6 +602,7 @@ def createLevel1detectQuicklook(
                     text = np.full((100, 100), background, dtype=np.uint8)
 
                     textStr = "%i.%i" % (fid, pid)
+                    print(textStr)
                     text = cv2.putText(
                         text,
                         textStr,
@@ -2925,12 +2926,14 @@ def createLevel1matchParticlesQuicklook(
     omitLabel4small="config",
     timedelta=np.timedelta64(1, "D"),
     returnFig=True,
+    doLevel1matchQuicklook=True,
 ):
     config = tools.readSettings(config)
     camera = config["leader"]
 
     # for convinience, do the other L1match quicklook as well
-    createLevel1matchQuicklook(timestamp, config, skipExisting=skipExisting)
+    if doLevel1matchQuicklook:
+        createLevel1matchQuicklook(timestamp, config, skipExisting=skipExisting)
 
     if minBlur == "config":
         minBlur = config["level1detectQuicklook"]["minBlur"]
@@ -3134,7 +3137,7 @@ def createLevel1matchParticlesQuicklook(
                         else:
                             log.error(f"no zip file for {case} {camera}")
                 tars = {}
-                for fname in fnames:
+                for fname in np.unique(fnames):
                     fn = files.FilenamesFromLevel(fname, config)
                     # tarRoot = fn.fname.imagesL1detect.split("/")[-1].replace(".tar.bz2","")
                     # tars[fname] = (tools.imageTarFile.open(fn.fname.imagesL1detect, "r:bz2"), tarRoot)
@@ -3142,8 +3145,13 @@ def createLevel1matchParticlesQuicklook(
                     tars[fname] = tools.imageZipFile(fn.fname.imagesL1detect, mode="r")
 
                 nPids = fpair_ids.shape[0]
-                np.random.seed(tt)
-                np.random.shuffle(fpair_ids)
+                # import pdb
+
+                # pdb.set_trace()
+                rng = np.random.default_rng(tt)
+                rng.shuffle(fpair_ids)
+                # apply shuffling
+                thisDat = thisDat.sel(fpair_id=fpair_ids)
 
                 containerSize = container_width * container_height_max
 
@@ -3173,7 +3181,7 @@ def createLevel1matchParticlesQuicklook(
                 for fp, fpair_id in enumerate(fpair_ids):
                     im = [None, None]
                     fname2, pair_id = fpair_id
-                    particle_pair = thisDat.isel(fpair_id=fp)
+                    particle_pair = thisDat.sel(fpair_id=fpair_id)
                     for cc, camera in enumerate(config.instruments):
                         particle = particle_pair.sel(camera=camera)
                         pid = particle.pid.values
@@ -3211,6 +3219,7 @@ def createLevel1matchParticlesQuicklook(
                     text = np.full((100, 100), background, dtype=np.uint8)
 
                     textStr = "%i.%i" % (fid, pid)
+
                     text = cv2.putText(
                         text,
                         textStr,

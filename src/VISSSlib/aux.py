@@ -85,14 +85,17 @@ def getMeteoData(case, config):
     if config.aux.meteo.source == "ARMmet":
         # add data of previous files - new fiels ar enot always reated at 00:00
         fnY = files.FindFiles(fn.yesterday, config.leader, config)
-        datY = _getMeteoData1(fn.yesterday, config)
-
-        # merge data
-        dat = xr.concat((datY, dat), dim="time")
-        today = (dat.time >= fn.datetime64) & (
-            dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
-        )
-        dat = dat.isel(time=today)
+        try:
+            datY = _getMeteoData1(fn.yesterday, config)
+        except FileNotFoundError:
+            log.warning(f"Did not find meteo data for yesterday {fn.yesterday}")
+        else:
+            # merge data
+            dat = xr.concat((datY, dat), dim="time")
+            today = (dat.time >= fn.datetime64) & (
+                dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
+            )
+            dat = dat.isel(time=today)
     dat.load()
     return dat
 
@@ -213,15 +216,18 @@ def getRadarData(
 
     # add data of previous files - new files are not always started at 00:00
     fnY = files.FindFiles(fn.yesterday, config.leader, config)
-    datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
-
-    # merge data
-    if datY is not None:
+    try:
+        datY, frequencyY = _getRadarData1(fn.yesterday, config, fnY)
+    except FileNotFoundError:
+        log.warning(f"Did not find radar data for yesterday {fn.yesterday}")
+    else:
+        # merge data
         dat = xr.concat((datY, dat), dim="time")
-    today = (dat.time >= fn.datetime64) & (
-        dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
-    )
-    dat = dat.isel(time=today).load()
+
+        today = (dat.time >= fn.datetime64) & (
+            dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
+        )
+        dat = dat.isel(time=today).load()
     return dat, frequency
 
 

@@ -3010,6 +3010,7 @@ def createLevel1matchParticlesQuicklook(
     dats2 = []
     l1Files = ff.listFilesWithNeighbors("level1match")
 
+    nParticles = 0
     for fname2 in tqdm(l1Files):
         fname1 = fname2.replace("level1match", "metaFrames")
         try:
@@ -3025,11 +3026,15 @@ def createLevel1matchParticlesQuicklook(
             else:
                 raise FileNotFoundError(fname2)
 
+        nParticles += len(dat2.pair_id)
+
+        # to speed things up, lets look only at the first 30000 particles. this avoids crazily large files
+        dat2 = dat2.isel(pair_id=slice(30000))
+
         dat2 = dat2[
             [
                 "Dmax",
                 "blur",
-                "position_upperLeft",
                 "record_time",
                 "record_id",
                 "Droi",
@@ -3037,6 +3042,9 @@ def createLevel1matchParticlesQuicklook(
                 "matchScore",
             ]
         ]
+
+        # it is more efficient to load the data now in comparison to after isel
+        dat2 = dat2.load()
 
         # print(fname2, len(dat2.pair_id))
         dat2 = dat2.isel(
@@ -3066,8 +3074,6 @@ def createLevel1matchParticlesQuicklook(
             (total_width // 3, max_height // 3), "no raw data", (0, 0, 0), font=font
         )
 
-        nParticles = 0
-
     else:
         limDat = xr.concat(dats2, dim="fpair_id")
         limDat = limDat.isel(
@@ -3087,8 +3093,6 @@ def createLevel1matchParticlesQuicklook(
                 (0, 0, 0),
                 font=font,
             )
-
-            nParticles = 0
 
         else:
             print("Total number of particles for plotting %i" % len(limDat.fpair_id))
@@ -3305,8 +3309,6 @@ def createLevel1matchParticlesQuicklook(
             # for im in mosaics[len(mosaics)//nRows:]:
             #   new_im.paste(im, (x_offset,max(heights) +50))
             #   x_offset += im.size[0] + extra
-
-            nParticles = len(limDat.fpair_id)
 
     tenmm = 1e6 / config["resolution"] / 100
 

@@ -602,7 +602,7 @@ def createLevel1detectQuicklook(
                     text = np.full((100, 100), background, dtype=np.uint8)
 
                     textStr = "%i.%i" % (fid, pid)
-                    print(textStr)
+                    # print(textStr)
                     text = cv2.putText(
                         text,
                         textStr,

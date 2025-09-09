@@ -592,6 +592,7 @@ def _getMetaData1(
                     nChangedPixel[ii] = detection.checkMotion(
                         subFrame, oldFrame, threshs
                     )
+
                 except IndexError:
                     log.warning(
                         "%s WARNING number of frames do not match %i %i  \n"
@@ -602,11 +603,12 @@ def _getMetaData1(
 
             inVid.release()
 
+            metaDat = metaDat.assign_coords({"nMovingPixelThresh": threshs})
             metaDat["nMovingPixel"] = xr.DataArray(
                 nChangedPixel,
-                coords=[
-                    metaDat.record_id,
-                    xr.DataArray(threshs, dims=["nMovingPixelThresh"]),
+                dims=[
+                    "capture_time",
+                    "nMovingPixelThresh",
                 ],
             )
     # new meta data version

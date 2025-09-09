@@ -197,7 +197,7 @@ def reflec_logM(
     pam.df.dataFullSpec["rg_zeta_ds"][0, 0, :, 0, :] = zeta
     pam.df.dataFullSpec["rho_ds"][0, 0, :, 0, :] = (
         6.0 * pam.df.dataFullSpec["mass_ds"][0, 0, :, 0, :]
-    ) / (np.pi * pam.df.dataFullSpec["d_ds"][0, 0, :, 0, :] ** 3.0 * alpha)
+    ) / (np.pi * pam.df.dataFullSpec["d_ds"][0, 0, :, 0, :] ** 3.0 * alpha.values)
 
     pam.runPamtra([frequency])
 

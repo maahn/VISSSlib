@@ -550,7 +550,7 @@ def _getMetaData1(
             helperDat.close()
         else:
             log.warning(
-                "%s: did not find %s, counting moving pixels" % (fname, helperFname)
+                "%s: helper file not found, counting moving pixels" % (helperFname)
             )
 
             inVid = cv2.VideoCapture(fname)

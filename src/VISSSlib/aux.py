@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import requests
 import xarray as xr
-from pangaeapy.pandataset import PanDataSet
 
 from . import __version__, files, scripts, tools
 
@@ -306,7 +305,7 @@ def getRadarDataCloudnetCategorize(case, config, fn):
 
     if len(fnames) == 0:
         log.warning(f"Did not find {fStr}")
-        return None, None
+        raise FileNotFoundError(f"Did not find {fStr}")
 
     print(f"Opening {fStr}")
     dat = xr.open_mfdataset(
@@ -328,7 +327,12 @@ def getRadarDataCloudnetCategorize(case, config, fn):
     # https://github.com/actris-cloudnet/cloudnetpy/issues/121
     dat1["Ze"] = dat1["Ze"] - dat.radar_melting_atten
 
-    dat1["range"] = dat1.range - float(dat.altitude.values)
+    try:
+        altitude = dat.altitude.values[0]
+    except IndexError:
+        altitude = dat.altitude.values
+
+    dat1["range"] = dat1.range - altitude
     dat1["Ze"] = 10 ** (0.1 * dat1["Ze"])
 
     return dat1, float(dat.radar_frequency.values)
@@ -395,6 +399,8 @@ def getRadarDataARMwcloudradarcel(case, config, fn):
 
 
 def downloadPangaea1(doi, path, site, type):
+    from pangaeapy.pandataset import PanDataSet
+
     doipart = doi.split("/")[-1]
     fnamePart = f"{path}/*_{type}_{site}_{doipart}.nc"
     if len(glob.glob(fnamePart)) > 0:
@@ -427,11 +433,13 @@ def downloadPangaea1(doi, path, site, type):
     yearmonth = "".join(str(dat.time[0].values).split("T")[0].split("-")[:2])
     fname = f"{path}/{yearmonth}_{type}_{site}_{doipart}.nc"
 
-    VISSSlib.tools.to_netcdf2(dat, fname)
+    tools.to_netcdf2(dat, fname)
     return fname
 
 
 def downloadPangaea(doi, path, site, type):
+    from pangaeapy.pandataset import PanDataSet
+
     ds = PanDataSet(doi)
     for doi in ds.collection_members:
         fname = downloadPangaea1(doi, path, site, type)

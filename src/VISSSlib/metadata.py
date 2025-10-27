@@ -177,7 +177,7 @@ def readHeaderData(fname, returnLasttime=False):
         firstLine = f.readline()
         if firstLine == "":
             log.error("%s: metaData empty" % fname)
-            return [record_starttime] + [None] * 10
+            return [record_starttime] + [None] * 11
 
         if firstLine.startswith("# VISSS file format version: 0.2"):
             asciiVersion = 0.2
@@ -659,29 +659,45 @@ def _getMetaData1(
     return metaDat
 
 
-def createMetaFrames(case, camera, config, skipExisting=True):
+def createMetaFrames(
+    case, camera, config, skipExisting=True, doNotWaitForMissingThreadFiles=False
+):
+    if config["nThreads"] is None:
+        nThreads = 1
+    else:
+        nThreads = config["nThreads"]
+
     # find files
     ff = files.FindFiles(case, camera, config)
     metaDat = None
     for fname0 in ff.listFiles("level0txt"):
         fn = files.Filenames(fname0, config)
+        fname0all = list(fn.fnameTxtAllThreads.values())
+
         if os.path.isfile(fn.fname.metaFrames) and skipExisting:
-            print("%s exists" % fn.fname.metaFrames)
+            log.info("%s exists" % fn.fname.metaFrames)
             continue
 
         if os.path.isfile(f"{fn.fname.metaFrames}.nodata") and skipExisting:
-            print("%s.nodata exists" % fn.fname.metaFrames)
+            log.info("%s.nodata exists" % fn.fname.metaFrames)
             continue
 
         if os.path.getsize(fname0.replace(config.movieExtension, "txt")) == 0:
-            print("%s has size 0!" % fname0)
+            log.error("%s has size 0!" % fname0)
             with tools.open2(fn.fname.metaFrames + ".nodata", "w") as f:
                 f.write("%s has size 0!" % fname0)
             continue
 
-        print(fname0)
-
-        fname0all = list(fn.fnameTxtAllThreads.values())
+        # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
+        tooFewThreads = len(fname0all) < int(nThreads)
+        # presence of an event file is a good sign that at least some data has been transferred
+        nextDayAvailable = os.path.isfile(ff.tomorrowObject.fnamesDaily.metaEvents)
+        campaignEnded = config.end != "today"
+        if tooFewThreads and (nextDayAvailable or campaignEnded):
+            log.error("%s file of second thread missing!" % fname0)
+            with tools.open2(fn.fname.metaFrames + ".nodata", "w") as f:
+                f.write("%s file of second thread missing!" % fname0)
+            continue
 
         metaDat, droppedFrames, beyondRepair = getMetaData(
             fname0all, camera, config, idOffset=0
@@ -896,6 +912,9 @@ def getEvents(fnames0, config, fname0status=None):
             names=["file_starttime", "timestamp", "event", "user"],
             index_col=0,
         )
+        # remove broken indices, don't know why statusDat.dropna() does not work directly
+        statusDat = statusDat.loc[statusDat.index.dropna()]
+
         # more robust than pd.to_datetime
         statusDat.index = [np.datetime64(t) for t in statusDat.index]
 

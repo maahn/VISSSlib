@@ -1027,7 +1027,7 @@ def createLevel2part(
         blurCond = (level1dat.blur >= appliedblurThresh).values
         log.info(
             tools.concat(
-                "Hyytiälä blurCond applies to",
+                "blurCond applies to",
                 (blurCond.sum() / len(blurCond)) * 100,
                 "% of data",
             )
@@ -1073,7 +1073,19 @@ def createLevel2part(
             raise ValueError(
                 "selectCameraStr must be max, min or mean, received %s", selectCameraStr
             )
-        matchCond = _operators[opStr](thisDat, filerValue).values
+
+        if isinstance(filterValue, list):
+            assert (
+                len(filterValue) == 2
+            ), "filterValue is list, but contains not 2 elements; at the moment only linear functions of Dmax are supported"
+            matchCond = _operators[opStr](
+                thisDat,
+                (filterValue[0] + filterValue[1] * level1dat["Dmax"]).max(dim="camera"),
+            ).values
+
+        else:
+            matchCond = _operators[opStr](thisDat, filterValue).values
+
         level1dat = level1dat.isel(pair_id=matchCond)
 
         if len(level1dat.matchScore) == 0:
@@ -2094,6 +2106,7 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     calibDat["area_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeter_mean"] = calibDat["perimeter_mean"] / slope / 1e6
     calibDat["perimeter_std"] = calibDat["perimeter_std"] / slope / 1e6
+
     calibDat["Dequiv_mean"] = (calibDat["Dequiv_mean"]) / slope / 1e6
 
     if "velocity_dist" in calibDat.data_vars:

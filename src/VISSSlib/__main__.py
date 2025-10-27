@@ -160,8 +160,16 @@ def main():
     elif sys.argv[1] == "detection.detectParticles":
         fname = sys.argv[2]
         settings = sys.argv[3]
+        try:
+            doNotWaitForMissingThreadFiles = bool(int(sys.argv[4]))
+        except IndexError:
+            doNotWaitForMissingThreadFiles = False
 
-        detection.detectParticles(fname, settings)
+        detection.detectParticles(
+            fname,
+            settings,
+            doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
+        )
 
     elif sys.argv[1] == "matching.createMetaRotation":
         settings = sys.argv[2]

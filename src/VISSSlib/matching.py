@@ -16,7 +16,7 @@ import scipy.stats
 import xarray as xr
 from tqdm import tqdm
 
-from . import __version__, files, fixes, metadata, quicklooks, tools
+from . import __version__, files, fixes, metadata, quicklooks, scripts, tools
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -1771,8 +1771,16 @@ def createMetaRotation(
     # figure out whether all level1detect data has been processed
     if completeDaysOnly and not fl.isCompleteL1detect:
         print(
-            "L1 NOT COMPLETE YET %i of %i "
+            "L1 LEADER NOT COMPLETE YET %i of %i "
             % (len(fl.listFilesExt("level1detect")), len(fl.listFiles("level0txt")))
+        )
+        return None, None
+
+    # figure out whether all level1detect data has been processed
+    if completeDaysOnly and not ff.isCompleteL1detect:
+        print(
+            "L1 FOLLOWER NOT COMPLETE YET %i of %i "
+            % (len(ff.listFilesExt("level1detect")), len(ff.listFiles("level0txt")))
         )
         return None, None
 
@@ -1794,19 +1802,53 @@ def createMetaRotation(
                 fflM.datetime64, "transformation", config
             )
             deltaT = fflM.datetime64 - prevTime
-            if deltaT > np.timedelta64(2, "D"):
-                print(
-                    f"Skipping, no previous data found! data in config file {round(deltaT/np.timedelta64(1,'h'))}h old which is more than 48h",
-                    fnameMetaRotation,
-                )
-                raise RuntimeError(
-                    f"Skipping, no previous data found! data in config file {round(deltaT/np.timedelta64(1,'h'))}h old which is more than 48h",
-                    fnameMetaRotation,
-                )
-                return None, None
 
-        # add previous configuration to config file
-        elif prevFile is not None:
+            if deltaT > np.timedelta64(2, "D"):
+                (
+                    foundLastFile,
+                    lastCase,
+                    lastFile,
+                    lastFileTime,
+                ) = files.findLastFile(config, "metaRotation", config.leader)
+
+                print(
+                    f"no previous data found for {fnameMetaRotation}"
+                    f"! data in config file "
+                    f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "
+                    f"than 48h. "
+                )
+                yesterdayEventFileMissing = not os.path.isfile(
+                    fflM.yesterdayObject.fnamesDaily.metaEvents
+                )
+                dataGapSmallEnough = (
+                    fflM.datetime64 - np.datetime64(lastFileTime)
+                ) < np.timedelta64(8, "D")
+                if yesterdayEventFileMissing and dataGapSmallEnough:
+                    print(
+                        f"I cannot find {fflM.yesterdayObject.fnamesDaily.metaEvents}"
+                        " and I assume that the instrument was offline."
+                        " I try to fix it"
+                    )
+                    scripts.copyLastMetaFrames(config, lastCase, fflM.yesterday)
+                    # try again
+                    prevFile = fl.yesterdayObject.listFiles("metaRotation")[0]
+
+                else:
+                    print(
+                        f"Try running '{sys.executable} -m VISSSlib scripts.copyLastMetaFrames "
+                        f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
+                    )
+                    return None, None
+                # raise RuntimeError(
+                #     f"Skipping, no previous data found for {fnameMetaRotation}"
+                #     "! data in config file "
+                #     f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "
+                #     f"than 48h. Try running '{sys.executable} -m VISSSlib scripts.copyLastMetaFrames "
+                #     f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
+                # )
+
+        # add previous configuration to config file structure
+        if len(prevFile) > 0:
             prevDat = xr.open_dataset(prevFile)
             prevDat = prevDat.where(prevDat.camera_Ofz.notnull(), drop=True)
             config = tools.rotXr2dict(prevDat, config)

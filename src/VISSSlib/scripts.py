@@ -1510,48 +1510,21 @@ def reportLastFiles(
             ):
                 continue
 
-            foundLastFile = False
-            foundComplete = False
-            completeCase = "n/a"
-            lastFileTime = "n/a"
-            lastFile = "n/a"
-            for dd in days:
-                year = str(dd.year)
-                month = "%02i" % dd.month
-                day = "%02i" % dd.day
-                case = f"{year}{month}{day}"
+            foundLastFile, completeCase, lastFile, lastFileTime = files.findLastFile(
+                config, prod, camera
+            )
 
-                # find files
-                ff = files.FindFiles(case, camera, config)
-                if not foundLastFile:
-                    fnames = ff.listFilesExt(prod)
-                    if len(fnames) > 0:
-                        lastFile = fnames[-1]
-                        try:
-                            f1 = files.FilenamesFromLevel(fnames[-1], config)
-                        except ValueError:
-                            f1 = files.Filenames(fnames[-1], config)
-                        foundLastFile = True
-                        lastFileTime = f1.datetime
-
-                if not foundComplete:
-                    foundComplete = ff.isComplete(prod)
-                    completeCase = case
-
-                if foundComplete and foundLastFile:
-                    output += f"{prod.ljust(14)} {(camera.split('_')[0]).ljust(8)} last full day:'{completeCase}' last file:'{lastFileTime}'"
-                    if nameFile:
-                        output += f" {lastFile}"
-                    output += "\n"
-
-                    break
+            output += f"{prod.ljust(14)} {(camera.split('_')[0]).ljust(8)} last full day:'{completeCase}' last file:'{lastFileTime}'"
+            if nameFile:
+                output += f" {lastFile}"
+            output += "\n"
 
     output += "#" * 80
     output += "\n"
     output += f"VISSSlib version {__version__}\n"
 
     if writeFile:
-        fOut = f"{config['pathQuicklooks'].format(version=ff.version,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
+        fOut = f"{config['pathQuicklooks'].format(version=__version__,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
         with tools.open2(fOut, "w") as f:
             f.write("<html><pre>\n")
             f.write(output)
@@ -2189,3 +2162,25 @@ def loopCreateBatch(
         iL2MQ,
         iL2TQ,
     )
+
+
+def copyLastMetaFrames(config, fromCase, toCase):
+    config = tools.readSettings(config)
+    ff = files.FindFiles(fromCase, config.leader, config)
+    if len(ff.listFiles("metaRotation")) == 0:
+        log.error("no rotation file yet")
+        return None
+
+    fname = ff.listFiles("metaRotation")[0]
+    metaRot = xr.open_dataset(fname)
+    metaRotLast = metaRot.isel(file_starttime=-1)
+    metaRotLast.attrs = {}
+
+    ffnew = files.FindFiles(toCase, config.leader, config)
+    newTime = ffnew.datetime64 + np.timedelta64(1439, "m")
+    fnameNew = fname.replace(f"/{ff.year}/", f"/{ffnew.year}/").replace(
+        fromCase, toCase
+    )
+    metaRotLast = metaRotLast.assign_coords(file_starttime=[newTime])
+    metaRotLast
+    tools.to_netcdf2(metaRotLast, fnameNew)

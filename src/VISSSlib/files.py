@@ -17,7 +17,7 @@ from addict import Dict
 log = logging.getLogger(__name__)
 
 from . import __version__, metadata
-from .tools import DictNoDefault, nicerNames, otherCamera, readSettings
+from .tools import DictNoDefault, getCaseRange, nicerNames, otherCamera, readSettings
 
 # to do merge to single class using different constructors with @classmethod?
 
@@ -57,6 +57,37 @@ quicklookLevelsComb = [
     "level3combinedRiming",
 ]
 imageLevels = ["imagesL1detect"]
+
+
+def findLastFile(config, prod, camera):
+    config = readSettings(config)
+    cases = getCaseRange(0, config, endYesterday=False)[::-1]
+
+    foundLastFile = False
+    foundComplete = False
+    lastCase = "n/a"
+    lastFileTime = "n/a"
+    lastFile = "n/a"
+    for case in cases:
+        # find files
+        ff = FindFiles(case, camera, config)
+        if not foundLastFile:
+            fnames = ff.listFiles(prod)
+            if len(fnames) > 0:
+                lastFile = fnames[-1]
+                try:
+                    f1 = FilenamesFromLevel(fnames[-1], config)
+                except ValueError:
+                    f1 = Filenames(fnames[-1], config)
+                foundLastFile = True
+                lastFileTime = f1.datetime
+
+        if not foundComplete:
+            foundComplete = ff.isComplete(prod, ignoreBrokenFiles=True)
+        else:
+            break
+        lastCase = case
+    return foundLastFile, lastCase, lastFile, lastFileTime
 
 
 class FindFiles(object):
@@ -288,6 +319,16 @@ class FindFiles(object):
             self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
         )
 
+    @property
+    def tomorrow(self):
+        return self.tomorrowObject.case.split("-")[0]
+
+    @property
+    def tomorrowObject(self):
+        return FindFiles(
+            self.datetime64 + np.timedelta64(24, "h"), self.camera, self.config
+        )
+
     @functools.cache
     def getEvents(self, skipExisting=True):
         """Get (and create of necessary) event dataset.
@@ -335,14 +376,17 @@ class FindFiles(object):
         return sorted(filter(os.path.isfile, glob.glob(self.fnamesPattern[level])))
 
     @functools.cache
-    def listFilesExt(self, level):
-        return sorted(
+    def listFilesExt(self, level, ignoreBrokenFiles=False):
+        res = sorted(
             filter(
                 os.path.isfile,
                 glob.glob(self.fnamesPatternExt[level])
                 + glob.glob(self.fnamesPattern[level]),
             )
         )
+        if ignoreBrokenFiles:
+            res = [x for x in res if not x.endswith(".broken.txt")]
+        return res
 
     @functools.cache
     def listBroken(self, level):
@@ -399,8 +443,8 @@ class FindFiles(object):
     def isCompleteL1track(self):
         return self.nMissingL1track == 0
 
-    def isComplete(self, level):
-        return self.nMissing(level) == 0
+    def isComplete(self, level, ignoreBrokenFiles=False):
+        return self.nMissing(level, ignoreBrokenFiles=ignoreBrokenFiles) == 0
 
     @property
     def nL0(self):
@@ -426,11 +470,15 @@ class FindFiles(object):
     def nMissingL1track(self):
         return self.nMissing("level1track")
 
-    def nMissing(self, level):
+    def nMissing(self, level, ignoreBrokenFiles=False):
         if level in dailyLevels:
-            nMissing = 1 - len(self.listFilesExt(level))
+            nMissing = 1 - len(
+                self.listFilesExt(level, ignoreBrokenFiles=ignoreBrokenFiles)
+            )
         else:
-            nMissing = self.nL0 - len(self.listFilesExt(level))
+            nMissing = self.nL0 - len(
+                self.listFilesExt(level, ignoreBrokenFiles=ignoreBrokenFiles)
+            )
 
         if nMissing < 0:
             log.error(
@@ -597,6 +645,26 @@ class Filenames(object):
             )
 
         return
+
+    @property
+    def yesterday(self):
+        return self.yesterdayObject.case.split("-")[0]
+
+    @property
+    def yesterdayObject(self):
+        return FindFiles(
+            self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
+        )
+
+    @property
+    def tomorrow(self):
+        return self.tomorrowObject.case.split("-")[0]
+
+    @property
+    def tomorrowObject(self):
+        return FindFiles(
+            self.datetime64 + np.timedelta64(24, "h"), self.camera, self.config
+        )
 
     def createDirs(self):
         res = []

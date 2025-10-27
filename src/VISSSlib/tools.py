@@ -157,11 +157,24 @@ def readSettings(fname):
         with open(fname, "r") as stream:
             loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
             config.update(loadedSettings)
-        config["filename"] = fname
         # unflatten again and convert to addict.Dict
-        return DictNoDefault(flatten_dict.unflatten(config))
+        config = DictNoDefault(flatten_dict.unflatten(config))
+        config["filename"] = fname
+        return config
     else:  # is already config
         return fname
+
+
+def getCaseRange(nDays, config, endYesterday=True):
+    days = getDateRange(nDays, config, endYesterday=endYesterday)
+    cases = []
+    for dd in days:
+        year = str(dd.year)
+        month = "%02i" % dd.month
+        day = "%02i" % dd.day
+        case = f"{year}{month}{day}"
+        cases.append(case)
+    return cases
 
 
 def getDateRange(nDays, config, endYesterday=True):

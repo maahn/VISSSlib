@@ -1255,6 +1255,7 @@ def detectParticles(
     stopAfter=None,
     version=__version__,
     verbosity=0,
+    doNotWaitForMissingThreadFiles=False,
 ):
     """
     detect particles
@@ -1336,17 +1337,21 @@ def detectParticles(
     # just in case it is not there yet
     metadata.createMetaFrames(fn.case, camera, config, skipExisting=True)
 
-    # mov data is sometimes transmtted later, so do not write nodata files in
-    # case data is missing yet
-    if len(fnamesV) < int(nThreads2):
-        if config.end == "today":
-            log.warning("movie files not found (yet?) " + fname)
-        else:
-            log.warning("movie files not found, no data " + fname)
+    # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
+    # before discarding
+    tooFewThreads = len(fnamesV) < int(nThreads2)
+    # presence of an event file is a good sign that at least some data has been transferred
+    nextDayAvailable = os.path.isfile(fn.tomorrowObject.fnamesDaily.metaEvents)
+    campaignEnded = config.end != "today"
+    if tooFewThreads:
+        if nextDayAvailable or campaignEnded:
+            log.warning("movie files of other threads not found, no data " + fname)
             with tools.open2("%s.nodata" % fn.fname.metaDetection, "w") as f:
-                f.write("no data")
+                f.write("movie files of other threads not found, no data")
             with tools.open2("%s.nodata" % fn.fname.level1detect, "w") as f:
-                f.write("no data")
+                f.write("movie files of other threads not found, no data")
+        else:
+            log.warning("movie files not found (yet?) " + fname)
         return 0
 
     try:

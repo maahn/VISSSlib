@@ -3474,7 +3474,7 @@ def createLevel3RimingQuicklook(
         dat3.combinedNormalizedRimeMass.plot(ax=ax2, label="M (combined)")
         dat2.normalizedRimeMass_mean.plot(ax=ax2, label="M (in situ weighted mean)")
         dat2.normalizedRimeMass_dist.mean("D_bins").plot(
-            ax=ax2, label="M (in situ weighted mean)"
+            ax=ax2, label="M (in situ mean)"
         )
 
         ax2.set_ylabel("M [-]")

@@ -3,10 +3,7 @@ import logging
 import os
 import warnings
 
-import netCDF4
 import numpy as np
-import pandas as pd
-import requests
 import xarray as xr
 
 from . import __version__, files, scripts, tools
@@ -20,6 +17,8 @@ logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def getCloudnet(date, site, path, kind, item):
+    import requests
+
     print(f"downloading {item} for {date}")
     url = "https://cloudnet.fmi.fi/api/files"
     payload = {
@@ -45,6 +44,8 @@ def getCloudnet(date, site, path, kind, item):
 
 
 def getARM(date, site, path, product, user):
+    import requests
+
     print(f"downloading {product} for {date}")
     url = "https://adc.arm.gov/armlive/data/query"
     payload = {
@@ -204,6 +205,8 @@ def getMeteoDataARM(case, config):
 
 
 def getMeteoDataRPG(case, config):
+    import netCDF4
+
     fn = files.FindFiles(case, config.leader, config)
     date = f"{fn.year}-{fn.month}-{fn.day}"
 

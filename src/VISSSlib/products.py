@@ -8,8 +8,6 @@ import sys
 from functools import cached_property, partial
 
 import numpy as np
-import pandas as pd
-import taskqueue
 import xarray as xr
 
 from . import __version__, files, scripts, tools
@@ -31,6 +29,8 @@ class DataProduct(object):
         fileObject=None,
         childrensRelatives=tools.DictNoDefault({}),
     ):
+        import taskqueue
+
         """
         Class for processing VISSS data
 
@@ -668,6 +668,8 @@ class DataProductRange(object):
         camera="leader",
         addRelatives=True,
     ):
+        import taskqueue
+
         self.settings = settings
         self.config = tools.readSettings(settings)
         self.days = tools.getDateRange(nDays, self.config, endYesterday=False)
@@ -794,6 +796,8 @@ def submitAll(
     cleanUpDuplicates=False,
 ):
     if submitJobs:
+        import taskqueue
+
         tq = taskqueue.TaskQueue(f"fq://{fileQueue}")
         log.warning(f"{tq.enqueued} tasks in Queue")
 

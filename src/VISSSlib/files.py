@@ -10,7 +10,6 @@ import sys
 from copy import deepcopy
 
 import numpy as np
-import pandas as pn
 import xarray as xr
 from addict import Dict
 
@@ -97,10 +96,12 @@ class FindFiles(object):
 
         for level 0, only thread 0 files are returned!
         """
+        import pandas as pd
+
         config = readSettings(config)
 
         if type(case) is not str:
-            self.case = pn.to_datetime(case).strftime("%Y%m%d-%H%M%S")
+            self.case = pd.to_datetime(case).strftime("%Y%m%d-%H%M%S")
         else:
             self.case = case
         if camera in ["leader", "follower"]:
@@ -692,6 +693,7 @@ class Filenames(object):
         Find all relevant files of the other camera of ´level´. ´graceinterval´ accounts for
         potential time offsets
         """
+        import pandas as pd
 
         otherCam = otherCamera(self.camera, self.config)
 
@@ -731,9 +733,9 @@ class Filenames(object):
         else:
             ts = np.array([f.split("_")[-1].split(".")[0] for f in fnames])
         try:
-            ts = pn.to_datetime(ts, format="%Y%m%d-%H%M%S")
+            ts = pd.to_datetime(ts, format="%Y%m%d-%H%M%S")
         except ValueError:
-            ts = pn.to_datetime(ts, format="%Y%m%d")
+            ts = pd.to_datetime(ts, format="%Y%m%d")
 
         plusDelta = np.timedelta64(self.config["newFileInt"] + graceInterval, "s")
         # grace interval not needed as long as grave less than new file interval

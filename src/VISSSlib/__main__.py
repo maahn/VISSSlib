@@ -4,10 +4,6 @@ import socket
 import sys
 import time
 
-import numpy as np
-import psutil
-import taskqueue
-
 from . import (
     aux,
     av,

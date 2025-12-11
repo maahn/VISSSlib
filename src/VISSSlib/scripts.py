@@ -13,9 +13,6 @@ from functools import partial
 from itertools import chain
 
 import numpy as np
-import pandas as pd
-import portalocker
-import taskqueue
 import xarray as xr
 
 from . import (
@@ -479,6 +476,8 @@ def loopMetaCoefQuicklooks(settings, version=__version__, skipExisting=True):
     skipExisting : bool, optional
         Skip existing files? (the default is True)
     """
+    import pandas as pd
+
     config = tools.readSettings(settings)
 
     if config["end"] == "today":
@@ -1088,6 +1087,8 @@ def _loopCreateLevel1trackWorker(fnameL1detect, settings, skipExisting=True, nCP
 
 
 def _runCommand(command, tmpFile, fOut, stdout=subprocess.DEVNULL):
+    import portalocker
+
     success = True
     running = False
     # with statement extended to avoid race conditions

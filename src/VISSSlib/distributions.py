@@ -7,18 +7,8 @@ import sys
 import warnings
 from copy import deepcopy
 
-import dask
-import dask.array
 import numpy as np
-import pandas as pn
-import scipy.special
-import scipy.stats
-import trimesh
-import vg
 import xarray as xr
-import xarray_extras.sort
-from dask.diagnostics import ProgressBar
-from tqdm import tqdm
 
 from . import __version__, quicklooks
 from .matching import *
@@ -247,6 +237,8 @@ def createLevel2(
             ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
     ]
     """
+    import dask.array
+    from dask.diagnostics import ProgressBar
 
     assert sublevel in ["match", "track", "detect"]
     if type(config) is str:
@@ -675,6 +667,9 @@ def createLevel2part(
         ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
     ]
     """
+    import dask
+    import scipy.stats
+    from tqdm import tqdm
 
     assert sublevel in ["match", "track", "detect"]
 
@@ -1682,6 +1677,8 @@ def addVariables(
     sublevel,
     camera="leader",
 ):
+    import scipy.special
+
     # 1 min data
     deltaT = int(timeIndex.freq.nanos * 1e-9) * config.fps
     # 1 pixel size bins
@@ -1856,10 +1853,13 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
     """
     go from particle statitics to per track statisticks with the mean/min/max/std along cameras and track
     """
+    import pandas as pd
+    import scipy.stats
+
     log.info(f"reshape tracks")
 
     # go from pair_id to track_id and put observations along same track into new track_step dimension
-    track_mi = pn.MultiIndex.from_arrays(
+    track_mi = pd.MultiIndex.from_arrays(
         (level1dat.track_id.values, level1dat.track_step.values),
         names=["track_id", "track_step"],
     )
@@ -1986,6 +1986,9 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
 
 
 def removeTrackEdges(level1dat_track2D, maxAngleDiff):
+    import vg
+    import xarray_extras.sort
+
     distSpace = level1dat_track2D.position3D_centroid.diff("track_step", label="upper")
 
     # compute 3d angle to 0,0,1 vector, vg library doesnt like ND arrays or xr:
@@ -2328,6 +2331,8 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
 
 
 def _createBox(p1, p2, p3, p4, p5, p6, p7, p8):
+    import trimesh
+
     vertices = np.array([p1, p2, p3, p4, p5, p6, p7, p8])
     faces = np.array(
         [

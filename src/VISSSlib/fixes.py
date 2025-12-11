@@ -8,9 +8,7 @@ import warnings
 from copy import deepcopy
 from itertools import groupby
 
-import bottleneck as bn
 import numpy as np
-import pandas as pn
 import xarray as xr
 
 log = logging.getLogger(__name__)

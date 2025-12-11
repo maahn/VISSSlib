@@ -4,8 +4,6 @@ import os
 import warnings
 
 import numpy as np
-import pandas as pd
-import pyOptimalEstimation as pyOE
 import xarray as xr
 
 from . import __version__, aux, files, quicklooks, tools
@@ -20,6 +18,8 @@ logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
+    import pyOptimalEstimation as pyOE
+
     x_vars = ["M"]
     y_vars = ["Ze"]
     nBins = len(psd)

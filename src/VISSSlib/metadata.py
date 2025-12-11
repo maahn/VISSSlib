@@ -1,5 +1,6 @@
 import datetime
 import glob
+import logging
 import os
 import socket
 import subprocess
@@ -8,18 +9,8 @@ import time
 import warnings
 from copy import deepcopy
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import xarray as xr
-
-try:
-    import cv2
-except ImportError:
-    warnings.warn("opencv not available!")
-
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -309,6 +300,9 @@ def _getMetaData1(
     includeHeader=True,
     version=__version__,
 ):
+    import cv2
+    import pandas as pd
+
     nThreads = config["nThreads"]
     threshs = np.array(config["threshs"])
 
@@ -759,6 +753,8 @@ def getEvents(fnames0, config, fname0status=None):
     """
     get events meta data for certain case
     """
+    import matplotlib as mpl
+    import pandas as pd
 
     metaDats = list()
     bins = [0] + list(range(11, 255, 10))

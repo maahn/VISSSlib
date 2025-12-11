@@ -1,18 +1,12 @@
 # -*- coding: utf-8 -*-
 import functools
+import logging
 import os
 import sys
 import warnings
 import zipfile
 
 import numpy as np
-
-try:
-    import cv2
-except ImportError:
-    warnings.warn("opencv not available!")
-import logging
-
 import xarray as xr
 
 from . import *
@@ -23,47 +17,52 @@ log = logging.getLogger(__name__)
 __all__ = ["VideoReader", "VideoReaderMeta"]
 
 
-class VideoReader(cv2.VideoCapture):
-    #     @functools.lru_cache(maxsize=100, typed=False)
-    #     def getNextFrame(self, ii):
-    #         '''
-    #         like read, but output is cversionached.
-    #         ii has to advance by +1
-    #         cache allows to access old frames
-    #         '''
-    #         assert self.position == ii
-    #         res, frame = self.read()
-    #         frame = cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    #         return res, frame
+def create_VideoReader():
+    import cv2
 
-    @functools.lru_cache(maxsize=100, typed=False)
-    def getFrameByIndex(self, ii, safeMode=False):
-        """
-        like read, but for a specific index
-        output is cached.
-        """
-        if int(self.get(cv2.CAP_PROP_POS_FRAMES)) != ii:
-            if safeMode:
-                if int(self.get(cv2.CAP_PROP_POS_FRAMES)) < ii:
-                    while int(self.get(cv2.CAP_PROP_POS_FRAMES)) < ii:
-                        # print('fast forwarding', int(self.get(cv2.CAP_PROP_POS_FRAMES)), ii, )
-                        _, _ = self.read()
-                elif int(self.get(cv2.CAP_PROP_POS_FRAMES)) > ii:
-                    raise RuntimeError("Cannot go back in save mode")
-            else:
-                self.set(cv2.CAP_PROP_POS_FRAMES, ii)
-        res, frame = self.read()
-        if frame is not None:
-            frame = cvtColor(frame)
-        return res, frame
+    class VideoReader(cv2.VideoCapture):
+        #     @functools.lru_cache(maxsize=100, typed=False)
+        #     def getNextFrame(self, ii):
+        #         '''
+        #         like read, but output is cversionached.
+        #         ii has to advance by +1
+        #         cache allows to access old frames
+        #         '''
+        #         assert self.position == ii
+        #         res, frame = self.read()
+        #         frame = cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        #         return res, frame
 
-    @property
-    def position(self):
-        return int(self.get(cv2.CAP_PROP_POS_FRAMES))
+        @functools.lru_cache(maxsize=100, typed=False)
+        def getFrameByIndex(self, ii, safeMode=False):
+            """
+            like read, but for a specific index
+            output is cached.
+            """
+            if int(self.get(cv2.CAP_PROP_POS_FRAMES)) != ii:
+                if safeMode:
+                    if int(self.get(cv2.CAP_PROP_POS_FRAMES)) < ii:
+                        while int(self.get(cv2.CAP_PROP_POS_FRAMES)) < ii:
+                            # print('fast forwarding', int(self.get(cv2.CAP_PROP_POS_FRAMES)), ii, )
+                            _, _ = self.read()
+                    elif int(self.get(cv2.CAP_PROP_POS_FRAMES)) > ii:
+                        raise RuntimeError("Cannot go back in save mode")
+                else:
+                    self.set(cv2.CAP_PROP_POS_FRAMES, ii)
+            res, frame = self.read()
+            if frame is not None:
+                frame = cvtColor(frame)
+            return res, frame
 
-    @property
-    def total_frames(self):
-        return int(self.get(cv2.CAP_PROP_FRAME_COUNT))
+        @property
+        def position(self):
+            return int(self.get(cv2.CAP_PROP_POS_FRAMES))
+
+        @property
+        def total_frames(self):
+            return int(self.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    return VideoReader
 
 
 # can cause segfaults!
@@ -135,6 +134,7 @@ class VideoReaderMeta(object):
         self._openVideo()
 
     def _openVideo(self):
+        VideoReader = create_VideoReader()  # constructor for lazy loading
         for tt in self.threads:
             fname = self.movFilePattern.format(thread=tt)
             assert os.path.isfile(fname)
@@ -212,6 +212,8 @@ class VideoReaderMeta(object):
         increaseContrast=False,
         showTracks=False,
     ):
+        import cv2
+
         assert self.lv1detect is not None
 
         res, _, _ = self.getFrameByCaptureTime(
@@ -464,6 +466,7 @@ def doubleDynamicRange(frame, offset="estimate", factor=2):
     if this means the darkest point becomes negative, the offset is adjusted accordingly
 
     """
+    import cv2
 
     if offset == "estimate":
         # offset so that brightest spot is 255 even if doubled
@@ -551,7 +554,8 @@ def cvtColor(frame):
 
 
 def cvtGray(frame):
-    # faster than cv2.cvtColor but works only for gray images
+    import cv2
+
     return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
 

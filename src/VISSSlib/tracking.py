@@ -7,14 +7,7 @@ import warnings
 from copy import deepcopy
 
 import numpy as np
-import scipy.stats
-import vg
 import xarray as xr
-from filterpy.common import Q_discrete_white_noise
-from filterpy.kalman import KalmanFilter
-from scipy.linalg import block_diag
-from scipy.optimize import linear_sum_assignment
-from tqdm import tqdm
 
 from . import __version__, files, matching, tools
 
@@ -59,6 +52,9 @@ def myKF(FirstPos3D, velocityGuess=[0, 0, 50], R_std=2, q_var=1):
     """
     define KalmannFilter
     """
+    from filterpy.common import Q_discrete_white_noise
+    from filterpy.kalman import KalmanFilter
+    from scipy.linalg import block_diag
 
     assert len(velocityGuess) == 3
 
@@ -136,6 +132,11 @@ class Track(object):
         Return:
             None
         """
+        import vg
+        from filterpy.common import Q_discrete_white_noise
+        from scipy.linalg import block_diag
+
+        self._vg = vg
         assert len(velocityGuess) == 3
         self.velocityGuess = velocityGuess
         self.track_id = trackIdCount  # identification of each track object
@@ -154,7 +155,7 @@ class Track(object):
         # print("track created at ", position)
         self.predictedVel = np.array([np.nan] * 3)
         self.predictedPos = np.array([np.nan] * 3)
-        self.predictedAng = vg.angle(np.array([0, 0, 1]), np.array(velocityGuess))
+        self.predictedAng = self._vg.angle(np.array([0, 0, 1]), np.array(velocityGuess))
 
         if self.reduced_q_var is not None:
             q = Q_discrete_white_noise(dim=3, dt=self.KF.dt, var=self.reduced_q_var)
@@ -173,7 +174,7 @@ class Track(object):
         except IndexError:
             return np.nan
         else:
-            return vg.angle(np.array([0, 0, 1]), dist)
+            return self._vg.angle(np.array([0, 0, 1]), dist)
 
     @property
     def meanVelocity(self):
@@ -211,7 +212,7 @@ class Track(object):
         self.KF.predict()
         self.predictedPos = self.KF.x[::2].squeeze()
         self.predictedVel = self.KF.x[1::2].squeeze()
-        self.predictedAng = vg.angle(np.array([0, 0, 1]), self.predictedVel)
+        self.predictedAng = self._vg.angle(np.array([0, 0, 1]), self.predictedVel)
         return self.predictedPos, self.predictedVel, self.predictedAng
 
 
@@ -385,6 +386,8 @@ class Tracker(object):
         log.info(f"processing {self.nFrames} frames of {lv1match.encoding['source']}")
 
     def updateAll(self):
+        from tqdm import tqdm
+
         for ff in tqdm(range(self.nFrames), file=sys.stdout):
             self.update(ff)
             # break after maxIter frames
@@ -435,6 +438,8 @@ class Tracker(object):
         Return:
             None
         """
+        from scipy.optimize import linear_sum_assignment
+
         if not self.training and (self.verbosity > 5):
             print(ff, self.costGuessFactor)
         # extractData from lv1match iterator over frames

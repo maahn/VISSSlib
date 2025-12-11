@@ -14,27 +14,34 @@ import warnings
 import zipfile
 from copy import deepcopy
 
-import cv2
-import flatten_dict
-import IPython.display
-import ipywidgets
 import numpy as np
-import pandas as pd
-import portalocker
-import psutil
-import skimage
-import taskqueue
 import xarray as xr
-import yaml
 from addict import Dict
-from dask.diagnostics import ProgressBar
-from PIL import Image
 
 from . import __version__, __versionFull__, files, fixes
 
 log = logging.getLogger(__name__)
 
-from numba import jit
+
+def lazy_queueable(*dargs, **dkwargs):
+    def wrapper(func):
+        import taskqueue
+
+        real_decorator = taskqueue.queueable(*dargs, **dkwargs)
+        return real_decorator(func)
+
+    return wrapper
+
+
+def lazy_jit(*dargs, **dkwargs):
+    def wrapper(func):
+        from numba import jit
+
+        real_decorator = jit(*dargs, **dkwargs)
+        return real_decorator(func)
+
+    return wrapper
+
 
 # settings that stay mostly constant
 DEFAULT_SETTINGS = {
@@ -151,6 +158,9 @@ def nicerNames(string):
 
 
 def readSettings(fname):
+    import flatten_dict
+    import yaml
+
     if type(fname) is str:
         # we have to flatten the dictionary so that update works
         config = flatten_dict.flatten(DEFAULT_SETTINGS)
@@ -178,6 +188,8 @@ def getCaseRange(nDays, config, endYesterday=True):
 
 
 def getDateRange(nDays, config, endYesterday=True):
+    import pandas as pd
+
     config = readSettings(config)
     if config["end"] == "today":
         end = datetime.datetime.utcnow()
@@ -683,6 +695,8 @@ def timestamp2case(dd):
 def rescaleImage(
     frame1, rescale, anti_aliasing=False, anti_aliasing_sigma=None, mode="edge"
 ):
+    import skimage
+
     if len(frame1.shape) == 3:
         newShape = np.array(
             (frame1.shape[0] * rescale, frame1.shape[1] * rescale, frame1.shape[2])
@@ -703,6 +717,9 @@ def rescaleImage(
 
 def displayImage(frame, doDisplay=True, rescale=None):
     # opencv cannot handle grayscale png with alpha channel
+    import cv2
+    import IPython.display
+
     if (len(frame.shape) == 3) and (frame.shape[2] == 2):
         fill_color = 0
         frameAlpha = frame[:, :, 1]
@@ -732,6 +749,8 @@ PIL instead of open cv is used because the latter does not support grayscale ima
 
 
 def _addimage(self, fname, img):
+    from PIL import Image
+
     assert fname.endswith("png")
 
     # encode
@@ -754,6 +773,8 @@ def _addimage(self, fname, img):
 
 
 def _extractimage(self, fname):
+    from PIL import Image
+
     handle = self.extractfile(fname)
     image = handle.read()
     image = np.array(Image.open(io.BytesIO(image)))
@@ -763,8 +784,6 @@ def _extractimage(self, fname):
 imageTarFile = tarfile.TarFile
 imageTarFile.addimage = _addimage
 imageTarFile.extractimage = _extractimage
-
-import zipfile
 
 
 class imageZipFile(zipfile.ZipFile):
@@ -812,6 +831,9 @@ def createParentDir(file):
 
 
 def ncAttrs(site, visssGen, extra={}):
+    import cv2
+    import psutil
+
     my_process = psutil.Process(os.getpid())
     myCommand = " ".join(my_process.cmdline())
 
@@ -904,6 +926,8 @@ def getPrevRotationEstimate(datetime64, key, config):
 
 def rotXr2dict(dat, config=None):
     """convert rotation structure into config dictionary"""
+    import pandas as pd
+
     if config is None:
         config = {}
         config["rotate"] = {}
@@ -1069,6 +1093,8 @@ def to_netcdf2(dat, file, **kwargs):
     like xarray netcdf open, but creating directories if needed
     write to random file and move to final file to avoid errors due to race conditions or exisiting files
     """
+    from dask.diagnostics import ProgressBar
+
     print(f"saving {file}")
 
     createParentDir(file)
@@ -1092,7 +1118,7 @@ def to_netcdf2(dat, file, **kwargs):
     return res
 
 
-@jit(nopython=True)
+@lazy_jit(nopython=True)
 def linreg(x, y):
     """
     Summary
@@ -1127,11 +1153,12 @@ def cart2pol(x, y):
     return (rho, phi)
 
 
-@taskqueue.queueable
+@lazy_queueable
 def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     """
     helper function to run command on the shell
     """
+    import portalocker
 
     command, fOut = IN
     tmpFile = os.path.basename("%s.processing.txt" % fOut)
@@ -1197,39 +1224,47 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     return success
 
 
-class TaskQueuePatched(taskqueue.TaskQueue):
-    def is_empty_wait(self):
-        waitTime = 5
-        # first delay everything if there are no jobs
-        for i in range(4):
-            if not self.is_empty():
-                break
-            print(f"waiting for jobs... {i}", flush=True)
-            time.sleep(waitTime)
-        # if there are really no jobs, nothing to do
-        if self.is_empty():
-            return True
-        print("jobs present")
+def create_TaskQueuePatched():
+    import taskqueue
 
-        # if there are jobs, check for killwitch file
-        if os.path.isfile("VISSS_KILLSWITCH"):
-            print(f"{ii}, found file VISSS_KILLSWITCH, stopping", flush=True)
-            return True
-        print("no VISSS_KILLSWITCH")
+    class TaskQueuePatched(taskqueue.TaskQueue):
+        def is_empty_wait(self):
+            import psutil
 
-        # if there are jobsm check for memory and wait otherwise
-        while True:
-            if psutil.virtual_memory().percent < 95:
-                break
-            print(f"waiting for available memory...", flush=True)
-            time.sleep(waitTime)
-        print("sufficient memory")
-        return self.is_empty()
+            waitTime = 5
+            # first delay everything if there are no jobs
+            for i in range(4):
+                if not self.is_empty():
+                    break
+                print(f"waiting for jobs... {i}", flush=True)
+                time.sleep(waitTime)
+            # if there are really no jobs, nothing to do
+            if self.is_empty():
+                return True
+            print("jobs present")
+
+            # if there are jobs, check for killwitch file
+            if os.path.isfile("VISSS_KILLSWITCH"):
+                print(f"{ii}, found file VISSS_KILLSWITCH, stopping", flush=True)
+                return True
+            print("no VISSS_KILLSWITCH")
+
+            # if there are jobsm check for memory and wait otherwise
+            while True:
+                if psutil.virtual_memory().percent < 95:
+                    break
+                print(f"waiting for available memory...", flush=True)
+                time.sleep(waitTime)
+            print("sufficient memory")
+            return self.is_empty()
+
+    return TaskQueuePatched
 
 
 def worker1(queue, ww=0, status=None, waitTime=5):
     print(f"starting worker {ww} for {queue}", flush=True)
     time.sleep(ww / 5.0)  # to avoid race conditions
+    TaskQueuePatched = create_TaskQueuePatched()  # generator for lazy import
     tq = TaskQueuePatched(f"fq://{queue}")
     out = None
     while True:

@@ -7,14 +7,8 @@ import warnings
 from copy import deepcopy
 
 # import av
-import bottleneck as bn
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import pyOptimalEstimation as pyOE
-import scipy.stats
 import xarray as xr
-from tqdm import tqdm
 
 from . import __version__, files, fixes, metadata, quicklooks, scripts, tools
 
@@ -368,6 +362,7 @@ def forward(x, L_x=None, F_y=None, F_z=None):
     pandas Series
         z coordinate as seen by leader
     """
+    import pandas as pd
 
     y = calc_L_z_withOffsets(L_x, F_y, F_z, **x.to_dict())
     y = pd.Series(y, index=np.array(range(len(y))))
@@ -380,6 +375,9 @@ def retrieveRotation(
     """
     apply Optimal Estimation to retrieve rotation of cameras
     """
+
+    import pandas as pd
+    import pyOptimalEstimation as pyOE
 
     nPart = len(dat3.pair_id)
     allVars = [
@@ -434,6 +432,8 @@ def retrieveRotation(
 
 
 def probability(x, mu, sigma, delta):
+    import scipy.stats
+
     x = x.astype(float)
     mu = float(mu)
     sigma = float(sigma)
@@ -441,6 +441,7 @@ def probability(x, mu, sigma, delta):
 
     x1 = x - (delta / 2)
     x2 = x + (delta / 2)
+
     return scipy.stats.norm.cdf(x2, loc=mu, scale=sigma) - scipy.stats.norm.cdf(
         x1, loc=mu, scale=sigma
     )
@@ -483,6 +484,8 @@ def doMatch(
     maxMatches number of best matches to consider to select best one
     minNumber4Stats: min. number of samples to estimate sigmas and mus
     """
+    import bottleneck as bn
+    import pandas as pd
 
     # print("using", sigma, mu, delta)
     # print("doMatch", len(leader1D.fpid), len(follower1D.fpid))
@@ -505,6 +508,8 @@ def doMatch(
 
         diffZ = L_z - L_z_estimated
         if testing:
+            import matplotlib.pyplot as plt
+
             plt.figure()
             plt.title("diffZ")
             plt.imshow(diffZ, vmin=-20, vmax=20, cmap="bwr")
@@ -850,6 +855,8 @@ def doMatchSlicer(
     a file with 50.000 particles but we use 700 to avoid double matched particles at the gaps
 
     """
+    import pandas as pd
+    from tqdm import tqdm
 
     # short cut for small data sets
     if (len(leader1D.fpid) < chunckSize) or (len(follower1D.fpid) < chunckSize):
@@ -954,6 +961,8 @@ def matchParticles(
     subset=None,
     maxIter=30,
 ):
+    import pandas as pd
+
     errors = pd.Series(
         {
             "openingData": False,
@@ -1736,6 +1745,8 @@ def createMetaRotation(
     stopOnFailure=False,
     maxAgeDaysPrevFile=1,
 ):
+    import pandas as pd
+
     nL = None
     nF = None
     nM = None

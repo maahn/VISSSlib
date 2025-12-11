@@ -2,24 +2,13 @@
 
 
 import datetime
+import logging
 import os
 import sys
 from copy import deepcopy
 
-import ipywidgets as widgets
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import xarray as xr
-from IPython.display import Image, clear_output, display
-
-try:
-    import cv2
-except ImportError:
-    warnings.warn("opencv not available!")
-import logging
-
-import skimage
 
 from . import (
     __version__,
@@ -37,14 +26,6 @@ from . import (
 )
 
 log = logging.getLogger(__name__)
-
-
-# def imshow(img):
-#     import cv2
-#     import IPython
-#     _,ret = cv2.imencode('.jpg', img)
-#     i = IPython.display.Image(data=ret)
-#     IPython.display.display(i)
 
 
 class _stereoViewMatch(object):
@@ -412,6 +393,10 @@ class matchGUI:
         return self.updateHandles(*self.sv.get(fid))
 
     def updateHandles(self, frame, metaFrames, lv1detects, lv1matches, particles):
+        import cv2
+        import skimage
+        from IPython.display import Image, display
+
         self.metaFrames = metaFrames
         self.lv1detects = lv1detects
         self.lv1matches = lv1matches
@@ -526,6 +511,9 @@ class matchGUI:
         self.texts[0].value = str(nn)
 
     def createGUI(self, pid=0, startId=0):
+        import ipywidgets as widgets
+        from IPython.display import Image, display
+
         self.out = widgets.Output()
         # set width and height
         layout = widgets.Layout(width="auto", height="30px")
@@ -778,6 +766,9 @@ class manualMatchGUI:
         return
 
     def updateHandles(self, frame, metaFrames, lv1detects):
+        import cv2
+        from IPython.display import Image, display
+
         self.metaFrames = metaFrames
         self.lv1detects = lv1detects
 
@@ -842,6 +833,9 @@ class manualMatchGUI:
             self.texts[ii].value = str(nn[camera])
 
     def createGUI(self):
+        import ipywidgets as widgets
+        from IPython.display import Image, display
+
         self.out = widgets.Output()
 
         # set width and height

@@ -1,31 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import itertools
+import logging
 import os
 import subprocess
 import sys
 import warnings
+import zipfile
 from copy import deepcopy
 
-# import av
-import bottleneck as bn
-
-# import matplotlib.pyplot as plt
-import IPython.display
 import numpy as np
-import scipy.stats
 import xarray as xr
 
 from . import __version__, av, files, metadata, tools
-
-try:
-    import cv2
-except ImportError:
-    warnings.warn("opencv not available!")
-import logging
-import zipfile
-
-import skimage
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -58,6 +45,9 @@ class detectedParticles(object):
         verbosity=0,
         testing=[],
     ):
+        import cv2
+
+        self._cv2 = cv2
         self.version = __version__.split(".")[0]
         self.config = config
         self.verbosity = verbosity
@@ -81,7 +71,7 @@ class detectedParticles(object):
 
         # history 500, threshold=400
         if self.config.level1detect.backSub == "cv2.createBackgroundSubtractorKNN":
-            self.backSub = cv2.createBackgroundSubtractorKNN(
+            self.backSub = self._cv2.createBackgroundSubtractorKNN(
                 **self.config.level1detect.backSubKW
             )
         else:
@@ -104,6 +94,8 @@ class detectedParticles(object):
         training=False,
         blockingThresh=None,
     ):
+        import cv2
+
         self.capture_id = capture_id
         self.record_id = record_id
         self.capture_time = capture_time
@@ -160,7 +152,7 @@ class detectedParticles(object):
                 return True, -99
 
         # tools.displayImage(self.backSub.getBackgroundImage())
-        # self.frame = av.doubleDynamicRange(cv2.bitwise_not(cv2.subtract(self.backSub.getBackgroundImage(), self.frame, )))
+        # self.frame = av.doubleDynamicRange(self._cv2.bitwise_not(self._cv2.subtract(self.backSub.getBackgroundImage(), self.frame, )))
         #
 
         # check whether anxthing is moving
@@ -181,8 +173,8 @@ class detectedParticles(object):
 
         # it can happen that the background subtraction has little gaps
         # if self.fgMask is not None:
-        #     self.fgMask = cv2.dilate(self.fgMask, None, iterations=1)
-        #     self.fgMask = cv2.erode(self.fgMask, None, iterations=1)
+        #     self.fgMask = self._cv2.dilate(self.fgMask, None, iterations=1)
+        #     self.fgMask = self._cv2.erode(self.fgMask, None, iterations=1)
 
         if "movingInput" in self.testing:
             print("SHOWING", "movingInput")
@@ -211,8 +203,8 @@ class detectedParticles(object):
         # sometimes, there is noise inside detected particles
         if self.config.level1detect.dilateErodeFgMask:
             # turns out to be not so smart because it makes holes insides particles smaller
-            self.fgMask = cv2.erode(
-                cv2.dilate(self.fgMask, None, iterations=1), None, iterations=1
+            self.fgMask = self._cv2.erode(
+                self._cv2.dilate(self.fgMask, None, iterations=1), None, iterations=1
             )
         if "fgMask" in self.testing:
             print("SHOWING", "fgMaskWithHoles")
@@ -221,12 +213,12 @@ class detectedParticles(object):
         # avoids that blowing snow detection is falsely removing data for blury particles
         # larger conoturs are later corrected by canny filter
         if self.config.level1detect.dilateFgMask4Contours:
-            fgMask4Contours = cv2.dilate(self.fgMask, None, iterations=2)
+            fgMask4Contours = self._cv2.dilate(self.fgMask, None, iterations=2)
             # tools.displayImage(fgMask4Contours)
         else:
             fgMask4Contours = self.fgMask
-        cnts, _ = cv2.findContours(
-            fgMask4Contours, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+        cnts, _ = self._cv2.findContours(
+            fgMask4Contours, self._cv2.RETR_EXTERNAL, self._cv2.CHAIN_APPROX_NONE
         )
 
         self.cnts = list()
@@ -269,6 +261,8 @@ class detectedParticles(object):
         return True, self.nParticle
 
     def applyCannyFilter(self, frame, fgMask, threshold1=0, threshold2=25):
+        import cv2
+
         if logDebug:
             log.debug(
                 tools.concat(
@@ -287,7 +281,7 @@ class detectedParticles(object):
 
         #     # Canny filter gets confused if the feature is directly at the edge, so make the moving
         #     # mask a little larger
-        #     fgMask4Canny = (cv2.dilate(
+        #     fgMask4Canny = (self._cv2.dilate(
         #         fgMask, None, iterations=dilateIterations)//255).astype(bool)
         #     # , mask = (self.fgMask//255).astype(bool)))
         #     fgMaskCanny = feature.canny(frame, sigma=2, mask=fgMask4Canny)
@@ -298,11 +292,13 @@ class detectedParticles(object):
         # blur image, required to make algoprithm stable
         # print("self.blurSigma", self.blurSigma)
         if self.config.level1detect.blurSigma != 0:
-            frame = cv2.GaussianBlur(frame, (0, 0), self.config.level1detect.blurSigma)
-        # frame = cv2.bilateralFilter(frame, 5,70,2)
+            frame = self._cv2.GaussianBlur(
+                frame, (0, 0), self.config.level1detect.blurSigma
+            )
+        # frame = self._cv2.bilateralFilter(frame, 5,70,2)
 
         # apply Canny filter, take low limits becuase we are reduced to moving parts
-        fgMaskCanny = cv2.Canny(
+        fgMaskCanny = self._cv2.Canny(
             frame, threshold1, threshold2, L2gradient=True, apertureSize=3
         )
 
@@ -316,26 +312,26 @@ class detectedParticles(object):
 
         if self.config.level1detect.dilateIterations > 0:
             # close gaps by finding contours, dillate, fill, and erode them
-            fgMaskCanny = cv2.dilate(
+            fgMaskCanny = self._cv2.dilate(
                 fgMaskCanny, None, iterations=self.config.level1detect.dilateIterations
             )
             if "debugCanny" in self.testing:
                 print("canny filter fgMaskCanny dilate")
                 tools.displayImage(fgMaskCanny, rescale=4)
 
-            cnts = cv2.findContours(
-                fgMaskCanny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+            cnts = self._cv2.findContours(
+                fgMaskCanny, self._cv2.RETR_EXTERNAL, self._cv2.CHAIN_APPROX_NONE
             )[0]
-            fgMaskCanny = cv2.fillPoly(fgMaskCanny, pts=cnts, color=255)
-            fgMaskCanny = cv2.erode(
+            fgMaskCanny = self._cv2.fillPoly(fgMaskCanny, pts=cnts, color=255)
+            fgMaskCanny = self._cv2.erode(
                 fgMaskCanny, None, iterations=self.config.level1detect.dilateIterations
             )
 
         else:
-            cnts = cv2.findContours(
-                fgMaskCanny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+            cnts = self._cv2.findContours(
+                fgMaskCanny, self._cv2.RETR_EXTERNAL, self._cv2.CHAIN_APPROX_NONE
             )[0]
-            fgMaskCanny = cv2.fillPoly(fgMaskCanny, pts=cnts, color=255)
+            fgMaskCanny = self._cv2.fillPoly(fgMaskCanny, pts=cnts, color=255)
 
         # and condition, i.e. make sure both filters detected something
         if fgMask is not None:
@@ -350,7 +346,7 @@ class detectedParticles(object):
     def add(self, frame1, fgMask, cnt, **kwargs):
         added = False
         # check whether it touches border
-        roi = tuple(int(b) for b in cv2.boundingRect(cnt))
+        roi = tuple(int(b) for b in self._cv2.boundingRect(cnt))
         frameHeight, frameWidth = frame1.shape[:2]
         touchesBorder = [
             roi[0] == 0,
@@ -385,8 +381,8 @@ class detectedParticles(object):
                 if self.verbosity > 0:
                     print("canny filter did not detect anything")
                 return False
-            cnts, hierarchy = cv2.findContours(
-                particleBoxMaskPlus, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE
+            cnts, hierarchy = self._cv2.findContours(
+                particleBoxMaskPlus, self._cv2.RETR_TREE, self._cv2.CHAIN_APPROX_NONE
             )
             cnts, cntChildren = splitUpConours(cnts, hierarchy)
 
@@ -783,6 +779,11 @@ class singleParticle(object):
         testing,
         verbosity=0,
     ):
+        import cv2
+        import scipy.stats
+
+        self._cv2 = cv2
+
         self.verbosity = verbosity
         self.pid = pp1  # np.random.randint(-999,-1)
         self.record_id = record_id
@@ -798,20 +799,22 @@ class singleParticle(object):
         self.xOffset = xOffset
         self.yOffset = yOffset
 
-        self.roi = np.array([int(b) for b in cv2.boundingRect(self.cnt)])
+        self.roi = np.array([int(b) for b in self._cv2.boundingRect(self.cnt)])
         # self.Cx, self.Cy, self.Dx, self.Dy = self.roi
 
-        particleBoxMask1 = cv2.fillPoly(np.zeros_like(frame1), pts=[cnt], color=255)
+        particleBoxMask1 = self._cv2.fillPoly(
+            np.zeros_like(frame1), pts=[cnt], color=255
+        )
 
         for cc, cntChild1 in enumerate(cntChild):
             # dont be bothered by too small holes
             if config.level1detect.check4childCntLength and (
-                (len(cntChild1) < minCntSize) or (cv2.contourArea(cntChild1) <= 4)
+                (len(cntChild1) < minCntSize) or (self._cv2.contourArea(cntChild1) <= 4)
             ):
                 continue
                 # particleBoxHoles is the opposite to particleBoxMask1, internal holes (from movement detection) are open, but neighbor particles are present
                 # use child cnts to make mask with children
-            particleBoxHoles = cv2.fillPoly(
+            particleBoxHoles = self._cv2.fillPoly(
                 np.zeros_like(frame1) + 255, pts=[cntChild1], color=0
             )
 
@@ -820,14 +823,14 @@ class singleParticle(object):
                     "particleBoxHoles",
                     cc,
                     len(cntChild1),
-                    cv2.contourArea(cntChild1),
+                    self._cv2.contourArea(cntChild1),
                 )
                 tools.displayImage(particleBoxHoles, rescale=4)
 
             # remove single pixel holes
             if not config.level1detect.check4childCntLength:
-                particleBoxHoles = cv2.erode(
-                    cv2.dilate(particleBoxHoles, None, iterations=1),
+                particleBoxHoles = self._cv2.erode(
+                    self._cv2.dilate(particleBoxHoles, None, iterations=1),
                     None,
                     iterations=1,
                 )
@@ -873,13 +876,15 @@ class singleParticle(object):
         # figure out whether particle was properly detected
         # if not, contour describes only a line which can be detected by
         # looking into how perimeter changes during erosion
-        erodeMask = cv2.erode(np.pad(self.particleBoxMask, 1), None, 1)
-        cntsAfter = cv2.findContours(
-            erodeMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+        erodeMask = self._cv2.erode(np.pad(self.particleBoxMask, 1), None, 1)
+        cntsAfter = self._cv2.findContours(
+            erodeMask, self._cv2.RETR_EXTERNAL, self._cv2.CHAIN_APPROX_NONE
         )[0]
 
         if len(cntsAfter) > 0:
-            self.perimeterEroded = np.max([cv2.arcLength(c, True) for c in cntsAfter])
+            self.perimeterEroded = np.max(
+                [self._cv2.arcLength(c, True) for c in cntsAfter]
+            )
         else:
             self.perimeterEroded = 0
 
@@ -907,7 +912,7 @@ class singleParticle(object):
         self.Droi = (self.roi[2], self.roi[3])
 
         # estimate Dmax
-        self.position_circle, radius = cv2.minEnclosingCircle(self.cnt)
+        self.position_circle, radius = self._cv2.minEnclosingCircle(self.cnt)
         self.Dmax = 2 * radius
 
         # brightness of center
@@ -921,7 +926,7 @@ class singleParticle(object):
 
         # import pdb;pdb.set_trace()
         # estimate properties that need shifted position
-        self.rect = cv2.minAreaRect(self.cnt)
+        self.rect = self._cv2.minAreaRect(self.cnt)
         center, dims, self.angle = self.rect
         # angle definition depends on opencv version https://github.com/opencv/opencv/issues/19472
         # for newer opencv versions where angle is postive, this makes sure it ranges form 0 to 180
@@ -935,17 +940,17 @@ class singleParticle(object):
         if len(self.cnt) > 4:  # fitELlipse doesnt work for 4 or less points
             # according to @fitzgibbon_direct_1996 , the direct method is both robust and fast.
             try:
-                self.ellipseDirect = cv2.fitEllipseDirect(self.cnt)
+                self.ellipseDirect = self._cv2.fitEllipseDirect(self.cnt)
             except:
                 self.ellipseDirect = (np.nan, np.nan), (np.nan, np.nan), np.nan
             # very poor performance!
             # try:
-            #     self.ellipseAMS = cv2.fitEllipseAMS(self.cnt)
+            #     self.ellipseAMS = self._cv2.fitEllipseAMS(self.cnt)
             # except:
             #     self.ellipseAMS = (np.nan, np.nan), (np.nan, np.nan), np.nan
             # method used by MASC, often doesn't work
             try:
-                self.ellipse = cv2.fitEllipse(self.cnt)
+                self.ellipse = self._cv2.fitEllipse(self.cnt)
             except:
                 self.ellipse = (np.nan, np.nan), (np.nan, np.nan), np.nan
 
@@ -992,16 +997,16 @@ class singleParticle(object):
             AR_rect = np.nan
         self.aspectRatio = (AR_ellipseDirect, AR_ellipse, AR_rect)
 
-        self.area = cv2.contourArea(self.cnt)
-        self.perimeter = cv2.arcLength(self.cnt, True)
+        self.area = self._cv2.contourArea(self.cnt)
+        self.perimeter = self._cv2.arcLength(self.cnt, True)
 
         self.areaConsideringHoles = deepcopy(self.area)
         self.perimeterConsideringHoles = deepcopy(self.perimeter)
         for cc in self.cntChild:
-            self.areaConsideringHoles -= cv2.contourArea(cc)
-            self.perimeterConsideringHoles += cv2.arcLength(cc, True)
+            self.areaConsideringHoles -= self._cv2.contourArea(cc)
+            self.perimeterConsideringHoles += self._cv2.arcLength(cc, True)
 
-        M = cv2.moments(self.cnt)
+        M = self._cv2.moments(self.cnt)
         # https://docs.opencv.org/master/dd/d49/tutorial_py_contour_features.html
         try:
             self.position_centroid = (
@@ -1011,9 +1016,9 @@ class singleParticle(object):
         except ZeroDivisionError:  # happens typically for very small particles
             self.position_centroid = self.position_circle
 
-        # data type cv2.CV_16S requried to avoid overflow
+        # data type self._cv2.CV_16S requried to avoid overflow
         # https://pyimagesearch.com/2015/09/07/blur-detection-with-opencv/
-        self.blur = cv2.Laplacian(self.particleBox, cv2.CV_64F).var(ddof=1)
+        self.blur = self._cv2.Laplacian(self.particleBox, self._cv2.CV_64F).var(ddof=1)
 
         # FFT
         cnt1 = self.cnt - self.position_centroid
@@ -1030,8 +1035,8 @@ class singleParticle(object):
         self.contourFFT = contourFFT[:maxFFT]
         self.FFTfreqs = np.fft.fftfreq(N, 1 / N)[1 : maxFFT + 1]
 
-        hull = cv2.convexHull(self.cnt)
-        hullArea = cv2.contourArea(hull)
+        hull = self._cv2.convexHull(self.cnt)
+        hullArea = self._cv2.contourArea(hull)
         try:
             self.solidity = self.area / hullArea
             self.solidityConsideringHoles = self.areaConsideringHoles / hullArea
@@ -1111,29 +1116,33 @@ class singleParticle(object):
 
     def drawContour(self, frame):
         (x, y, w, h) = self.roi
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255.0, 0), 1)
+        self._cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255.0, 0), 1)
 
-        cv2.drawContours(frame, [self.cnt], 0, np.array((255.0, 255.0, 0)), 1)
+        self._cv2.drawContours(frame, [self.cnt], 0, np.array((255.0, 255.0, 0)), 1)
 
         if self.cntChild is not None:
             for cntChild in self.cntChild:
-                cv2.drawContours(frame, [cntChild], 0, np.array((255.0, 255.0, 0)), 1)
-        box = cv2.boxPoints(self.rect)
+                self._cv2.drawContours(
+                    frame, [cntChild], 0, np.array((255.0, 255.0, 0)), 1
+                )
+        box = self._cv2.boxPoints(self.rect)
         box = np.int0(box)
-        cv2.drawContours(frame, [box], 0, np.array((0, 0, 255.0)), 1)
+        self._cv2.drawContours(frame, [box], 0, np.array((0, 0, 255.0)), 1)
         try:
-            cv2.ellipse(frame, self.ellipse, np.array((255.0, 0, 0)), 1)
+            self._cv2.ellipse(frame, self.ellipse, np.array((255.0, 0, 0)), 1)
         except:
             pass
         try:
-            cv2.ellipse(frame, self.ellipseDirect, np.array((255.0, 255.0, 255.0)), 1)
+            self._cv2.ellipse(
+                frame, self.ellipseDirect, np.array((255.0, 255.0, 255.0)), 1
+            )
         except:
             pass
         # try:
-        #     cv2.ellipse(frame, self.ellipseAMS, np.array((0., 0., 0.)), 1)
+        #     self._cv2.ellipse(frame, self.ellipseAMS, np.array((0., 0., 0.)), 1)
         # except:
         #     pass
-        cv2.circle(
+        self._cv2.circle(
             frame,
             np.ceil(self.position_circle).astype(int),
             int(np.ceil(self.Dmax / 2)),
@@ -1145,11 +1154,11 @@ class singleParticle(object):
 
     def annotate(self, frame, color=(0, 255, 0), extra=""):
         (x, y, w, h) = self.roi
-        cv2.putText(
+        self._cv2.putText(
             frame,
             "%i %s" % (self.pid, extra),
             (x + w + 5, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
+            self._cv2.FONT_HERSHEY_SIMPLEX,
             0.75,
             color,
             2,
@@ -1208,6 +1217,7 @@ def checkMotion(subFrame, oldFrame, threshs):
     """
     Check whether something is moving - identical to VISSS C code
     """
+    import cv2
 
     if oldFrame is None:
         oldFrame = np.zeros(subFrame.shape, dtype=np.uint8)
@@ -1224,6 +1234,8 @@ def checkMotion(subFrame, oldFrame, threshs):
 
 # get trainign data"
 def _getTrainingFrames(fnamesV, trainingSize, config):
+    import cv2
+
     inVidTraining = {}
     for nThread, fnameV in fnamesV.items():
         assert fnameV.endswith(config.movieExtension)
@@ -1280,6 +1292,8 @@ def detectParticles(
 
     # logging.config.dictConfig(tools.get_logging_config('detection_run.log'))
     # log = logging.getLogger("detection")
+
+    import cv2
 
     assert os.path.isfile(fname)
 

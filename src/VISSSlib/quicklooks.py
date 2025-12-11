@@ -2,6 +2,7 @@
 
 import datetime
 import glob
+import logging
 import os
 import shutil
 import sys
@@ -9,22 +10,9 @@ import uuid
 import warnings
 from copy import deepcopy
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import xarray as xr
 from image_packer import packer
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from PIL import Image, ImageDraw, ImageFont
-from tqdm import tqdm
-
-try:
-    import cv2
-except ImportError:
-    warnings.warn("opencv not available!")
-
-import logging
 
 from . import *
 from . import __version__, av, tools
@@ -86,6 +74,8 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
 
 
 def statusText(fig, fnames, config, addLogo=True):
+    from PIL import Image, ImageDraw, ImageFont
+
     if not isinstance(fnames, (list, tuple)):
         fnames = [fnames]
     try:
@@ -193,6 +183,8 @@ def plot2dhist(
     resample="5min",
     cbarlabel=None,
 ):
+    import matplotlib.pyplot as plt
+
     pVar = xr.DataArray(
         pVar, coords=[capture_time.isel(camera=0).values], dims=["time"]
     )
@@ -215,8 +207,6 @@ def plot2dhist(
         time=resample
     ).first()  # little trick to fill up missing values
     # import pdb; pdb.set_trace()
-
-    # divider = make_axes_locatable(ax)
 
     if np.any(np.array(hists.shape) <= 1):
         log.warning("no data to plot hists")
@@ -269,6 +259,8 @@ def createLevel1detectQuicklookHourly(
     """
     Create hourly version of particle quicklook. See createLevel1detectQuicklook for details
     """
+    import matplotlib.pyplot as plt
+
     config = tools.readSettings(config)
 
     for hh in hours:
@@ -318,6 +310,13 @@ def createLevel1detectQuicklook(
     timedelta=np.timedelta64(1, "D"),
     returnFig=True,
 ):
+    import cv2
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from PIL import Image, ImageDraw, ImageFont
+    from tqdm import tqdm
+
     config = tools.readSettings(config)
     if minBlur == "config":
         minBlur = config["level1detectQuicklook"]["minBlur"]
@@ -765,6 +764,8 @@ class Packer_patched(packer.Packer):
 
     def __init__(self, images):
         # Ensure plugins are fully loaded so that Image.EXTENSION is populated.
+        from PIL import Image, ImageDraw, ImageFont
+
         Image.init()
 
         self._uid_to_filepath = dict()
@@ -830,6 +831,8 @@ class Packer_patched(packer.Packer):
         return compImage
 
     def _save_image(self, container_width, container_height, regions, options):
+        from PIL import Image, ImageDraw, ImageFont
+
         bg_color_ = options["bg_color"]
         assert isinstance(bg_color_, tuple) and (3 <= len(bg_color_) <= 4)
         bg_color = tuple(int(channel * 255.0) for channel in bg_color_)
@@ -981,6 +984,9 @@ class Packer_patched(packer.Packer):
 
 
 def level0Quicklook(case, camera, config, version=__version__, skipExisting=True):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+
     config = tools.readSettings(config)
 
     global metaDats
@@ -1039,6 +1045,8 @@ def metaFramesQuicklook(
     Anja Stallmach 2022
 
     """
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
 
     config = tools.readSettings(config)
 
@@ -1346,6 +1354,10 @@ def createLevel1matchQuicklook(
     plotCompleteOnly=True,
     returnFig=True,
 ):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
     resample = "5min"  # 5 mins
     config = tools.readSettings(config)
 
@@ -1722,6 +1734,9 @@ def createLevel1matchQuicklook(
 
 
 def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=True):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+
     config = tools.readSettings(config)
 
     ff = files.FindFiles(f"{year}0101", config.leader, config, version)
@@ -1886,6 +1901,10 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
 
 def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
     config = tools.readSettings(config)
 
     camera = config.leader
@@ -2181,6 +2200,9 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 def createLevel2detectQuicklook(
     case, config, camera1, version=__version__, skipExisting=True, returnFig=True
 ):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+
     version = __version__
 
     config = tools.readSettings(config)
@@ -2407,6 +2429,9 @@ def createLevel2detectQuicklook(
 def createLevel2matchQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+
     config = tools.readSettings(config)
 
     camera = config.leader
@@ -2640,6 +2665,9 @@ def createLevel2matchQuicklook(
 def createLevel2trackQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+
     config = tools.readSettings(config)
 
     camera = config.leader
@@ -2929,6 +2957,13 @@ def createLevel1matchParticlesQuicklook(
     returnFig=True,
     doLevel1matchQuicklook=True,
 ):
+    import cv2
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from PIL import Image, ImageDraw, ImageFont
+    from tqdm import tqdm
+
     config = tools.readSettings(config)
     camera = config["leader"]
 
@@ -3372,6 +3407,9 @@ def createLevel3RimingQuicklook(
     version=__version__,
     returnFig=True,
 ):
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+
     config = tools.readSettings(config)
 
     camera = config.leader

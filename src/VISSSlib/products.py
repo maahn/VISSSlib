@@ -452,9 +452,12 @@ class DataProduct(object):
         log.warning(f"{self.tq.enqueued} tasks in Queue")
 
         if runWorkers:
-            tools.workers(self.fileQueue)
+            self.runWorkers()
 
         return
+
+    def runWorkers(self, nJobs=os.cpu_count()):
+        tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
         log.info(f"Deleting {self.tq.enqueued} tasks")
@@ -746,9 +749,21 @@ class DataProductRange(object):
         log.warning(f"{self.tq.enqueued} tasks in Queue")
 
         if runWorkers:
-            tools.workers(self.fileQueue)
+            self.runWorkers()
 
         return
+
+    @property
+    def isComplete(self):
+        if len(self.days) == 0:
+            log.warning(f"Number of days is zero")
+        isComplete = True
+        for dd in self.days:
+            isComplete = isComplete and self.dailies[dd].isComplete
+        return isComplete
+
+    def runWorkers(self, nJobs=os.cpu_count()):
+        tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
         log.info(f"Deleting {self.tq.enqueued} tasks")

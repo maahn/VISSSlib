@@ -1270,7 +1270,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
     return out
 
 
-def workers(queue, nJobs=os.cpu_count(), waitTime=60):
+def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
     # for communication between subprocesses
     print(f"starting {nJobs} workers")
     status = multiprocessing.Array("i", [0] * nJobs)
@@ -1287,7 +1287,8 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60):
         )
         x.start()
         workerList.append(x)
-    [x.join() for x in workerList]
+    if join:
+        [x.join() for x in workerList]
     return workerList
 
 

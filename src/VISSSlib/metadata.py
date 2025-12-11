@@ -234,7 +234,7 @@ def readHeaderData(fname, returnLasttime=False):
         if asciiVersion >= 0.6:
             ptpStatus = f.readline().split(":")[1].lstrip().rstrip()
         else:
-            ptpStatus = "n/a"
+            ptpStatus = "Disabled"
 
         _ = f.readline()
         capture_firsttime = f.readline()
@@ -842,6 +842,11 @@ def getEvents(fnames0, config, fname0status=None):
                 dims=["file_starttime"],
                 coords=[[record_starttime]],
             )
+            metaDat["ptpStatus"] = xr.DataArray(
+                np.array([np.nan]).astype("object"),
+                dims=["file_starttime"],
+                coords=[[record_starttime]],
+            )
             metaDat["cameraTemperature"] = xr.DataArray(
                 [np.nan], dims=["file_starttime"], coords=[[record_starttime]]
             )
@@ -893,6 +898,11 @@ def getEvents(fnames0, config, fname0status=None):
             )
             metaDat["filename"] = xr.DataArray(
                 [fname0.split("/")[-1]],
+                dims=["file_starttime"],
+                coords=[[record_starttime]],
+            )
+            metaDat["ptpStatus"] = xr.DataArray(
+                [ptpStatus],
                 dims=["file_starttime"],
                 coords=[[record_starttime]],
             )
@@ -955,6 +965,16 @@ def getEvents(fnames0, config, fname0status=None):
         metaDats["gitTag"] = xr.DataArray([], dims=["file_starttime"], coords=[[]])
         metaDats["gitBranch"] = xr.DataArray([], dims=["file_starttime"], coords=[[]])
         metaDats["filename"] = xr.DataArray([], dims=["file_starttime"], coords=[[]])
+        metaDats["ptpStatus"] = xr.DataArray([], dims=["file_starttime"], coords=[[]])
+        metaDats["cameraTemperature"] = xr.DataArray(
+            [], dims=["file_starttime"], coords=[[]]
+        )
+        metaDats["transferQueueCurrentBlockCount"] = xr.DataArray(
+            [], dims=["file_starttime"], coords=[[]]
+        )
+        metaDats["transferMaxBlockSize"] = xr.DataArray(
+            [], dims=["file_starttime"], coords=[[]]
+        )
 
         metaDats["blocking"] = xr.DataArray(
             np.zeros((0, len(bins4xr))),
@@ -1037,6 +1057,17 @@ def getEvents(fnames0, config, fname0status=None):
                 dims=["file_starttime"],
                 coords=[metaDats.file_starttime],
             )
+            metaDats["filename"] = xr.DataArray(
+                (np.zeros(nEvents) * np.nan).astype("object"),
+                dims=["file_starttime"],
+                coords=[metaDats.file_starttime],
+            )
+            metaDats["ptpStatus"] = xr.DataArray(
+                (np.zeros(nEvents) * np.nan).astype("object"),
+                dims=["file_starttime"],
+                coords=[metaDats.file_starttime],
+            )
+
             metaDats["blocking"] = xr.DataArray(
                 np.zeros((nEvents, len(bins4xr))) * np.nan,
                 dims=["file_starttime", "blockingThreshold"],

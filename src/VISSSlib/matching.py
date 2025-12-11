@@ -1283,92 +1283,111 @@ def matchParticles(
         #     log.info(tools.concat("DMax capture id filter follower:", minDMax4rot, np.sum(filt)/len(follower1D.fpid) * 100,"%"))
         #     follower1D = follower1D.isel(fpid=filt)
 
-        try:
-            captureIdOffset1, nMatched1 = tools.estimateCaptureIdDiffCore(
-                leader1D,
-                follower1D,
-                "fpid",
-                maxDiffMs=maxDiffMs,
-                nPoints=nPoints,
-                timeDim="capture_time",
-            )
-        except Exception as e:
-            captureIdOffset1 = nMatched1 = -99
-            error1 = str(e)
-        try:
-            captureIdOffset2, nMatched2 = tools.estimateCaptureIdDiffCore(
-                leader1D,
-                follower1D,
-                "fpid",
-                maxDiffMs=maxDiffMs,
-                nPoints=nPoints,
-                timeDim="record_time",
-            )
-        except Exception as e:
-            captureIdOffset2 = nMatched2 = -99
-            error2 = str(e)
-
-        if nMatched2 == nMatched1 == -99:
-            log.error(tools.concat("tools.estimateCaptureIdDiff FAILED"))
-            log.error(tools.concat(error1))
-            log.error(tools.concat(error2))
-            if not rotationOnly:
-                errorStrs[-1].append(
-                    f"tools.estimateCaptureIdDiff(ffl1, config, graceInterval=2)\r{error1}\r{error2}"
+        if (
+            offsetsOnly
+            or ("ptpStatus" not in lEvents.data_vars)
+            or ("ptpStatus" not in fEvents.data_vars)
+        ):
+            try:
+                captureIdOffset1, nMatched1 = tools.estimateCaptureIdDiffCore(
+                    leader1D,
+                    follower1D,
+                    "fpid",
+                    maxDiffMs=maxDiffMs,
+                    nPoints=nPoints,
+                    timeDim="capture_time",
                 )
-            continue
+            except Exception as e:
+                captureIdOffset1 = nMatched1 = -99
+                error1 = str(e)
+            try:
+                captureIdOffset2, nMatched2 = tools.estimateCaptureIdDiffCore(
+                    leader1D,
+                    follower1D,
+                    "fpid",
+                    maxDiffMs=maxDiffMs,
+                    nPoints=nPoints,
+                    timeDim="record_time",
+                )
+            except Exception as e:
+                captureIdOffset2 = nMatched2 = -99
+                error2 = str(e)
 
-        if (nMatched2 <= 1) and (nMatched1 <= 1):
-            # if not rotationOnly:
-            #     with tools.open2(f"{fname1Match}.nodata", "w") as f:
-            #         f.write("NOT ENOUGH DATA")
-            log.error(tools.concat("NOT ENOUGH DATA", fname1Match, tt, FR1, FR2))
-            continue
-
-        # In theory, capture time is much better, but there are cases were it is off. Try to identify them by chgecking whether record_time yielded more matches.
-        # for mosaic, capture time is pretty much useless!
-        if (nMatched2 > nMatched1) or (config.site == "mosaic"):
-            if nMatched2 == -99:
-                log.error(
-                    tools.concat(
-                        "record_id based diff estiamtion failed",
-                        fname1Match,
-                        tt,
-                        FR1,
-                        FR2,
+            if nMatched2 == nMatched1 == -99:
+                log.error(tools.concat("tools.estimateCaptureIdDiff FAILED"))
+                log.error(tools.concat(error1))
+                log.error(tools.concat(error2))
+                if not rotationOnly:
+                    errorStrs[-1].append(
+                        f"tools.estimateCaptureIdDiff(ffl1, config, graceInterval=2)\r{error1}\r{error2}"
                     )
-                )
-                errors["offsetEstimation"] = True
                 continue
 
-            captureIdOffset = captureIdOffset2
-            nMatched = nMatched2
-            log.info(
-                tools.concat(
-                    f"Taking offset from record_time {(captureIdOffset2, nMatched2)} intead of capture_time {(captureIdOffset1, nMatched1)}"
+            if (nMatched2 <= 1) and (nMatched1 <= 1):
+                # if not rotationOnly:
+                #     with tools.open2(f"{fname1Match}.nodata", "w") as f:
+                #         f.write("NOT ENOUGH DATA")
+                log.error(tools.concat("NOT ENOUGH DATA", fname1Match, tt, FR1, FR2))
+                continue
+
+            # In theory, capture time is much better, but there are cases were it is off. Try to identify them by chgecking whether record_time yielded more matches.
+            # for mosaic, capture time is pretty much useless!
+            if (nMatched2 > nMatched1) or (config.site == "mosaic"):
+                if nMatched2 == -99:
+                    log.error(
+                        tools.concat(
+                            "record_id based diff estiamtion failed",
+                            fname1Match,
+                            tt,
+                            FR1,
+                            FR2,
+                        )
+                    )
+                    errors["offsetEstimation"] = True
+                    continue
+
+                captureIdOffset = captureIdOffset2
+                nMatched = nMatched2
+                log.info(
+                    tools.concat(
+                        f"Taking offset from record_time {(captureIdOffset2, nMatched2)} intead of capture_time {(captureIdOffset1, nMatched1)}"
+                    )
                 )
-            )
+            else:
+                captureIdOffset = captureIdOffset1
+                nMatched = nMatched1
+
+            if offsetsOnly:
+                return captureIdOffset, nMatched
+
+            mu = {
+                "Z": 0,
+                #                 "Y" : 34.3,
+                "H": 0,
+                "T": 0,
+                "I": captureIdOffset,
+            }
+            delta = {
+                "Z": 0.5,  # 0.5 because center is considered
+                "Y": 0.5,  # 0.5 because center is considered
+                "H": 1,
+                "T": 1 / config.fps,
+                "I": 1,
+            }
+
         else:
-            captureIdOffset = captureIdOffset1
-            nMatched = nMatched1
-
-        if offsetsOnly:
-            return captureIdOffset, nMatched
-
-        mu = {
-            "Z": 0,
-            #                 "Y" : 34.3,
-            "H": 0,
-            "T": 0,
-            "I": captureIdOffset,
-        }
-        delta = {
-            "Z": 0.5,  # 0.5 because center is considered
-            "Y": 0.5,  # 0.5 because center is considered
-            "H": 1,
-            "T": 1 / config.fps,
-            "I": 1,
-        }
+            mu = {
+                "Z": 0,
+                #                 "Y" : 34.3,
+                "H": 0,
+                "T": 0,
+            }
+            delta = {
+                "Z": 0.5,  # 0.5 because center is considered
+                "Y": 0.5,  # 0.5 because center is considered
+                "H": 1,
+                "T": 1 / config.fps,  # CHANGE HERE!!!!!
+            }
 
         # figure out how cameras ae rotated, first prepare data
         dataTruncated4rot = False

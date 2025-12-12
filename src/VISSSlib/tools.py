@@ -14,33 +14,15 @@ import warnings
 import zipfile
 from copy import deepcopy
 
+import numba
 import numpy as np
+import taskqueue
 import xarray as xr
 from addict import Dict
 
 from . import __version__, __versionFull__, files, fixes
 
 log = logging.getLogger(__name__)
-
-
-def lazy_queueable(*dargs, **dkwargs):
-    def wrapper(func):
-        import taskqueue
-
-        real_decorator = taskqueue.queueable(*dargs, **dkwargs)
-        return real_decorator(func)
-
-    return wrapper
-
-
-def lazy_jit(*dargs, **dkwargs):
-    def wrapper(func):
-        from numba import jit
-
-        real_decorator = jit(*dargs, **dkwargs)
-        return real_decorator(func)
-
-    return wrapper
 
 
 # settings that stay mostly constant
@@ -1118,7 +1100,7 @@ def to_netcdf2(dat, file, **kwargs):
     return res
 
 
-@lazy_jit(nopython=True)
+@numba.jit(nopython=True)
 def linreg(x, y):
     """
     Summary
@@ -1153,7 +1135,7 @@ def cart2pol(x, y):
     return (rho, phi)
 
 
-@lazy_queueable
+@taskqueue.queueable
 def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     """
     helper function to run command on the shell

@@ -753,7 +753,7 @@ def getEvents(fnames0, config, fname0status=None):
     """
     get events meta data for certain case
     """
-    import matplotlib as mpl
+    import matplotlib.pyplot as plt
     import pandas as pd
 
     metaDats = list()
@@ -919,7 +919,7 @@ def getEvents(fnames0, config, fname0status=None):
             )
         # estimate Blocking
         # using results of background estiamtor would be nice, but we don't have that inforation yet!
-        img = mpl.image.imread(fname0Img)[config.height_offset :]
+        img = plt.imread(fname0Img)[config.height_offset :]
         nPixel = np.prod(img.shape)
         hist, _ = np.histogram(img.ravel(), bins=bins)
         hist = hist.cumsum() / nPixel

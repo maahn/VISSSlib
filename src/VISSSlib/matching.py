@@ -442,9 +442,26 @@ def probability(x, mu, sigma, delta):
     x1 = x - (delta / 2)
     x2 = x + (delta / 2)
 
+    # intergrated over delta x region
     return scipy.stats.norm.cdf(x2, loc=mu, scale=sigma) - scipy.stats.norm.cdf(
         x1, loc=mu, scale=sigma
     )
+
+
+def step(x, mu, sigma):
+    """
+    like probability but with a step function. returns either 1 or 0
+    depending whether abs(x-mu) < sigma or not.
+    """
+    x = x.astype(float)
+    mu = float(mu)
+    sigma = float(sigma)
+
+    # normalize with mean value
+    x = x - mu
+    # step function
+    prob = np.abs(x) < sigma
+    return prob.astype(int)
 
 
 def removeDoubleCounts(mPart, mProp, doubleCounts):
@@ -466,11 +483,12 @@ def removeDoubleCounts(mPart, mProp, doubleCounts):
 def doMatch(
     leader1D,
     follower1D,
-    sigma,
+    sigmaIn,
     mu,
     delta,
     config,
     rotate,
+    ptpTime,
     minProp=1e-10,
     minNumber4Stats=10,
     maxMatches=100,
@@ -490,6 +508,22 @@ def doMatch(
     # print("using", sigma, mu, delta)
     # print("doMatch", len(leader1D.fpid), len(follower1D.fpid))
     prop = {}
+
+    if sigmaIn == "default":
+        if ptpTime:
+            sigma = {
+                "Z": 1.7,  # estimated from OE results
+                "H": 1.2,  # estimated from OE results
+                "T": 1e-4,  # pratical experience
+            }
+        else:
+            sigma = {
+                "Z": 1.7,  # estimated from OE results
+                "H": 1.2,  # estimated from OE results
+                "I": 0.01,
+            }
+    else:
+        sigma = sigmaIn
 
     log.info(f"match with rotate={str(rotate)}")
     # particle Z position difference in joint coordinate system
@@ -531,7 +565,6 @@ def doMatch(
         lyCenter = leader1D.position_upperLeft.sel(dim2D="y") + (
             leader1D.Droi.sel(dim2D="y") / 2
         )
-
         diffY = np.array([fyCenter.values]) - np.array([lyCenter.values]).T
         prop["Y"] = probability(diffY, mu["Y"], sigma["Y"], delta["Y"])
     else:
@@ -543,7 +576,6 @@ def doMatch(
             np.array([follower1D.Droi.sel(dim2D="y").values])
             - np.array([leader1D.Droi.sel(dim2D="y").values]).T
         )
-
         prop["H"] = probability(diffH, mu["H"], sigma["H"], delta["H"])
     else:
         prop["H"] = 1.0
@@ -554,7 +586,8 @@ def doMatch(
             np.array([follower1D.capture_time.values])
             - np.array([leader1D.capture_time.values]).T
         ).astype(int) * 1e-9
-        prop["T"] = probability(diffT, mu["T"], sigma["T"], delta["T"])
+        # use step instead of normal distribution
+        prop["T"] = step(diffT, mu["T"], sigma["T"])
     else:
         prop["T"] = 1.0
 
@@ -843,6 +876,7 @@ def doMatchSlicer(
     delta,
     config,
     rotate,
+    ptpTime,
     minProp=1e-10,
     maxMatches=100,
     minNumber4Stats=10,
@@ -873,6 +907,7 @@ def doMatchSlicer(
             delta,
             config,
             rotate,
+            ptpTime,
             minProp=minProp,
             maxMatches=maxMatches,
             minNumber4Stats=minNumber4Stats,
@@ -909,6 +944,7 @@ def doMatchSlicer(
             delta,
             config,
             rotate,
+            ptpTime,
             minProp=minProp,
             maxMatches=maxMatches,
             minNumber4Stats=minNumber4Stats,
@@ -945,11 +981,7 @@ def matchParticles(
     maxDiffMs="config",
     rotationOnly=False,
     nPoints=500,
-    sigma={
-        "Z": 1.7,  # estimated from OE results
-        "H": 1.2,  # estimated from OE results
-        "I": 0.01,
-    },
+    sigma="default",
     nSamples4rot=300,
     minSamples4rot=100,
     testing=False,
@@ -1119,11 +1151,7 @@ def matchParticles(
         if not rotationOnly:
             with tools.open2("%s.nodata" % fname1Match, "w") as f:
                 f.write(f"no follower data after removal of blocked data {fname1Match}")
-        log.error(
-            tools.concat(
-                f"no follower data after removal of blocked data {fname1Match}"
-            )
-        )
+        log.error(f"no follower data after removal of blocked data {fname1Match}")
         errors["followerBlocked"] = True
         return fname1Match, None, None, None, None, None, None, errors
 
@@ -1131,11 +1159,47 @@ def matchParticles(
         if not rotationOnly:
             with tools.open2("%s.nodata" % fname1Match, "w") as f:
                 f.write(f"no leader data after removal of blocked data {fname1Match}")
-        log.error(
-            tools.concat(f"no leader data after removal of blocked data {fname1Match}")
-        )
+        log.error(f"no leader data after removal of blocked data {fname1Match}")
         errors["leaderBlocked"] = True
         return fname1Match, None, None, None, None, None, None, errors
+
+    if "ptpStatus" in lEvents.data_vars:
+        lEventsInterpolated = lEvents.sel(
+            file_starttime=leader1D.capture_time, method="ffill"
+        )
+        if not np.all(lEventsInterpolated.ptpStatus == "Slave"):
+            brokenDat = lEventsInterpolated.ptpStatus.where(
+                lEventsInterpolated.ptpStatus != "Slave", drop=True
+            )
+            if not rotationOnly:
+                with tools.open2("%s.nodata" % fname1Match, "w") as f:
+                    f.write(
+                        f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
+                    )
+            log.error(
+                f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
+            )
+            errors["leaderPtpError"] = True
+            return fname1Match, None, None, None, None, None, None, errors
+
+    if "ptpStatus" in fEvents.data_vars:
+        fEventsInterpolated = fEvents.sel(
+            file_starttime=follower1DAll.capture_time, method="ffill"
+        )
+        if not np.all(fEventsInterpolated.ptpStatus == "Slave"):
+            brokenDat = fEventsInterpolated.ptpStatus.where(
+                fEventsInterpolated.ptpStatus != "Slave", drop=True
+            )
+            if not rotationOnly:
+                with tools.open2("%s.nodata" % fname1Match, "w") as f:
+                    f.write(
+                        f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
+                    )
+            log.error(
+                f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
+            )
+            errors["leaderPtpError"] = True
+            return fname1Match, None, None, None, None, None, None, errors
 
     # try to figure out when follower was restarted in leader time period
     followerRestartedII = np.where(
@@ -1288,6 +1352,7 @@ def matchParticles(
             or ("ptpStatus" not in lEvents.data_vars)
             or ("ptpStatus" not in fEvents.data_vars)
         ):
+            ptpTime = False
             try:
                 captureIdOffset1, nMatched1 = tools.estimateCaptureIdDiffCore(
                     leader1D,
@@ -1362,7 +1427,6 @@ def matchParticles(
 
             mu = {
                 "Z": 0,
-                #                 "Y" : 34.3,
                 "H": 0,
                 "T": 0,
                 "I": captureIdOffset,
@@ -1376,9 +1440,9 @@ def matchParticles(
             }
 
         else:
+            ptpTime = True
             mu = {
                 "Z": 0,
-                #                 "Y" : 34.3,
                 "H": 0,
                 "T": 0,
             }
@@ -1386,7 +1450,7 @@ def matchParticles(
                 "Z": 0.5,  # 0.5 because center is considered
                 "Y": 0.5,  # 0.5 because center is considered
                 "H": 1,
-                "T": 1 / config.fps,  # CHANGE HERE!!!!!
+                "T": 1 / config.fps,
             }
 
         # figure out how cameras ae rotated, first prepare data
@@ -1486,6 +1550,7 @@ def matchParticles(
                     delta,
                     config,
                     rotate,
+                    ptpTime,
                     chunckSize=1e6,
                     testing=testing,
                 )
@@ -1608,6 +1673,7 @@ def matchParticles(
                 delta,
                 config,
                 rotate_final,
+                ptpTime,
                 chunckSize=chunckSize,
                 testing=testing,
             )
@@ -1707,7 +1773,7 @@ def matchParticles(
         matchScoreMedian = matchedDats.matchScore.median().values
         if matchScoreMedian < config.quality.minMatchScore:
             raise RuntimeError(
-                f"minMatchScore is only {matchScoreMedian} and smaller than "
+                f"median matchScore is only {matchScoreMedian} and smaller than "
                 f"minMatchScore {config.quality.minMatchScore} even though we "
                 f"found {nPairs} particles"
             )
@@ -1750,11 +1816,7 @@ def createMetaRotation(
     rotate_err="config",
     maxDiffMs="config",
     nPoints=500,
-    sigma={
-        "Z": 1.7,  # estimated from OE results
-        "H": 1.2,  # estimated from OE results
-        "I": 0.01,
-    },
+    sigma="default",
     minDMax4rot=10,
     nSamples4rot=300,
     minSamples4rot=50,

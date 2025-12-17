@@ -929,7 +929,9 @@ def doMatchSlicer(
     log.info(tools.concat(f"slicing data into {len(JJs)-1} pieces"))
     for ii, jj in tqdm(zip(JJs[:-1], JJs[1:]), total=len(JJs) - 1, file=sys.stdout):
         leader1DSlice = leader1D.isel(fpid=slice(ii, jj))
-        follower1DSlice = tools.cutFollowerToLeader(leader1DSlice, follower1D)
+        follower1DSlice = tools.cutFollowerToLeader(
+            leader1DSlice, follower1D, gracePeriod=0.01
+        )
 
         if len(follower1DSlice.fpid) == 0:
             res = None

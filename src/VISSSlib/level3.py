@@ -680,4 +680,6 @@ def retrieveCombinedRiming(
     if doQuicklook:
         quicklooks.createLevel3RimingQuicklook(case, config)
 
+    lv2DatA.close()
+
     return lv3Dat, lv3File

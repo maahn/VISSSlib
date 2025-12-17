@@ -871,7 +871,9 @@ class Filenames(object):
                         print("no neighbor file on a different day")
                     return None
                 neighborDayFolder = allDayFolders[neighborDayFolderI]
-                year, month, day = neighborDayFolder.split("/")[-3:]
+                year, month, day = [
+                    s.split("_")[0] for s in neighborDayFolder.split("/")[-3:]
+                ]
                 neighborCase = "".join([year, month, day])
                 if debug:
                     print("neighborCase", neighborCase)

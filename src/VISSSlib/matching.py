@@ -1166,12 +1166,12 @@ def matchParticles(
         return fname1Match, None, None, None, None, None, None, errors
 
     if "ptpStatus" in lEvents.data_vars:
-        lEventsInterpolated = lEvents.sel(
+        lEventsInterpolated = lEvents.where(lEvents.event == "newfile", drop=True).sel(
             file_starttime=leader1D.capture_time, method="ffill"
         )
-        if not np.all(lEventsInterpolated.ptpStatus == "Slave"):
-            brokenDat = lEventsInterpolated.ptpStatus.where(
-                lEventsInterpolated.ptpStatus != "Slave", drop=True
+        if not np.all(np.isin(lEventsInterpolated.ptpStatus, ["Slave", "Disabled"])):
+            brokenDat = lEventsInterpolated.ptpStatus.isel(
+                fpid=~np.isin(lEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
             )
             if not rotationOnly:
                 with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
@@ -1185,12 +1185,12 @@ def matchParticles(
             return fname1Match, None, None, None, None, None, None, errors
 
     if "ptpStatus" in fEvents.data_vars:
-        fEventsInterpolated = fEvents.sel(
+        fEventsInterpolated = fEvents.where(fEvents.event == "newfile", drop=True).sel(
             file_starttime=follower1DAll.capture_time, method="ffill"
         )
-        if not np.all(fEventsInterpolated.ptpStatus == "Slave"):
-            brokenDat = fEventsInterpolated.ptpStatus.where(
-                fEventsInterpolated.ptpStatus != "Slave", drop=True
+        if not np.all(np.isin(fEventsInterpolated.ptpStatus, ["Slave", "Disabled"])):
+            brokenDat = fEventsInterpolated.ptpStatus.isel(
+                fpid=~np.isin(fEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
             )
             if not rotationOnly:
                 with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
@@ -1442,6 +1442,7 @@ def matchParticles(
             }
 
         else:
+            print("USING TIME")
             ptpTime = True
             mu = {
                 "Z": 0,

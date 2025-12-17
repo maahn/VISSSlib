@@ -1073,7 +1073,7 @@ def matchParticles(
 
     if leader1D is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, "w") as f:
+            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                 f.write(f"no leader data in {fnameLv1Detect}")
         log.error(tools.concat(f"no leader data in {fnameLv1Detect}"))
         errors["tooFewObs"] = True
@@ -1083,7 +1083,7 @@ def matchParticles(
 
     if len(leader1D.pid) <= 1:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, "w") as f:
+            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                 f.write(f"only one particle in  {fnameLv1Detect}")
         log.error(tools.concat(f"only one particle in {fnameLv1Detect}"))
         errors["tooFewObs"] = True
@@ -1104,7 +1104,7 @@ def matchParticles(
         return fname1Match, np.nan, None, None, None, None, None, errors
     if len(fnames1F) == 0:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, "w") as f:
+            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                 f.write(f"no follower data for {fnameLv1Detect}")
         log.error(tools.concat(f"no follower data for {fnameLv1Detect}"))
         errors["openingData"] = True
@@ -1149,7 +1149,7 @@ def matchParticles(
 
     if follower1DAll is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, "w") as f:
+            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                 f.write(f"no follower data after removal of blocked data {fname1Match}")
         log.error(f"no follower data after removal of blocked data {fname1Match}")
         errors["followerBlocked"] = True
@@ -1157,7 +1157,7 @@ def matchParticles(
 
     if leader1D is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, "w") as f:
+            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                 f.write(f"no leader data after removal of blocked data {fname1Match}")
         log.error(f"no leader data after removal of blocked data {fname1Match}")
         errors["leaderBlocked"] = True
@@ -1172,7 +1172,7 @@ def matchParticles(
                 lEventsInterpolated.ptpStatus != "Slave", drop=True
             )
             if not rotationOnly:
-                with tools.open2("%s.nodata" % fname1Match, "w") as f:
+                with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                     f.write(
                         f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
                     )
@@ -1191,7 +1191,7 @@ def matchParticles(
                 fEventsInterpolated.ptpStatus != "Slave", drop=True
             )
             if not rotationOnly:
-                with tools.open2("%s.nodata" % fname1Match, "w") as f:
+                with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
                     f.write(
                         f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
                     )
@@ -1390,7 +1390,7 @@ def matchParticles(
 
             if (nMatched2 <= 1) and (nMatched1 <= 1):
                 # if not rotationOnly:
-                #     with tools.open2(f"{fname1Match}.nodata", "w") as f:
+                #     with tools.open2(f"{fname1Match}.nodata", config, "w") as f:
                 #         f.write("NOT ENOUGH DATA")
                 log.error(tools.concat("NOT ENOUGH DATA", fname1Match, tt, FR1, FR2))
                 continue
@@ -1744,7 +1744,7 @@ def matchParticles(
                     log.warning(f"error in {errRatio*100}% of the data")
 
     if len(matchedDats) == 0:
-        with tools.open2(f"{fname1Match}.nodata", "w") as f:
+        with tools.open2(f"{fname1Match}.nodata", config, "w") as f:
             f.write("no data")
         log.error(tools.concat("NO DATA", fname1Match))
 
@@ -1787,7 +1787,7 @@ def matchParticles(
     matchedDats["camera_rotation"] = matchedDats.camera_rotation.astype("U30")
 
     if writeNc:
-        tools.to_netcdf2(matchedDats, fname1Match)
+        tools.to_netcdf2(matchedDats, config, fname1Match)
 
     log.info(
         tools.concat("DONE", fname1Match, "with", len(matchedDats.pair_id), "particles")
@@ -2087,7 +2087,7 @@ def createMetaRotation(
 
     if writeNc:
         metaRotation = tools.finishNc(metaRotation, config.site, config.visssGen)
-        tools.to_netcdf2(metaRotation, fnameMetaRotation)
+        tools.to_netcdf2(metaRotation, config, fnameMetaRotation)
     print("DONE", fnameMetaRotation)
 
     quicklooks.metaRotationQuicklook(case, config, skipExisting=skipExisting)

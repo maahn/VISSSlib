@@ -377,7 +377,7 @@ def retrieveCombinedRiming(
 
     isEmpty = fL.listFilesExt(f"level2track")[0].endswith("nodata")
     if isEmpty:
-        with tools.open2("%s.nodata" % lv3File, "w") as f:
+        with tools.open2("%s.nodata" % lv3File, config, "w") as f:
             f.write("no data for %s" % case)
         log.warning("no data for %s" % case)
         log.warning("written: %s.nodata" % lv3File)
@@ -406,7 +406,7 @@ def retrieveCombinedRiming(
     enoughParticles = lv2Dat.nParticles >= config.level3.combinedRiming.minNParticles
 
     if np.all(~coldEnough | ~isPrecip | ~goodQuality | ~enoughParticles):
-        with tools.open2("%s.nodata" % lv3File, "w") as f:
+        with tools.open2("%s.nodata" % lv3File, config, "w") as f:
             f.write("no snowfall for %s" % case)
         log.warning("coldEnough %i" % np.sum(coldEnough))
         log.warning("isPrecip %i" % np.sum(isPrecip))
@@ -671,7 +671,7 @@ def retrieveCombinedRiming(
     )
 
     if writeNc:
-        tools.to_netcdf2(lv3Dat, lv3File)
+        tools.to_netcdf2(lv3Dat, config, lv3File)
 
     if doQuicklook:
         quicklooks.createLevel3RimingQuicklook(case, config)

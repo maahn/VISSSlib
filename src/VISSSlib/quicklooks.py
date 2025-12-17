@@ -124,7 +124,7 @@ def plotVar(
     ratiovar=None,
 ):
     if axhline is not None:
-        ax.axhline(axhline, color="k", lw=0.5)
+        ax.axhline(axhline, color="magenta", lw=0.5)
 
     try:
         capture_time = capture_time.isel(camera=0)
@@ -746,7 +746,7 @@ def createLevel1detectQuicklook(
     # width, height = draw.textsize(title, font=font)##Depricated
     draw.line((width + 15, 30, width + 15 + round(tenmm), 30), fill=0, width=5)
 
-    tools.createParentDir(ffOut)
+    tools.createParentDir(ffOut, mode=config.dirMode)
     new_im.save(ffOut)
     print("SAVED ", ffOut)
 
@@ -995,7 +995,7 @@ def level0Quicklook(case, camera, config, version=__version__, skipExisting=True
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level0
-    tools.createParentDir(fOut)
+    tools.createParentDir(fOut, mode=config.dirMode)
 
     if skipExisting and tools.checkForExisting(
         fOut,
@@ -1330,8 +1330,7 @@ def metaFramesQuicklook(
 
     statusText(fig, ff.listFiles("metaFrames"), config)
 
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
 
     if ff.datetime.date() == datetime.datetime.today().date():
         try:
@@ -1376,11 +1375,17 @@ def createLevel1matchQuicklook(
         return None, None
 
     if (len(fl.listFiles("level0")) == 0) and (len(fl.listFiles("level0status")) == 0):
-        print("NO DATA YET (TRANSFERRED?)", fl.quicklook.level1match)
+        print(
+            "NO DATA YET (TRANSFERRED?)",
+            fl.fnamesPattern["level0"],
+            fl.quicklook.level1match,
+        )
         return None, None
 
     if (len(fl.listFilesExt("level1match")) == 0) and (len(fl.listFiles("level0")) > 0):
-        print("NO DATA YET ", fl.quicklook.level1match)
+        print(
+            "NO DATA YET ", fl.fnamesPatternExt["level1match"], fl.quicklook.level1match
+        )
         return None, None
 
     if plotCompleteOnly and not fl.isCompleteL1match:
@@ -1401,8 +1406,7 @@ def createLevel1matchQuicklook(
         axcax.axis("off")
         axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
         statusText(fig, [], config)
-        tools.createParentDir(fOut)
-        fig.savefig(fOut)
+        tools.savefig(fig, config, fOut)
         return fOut, fig
 
     print("Running", fOut)
@@ -1439,8 +1443,7 @@ def createLevel1matchQuicklook(
             f"VISSS level1match {config.name} {case} \n No precipitation (2)"
         )
         statusText(fig, [], config)
-        tools.createParentDir(fOut)
-        fig.savefig(fOut)
+        tools.savefig(fig, config, fOut)
         return fOut, fig
 
     datDL = tools.open_mflevel1detect(
@@ -1567,7 +1570,7 @@ def createLevel1matchQuicklook(
         datM.capture_time.isel(camera=0),
         ax[6],
         "theta",
-        axhline=defaultRotation.camera_theta,
+        axhline=defaultRotation["camera_theta"],
         resample=resample,
     )
     phi = datM.camera_phi.sel(camera_rotation="mean").values.squeeze()
@@ -1576,7 +1579,7 @@ def createLevel1matchQuicklook(
         datM.capture_time.isel(camera=0),
         ax[7],
         "phi",
-        axhline=defaultRotation.camera_phi,
+        axhline=defaultRotation["camera_phi"],
         resample=resample,
     )
     Ofz = datM.camera_Ofz.sel(camera_rotation="mean").values.squeeze()
@@ -1585,7 +1588,7 @@ def createLevel1matchQuicklook(
         datM.capture_time.isel(camera=0),
         ax[8],
         "Ofz",
-        axhline=defaultRotation.camera_Ofz,
+        axhline=defaultRotation["camera_Ofz"],
         resample=resample,
     )
 
@@ -1614,10 +1617,9 @@ def createLevel1matchQuicklook(
     ).values
 
     observationsRatio = tools.compareNDetected(nDetectedL, nDetectedF)
-    obervationsDiffer = (observationsRatio < config.quality.obsRatioThreshold) | (
-        observationsRatio > (1 / config.quality.obsRatioThreshold)
-    )
-
+    obervationsDiffer = observationsRatio < config.quality.obsRatioThreshold
+    # required to show individual outliers
+    obervationsDiffer = obervationsDiffer.resample(time="1min").pad()
     obervationsDiffer = obervationsDiffer.time.where(obervationsDiffer).values
 
     for bx in ax:
@@ -1724,8 +1726,7 @@ def createLevel1matchQuicklook(
 
     print("DONE", fOut)
     statusText(fig, fnames1M, config)
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
 
     if returnFig:
         return fOut, fig
@@ -1887,8 +1888,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
     statusText(fig, rotFiles, config)
 
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
     rotDat.close()
 
     if year == str(datetime.datetime.today().year):
@@ -2189,8 +2189,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 
     statusText(fig, ff.listFiles("metaRotation"), config)
 
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
     rotDat.close()
     events.close()
 
@@ -2417,8 +2416,7 @@ def createLevel2detectQuicklook(
 
     fig.tight_layout()
     statusText(fig, ff.listFiles("level2detect"), config)
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
 
     if returnFig:
         return fOut, fig
@@ -2653,8 +2651,7 @@ def createLevel2matchQuicklook(
 
     fig.tight_layout()
     statusText(fig, ff.listFiles("level2match"), config)
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
 
     if returnFig:
         return fOut, fig
@@ -2928,8 +2925,7 @@ def createLevel2trackQuicklook(
 
     fig.tight_layout()
     statusText(fig, ff.listFiles("level2track"), config)
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
 
     if returnFig:
         return fOut, fig
@@ -3390,7 +3386,7 @@ def createLevel1matchParticlesQuicklook(
 
     draw.line((width + 15, 30, width + 15 + round(tenmm), 30), fill=0, width=5)
 
-    tools.createParentDir(ffOut)
+    tools.createParentDir(ffOut, mode=config.dirMode)
     new_im.save(ffOut)
     print("SAVED ", ffOut)
 
@@ -3640,7 +3636,6 @@ def createLevel3RimingQuicklook(
         dat3.close()
     fig.tight_layout()
     statusText(fig, ff.listFiles("level3combinedRiming"), config)
-    tools.createParentDir(fOut)
-    fig.savefig(fOut)
+    tools.savefig(fig, config, fOut)
 
     return fig

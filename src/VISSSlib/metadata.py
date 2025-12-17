@@ -714,7 +714,7 @@ def createMetaFrames(
 
         if os.path.getsize(fname0.replace(config.movieExtension, "txt")) == 0:
             log.error("%s has size 0!" % fname0)
-            with tools.open2(fn.fname.metaFrames + ".nodata", "w") as f:
+            with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
                 f.write("%s has size 0!" % fname0)
             continue
 
@@ -725,7 +725,7 @@ def createMetaFrames(
         campaignEnded = config.end != "today"
         if tooFewThreads and (nextDayAvailable or campaignEnded):
             log.error("%s file of second thread missing!" % fname0)
-            with tools.open2(fn.fname.metaFrames + ".nodata", "w") as f:
+            with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
                 f.write("%s file of second thread missing!" % fname0)
             continue
 
@@ -740,10 +740,10 @@ def createMetaFrames(
 
         if metaDat is not None:
             metaDat = tools.finishNc(metaDat, config.site, config.visssGen)
-            tools.to_netcdf2(metaDat, fn.fname.metaFrames)
+            tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
             print("%s written" % fn.fname.metaFrames)
         else:
-            with tools.open2(fn.fname.metaFrames + ".nodata", "w") as f:
+            with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
                 f.write("no data recorded")
 
     return metaDat
@@ -1176,7 +1176,7 @@ def createEvent(
         nFiles = sum(metaDats.event == "newfile") + sum(metaDats.event == "brokenfile")
         nFiles = int(nFiles.values)
         metaDats.attrs["noLevel0Files"] = nFiles
-        tools.to_netcdf2(metaDats, eventFile)
+        tools.to_netcdf2(metaDats, config, eventFile)
 
     except (ValueError, AssertionError):
         print("NO DATA", case, eventFile)

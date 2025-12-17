@@ -332,7 +332,7 @@ class FindFiles(object):
 
     @functools.cache
     def getEvents(self, skipExisting=True):
-        """Get (and create of necessary) event dataset.
+        """Get (and create if necessary) event dataset.
 
         Parameters
         ----------
@@ -991,7 +991,7 @@ class Filenames(object):
 
     @functools.cache
     def getEvents(self, skipExisting=True):
-        """Get (and create of necessary) event dataset.
+        """Get (and create if necessary) event dataset.
 
         Parameters
         ----------

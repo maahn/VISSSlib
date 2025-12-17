@@ -38,6 +38,8 @@ DEFAULT_SETTINGS = {
         "omitLabel4small": True,
     },
     "rotate": {},
+    "fileMode": 0o664,  # 436
+    "dirMode": 0o775,  # 509
     "level1detect": {
         "maxMovingObjects": 1000,  # 60 until 18.9.24
         "minAspectRatio": None,  # testing only
@@ -480,7 +482,8 @@ def identifyBlockedBlowingSnowData(fnames, config, timeIndex1, sublevel):
 
 def compareNDetected(nDetectedL, nDetectedF):
     minParticles = 1000
-    ratio = nDetectedL / nDetectedF
+    nDetected = xr.concat([nDetectedL, nDetectedF], dim="camera")
+    ratio = nDetected.min("camera") / nDetected.max("camera")
     ratio.values[(nDetectedL < minParticles) | (nDetectedF < minParticles)] = np.nan
 
     return ratio
@@ -800,16 +803,45 @@ class imageZipFile(zipfile.ZipFile):
         return array
 
 
-def createParentDir(file):
-    dirname = os.path.dirname(file)
-    if dirname != "":
-        try:
-            os.makedirs(dirname)
-        except FileExistsError:
-            pass
-        else:
-            log.info(f"Created directory {dirname}")
+def createParentDir(file, mode=None):
+    parent_dir = os.path.dirname(os.path.abspath(file))
+    if parent_dir and not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
+        if mode is not None:
+            os.chmod(parent_dir, mode)
     return
+
+
+def savefig(fig, config, filename, **kwargs):
+    """
+    Save a matplotlib Figure to `filename` with proper permissions.
+
+    - Creates parent directories if they do not exist.
+    - Directories: owner rwx, group rwx, others rx (0o775)
+    - File: owner rw, group rw, others r (0o664)
+
+    Args:
+        fig: matplotlib.figure.Figure object
+        filename: path to save the figure
+        **kwargs: passed to fig.savefig()
+    """
+    # Ensure parent directory exists
+    createParentDir(filename, config.dirMode)
+
+    # sometimes exisiting files make problems
+    try:
+        os.remove(filename)
+    except FileNotFoundError:
+        pass
+
+    # Save the figure
+    fig.savefig(filename, **kwargs)
+
+    # Set file permissions
+    try:
+        os.chmod(filename, config.fileMode)
+    except PermissionError:
+        log.warning(f"chmod {config.fileMode} {filename} failed")
 
 
 def ncAttrs(site, visssGen, extra={}):
@@ -1044,11 +1076,11 @@ def concatImgX(im1, im2, background=0):
     return imT
 
 
-def open2(file, mode="r", cleanUp=True, **kwargs):
+def open2(file, config, mode="r", cleanUp=True, **kwargs):
     """
     like standard open, but creating directories if needed
     """
-    createParentDir(file)
+    createParentDir(file, mode=config.dirMode)
 
     if cleanUp:
         origFile = file.replace(".nc.nodata", ".nc").replace(".nc.broken.txt", ".nc")
@@ -1056,8 +1088,10 @@ def open2(file, mode="r", cleanUp=True, **kwargs):
         tryRemovingFile(f"{origFile}.nodata")
         tryRemovingFile(f"{origFile}.broken.txt")
         pass
+    f = open(file, mode, **kwargs)
+    os.chmod(file, config.fileMode)
 
-    return open(file, mode, **kwargs)
+    return f
 
 
 def tryRemovingFile(file):
@@ -1070,7 +1104,7 @@ def tryRemovingFile(file):
     return
 
 
-def to_netcdf2(dat, file, **kwargs):
+def to_netcdf2(dat, config, file, **kwargs):
     """
     like xarray netcdf open, but creating directories if needed
     write to random file and move to final file to avoid errors due to race conditions or exisiting files
@@ -1079,7 +1113,7 @@ def to_netcdf2(dat, file, **kwargs):
 
     print(f"saving {file}")
 
-    createParentDir(file)
+    createParentDir(file, mode=config.dirMode)
     if os.path.isfile(file):
         tryRemovingFile(file)
 
@@ -1091,6 +1125,7 @@ def to_netcdf2(dat, file, **kwargs):
                 res = dat.to_netcdf(tmpFile, **kwargs)
         else:
             res = dat.to_netcdf(tmpFile, **kwargs)
+    os.chmod(tmpFile, config.fileMode)
     os.rename(tmpFile, file)
     log.info(f"saved {file}")
 

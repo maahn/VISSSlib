@@ -238,6 +238,7 @@ def createLevel2(
     ]
     """
     import dask.array
+    import pandas as pd
     from dask.diagnostics import ProgressBar
 
     assert sublevel in ["match", "track", "detect"]
@@ -385,7 +386,7 @@ def createLevel2(
         except:
             allEmpty = True
     if allEmpty:
-        with tools.open2("%s.nodata" % lv2File, "w") as f:
+        with tools.open2("%s.nodata" % lv2File, config, "w") as f:
             f.write("no data for %s" % case)
         log.warning("no data for %s" % case)
         log.warning("written: %s.nodata" % lv2File)
@@ -637,7 +638,7 @@ def createLevel2(
         )
 
     if writeNc:
-        tools.to_netcdf2(lv2Dat, lv2File)
+        tools.to_netcdf2(lv2Dat, config, lv2File)
 
     return lv2Dat, lv2File
 
@@ -668,6 +669,7 @@ def createLevel2part(
     ]
     """
     import dask
+    import pandas as pd
     import scipy.stats
     from tqdm import tqdm
 
@@ -693,25 +695,31 @@ def createLevel2part(
     log.info(f"open level1 files {case}")
 
     with dask.config.set(**{"array.slicing.split_large_chunks": True}):
-        level1dat = xr.open_mfdataset(
+        # with statement makes sure file references are really closed avoiding segfaults
+        with xr.open_mfdataset(
             lv1Files, preprocess=_preprocess, combine="nested", concat_dim="pair_id"
-        )
+        ) as level1dat:
+            # camera variable exists only for track and match
+            try:
+                # limit to period of interest
+                level1dat = level1dat.isel(
+                    pair_id=(
+                        level1dat.capture_time.isel(camera=0) >= fL.datetime64
+                    ).values
+                    & (
+                        level1dat.capture_time.isel(camera=0)
+                        < (fL.datetime64 + endTime)
+                    ).values
+                )
+            except ValueError:
+                level1dat = level1dat.isel(
+                    pair_id=(level1dat.capture_time >= fL.datetime64).values
+                    & (level1dat.capture_time < (fL.datetime64 + endTime)).values
+                )
 
-    # camera variable exists only for track and match
-    try:
-        # limit to period of interest
-        level1dat = level1dat.isel(
-            pair_id=(level1dat.capture_time.isel(camera=0) >= fL.datetime64).values
-            & (level1dat.capture_time.isel(camera=0) < (fL.datetime64 + endTime)).values
-        )
-    except ValueError:
-        level1dat = level1dat.isel(
-            pair_id=(level1dat.capture_time >= fL.datetime64).values
-            & (level1dat.capture_time < (fL.datetime64 + endTime)).values
-        )
-
+            level1dat.load()
     # make chunks more regular
-    level1dat = level1dat.chunk(pair_id=10000)
+    # level1dat = level1dat.chunk(pair_id=10000)
 
     if sublevel == "detect":
         # apply blur threshold
@@ -1396,9 +1404,6 @@ def createLevel2part(
 
     else:
         raise ValueError("do not know sublevel")
-
-    # clean up
-    level1dat.close()
 
     # log.info(f"load data")
     ##turned out, it runs about 3 to 4 times faster when NOT using dask beyond this point.

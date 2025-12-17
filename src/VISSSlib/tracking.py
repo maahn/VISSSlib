@@ -958,12 +958,12 @@ def trackParticles(
         lv1match = xr.open_dataset(fnameLv1Match)
         lv1match.load()  # important to do that early, is much slower after applying filters with isel
     elif os.path.isfile("%s.nodata" % fnameLv1Match):
-        with tools.open2(f"{fnameTracking}.nodata", "w") as f:
+        with tools.open2(f"{fnameTracking}.nodata", config, "w") as f:
             f.write("no data, lv1match nodata ")
         log.error(f"NO DATA {fnameTracking}")
         return None, fnameTracking
     elif os.path.isfile("%s.broken.txt" % fnameLv1Match):
-        with tools.open2(f"{fnameTracking}.broken.txt", "w") as f:
+        with tools.open2(f"{fnameTracking}.broken.txt", config, "w") as f:
             f.write("no data, lv1match  broken")
         log.error(f"NO DATA {fnameTracking}")
         return None, fnameTracking
@@ -974,7 +974,7 @@ def trackParticles(
         )
 
         if lv1match is None:
-            with tools.open2(f"{fnameTracking}.broken.txt", "w") as f:
+            with tools.open2(f"{fnameTracking}.broken.txt", config, "w") as f:
                 f.write("no data, lv1match processing failed")
             log.error(f"NO DATA {fnameTracking}")
             return None, fnameTracking
@@ -986,7 +986,7 @@ def trackParticles(
 
     if matchCond.sum() == 0:
         log.error("matchCond applies to ALL data")
-        with tools.open2(f"{fnameTracking}.nodata", "w") as f:
+        with tools.open2(f"{fnameTracking}.nodata", config, "w") as f:
             f.write("no data, matchCond applies to ALL data")
         log.error(f"NO DATA {fnameTracking}")
         return None, fnameTracking
@@ -1025,7 +1025,7 @@ def trackParticles(
     lv1track.load()
     print(lv1track)
     if writeNc:
-        tools.to_netcdf2(lv1track, fnameTracking)
+        tools.to_netcdf2(lv1track, config, fnameTracking)
     print("DONE", fnameTracking)
 
     return lv1track, fnameTracking

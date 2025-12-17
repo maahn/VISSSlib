@@ -946,7 +946,7 @@ def _loopCreateLevel1detectWorker(
         return 1
     elif skipExisting and (os.path.isfile("%s.nodata" % fn.fname.metaFrames)):
         log.info("metaFrames contains no data %s %s" % (fname, fn.fname.metaFrames))
-        with tools.open2("%s.nodata" % fn.fname.level1detect, "w") as f:
+        with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
             f.write("metaFrames contains no data %s %s" % (fname, fn.fname.metaFrames))
         return 0
     elif skipExisting and (os.path.isfile(tmpFile)):
@@ -996,7 +996,7 @@ def _loopCreateLevel1matchWorker(fnameL1detect, settings, skipExisting=True, nCP
         or fnameL1detect.endswith("nodata")
         or fnameL1detect.endswith("notenoughframes")
     ):
-        with tools.open2(f"{fname1Match}.nodata", "w") as f:
+        with tools.open2(f"{fname1Match}.nodata", config, "w") as f:
             f.write("no leader data")
         log.info(f"NO leader DATA {fname1Match}")
         return 0
@@ -1053,7 +1053,7 @@ def _loopCreateLevel1trackWorker(fnameL1detect, settings, skipExisting=True, nCP
         or fnameL1detect.endswith("nodata")
         or fnameL1detect.endswith("notenoughframes")
     ):
-        with tools.open2(f"{fnameL1track}.nodata", "w") as f:
+        with tools.open2(f"{fnameL1track}.nodata", config, "w") as f:
             f.write("no leader data")
         log.info(f"NO leader DATA {fnameL1detect}")
         return 0
@@ -1533,7 +1533,7 @@ def reportLastFiles(
 
     if writeFile:
         fOut = f"{config['pathQuicklooks'].format(version=__version__,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
-        with tools.open2(fOut, "w") as f:
+        with tools.open2(fOut, config, "w") as f:
             f.write("<html><pre>\n")
             f.write(output)
             f.write("</pre></html>\n")
@@ -2191,4 +2191,4 @@ def copyLastMetaFrames(config, fromCase, toCase):
     )
     metaRotLast = metaRotLast.assign_coords(file_starttime=[newTime])
     metaRotLast
-    tools.to_netcdf2(metaRotLast, fnameNew)
+    tools.to_netcdf2(metaRotLast, config, fnameNew)

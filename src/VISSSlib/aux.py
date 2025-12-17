@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 logDebug = log.isEnabledFor(logging.DEBUG)
 
 
-def getCloudnet(date, site, path, kind, item):
+def getCloudnet(date, config, path, kind, item):
     import requests
 
     print(f"downloading {item} for {date}")
@@ -24,7 +24,7 @@ def getCloudnet(date, site, path, kind, item):
     payload = {
         "date": date,
         kind: item,
-        "site": site,
+        "site": config.aux.cloudnet.site,
     }
     metadata = requests.get(url, payload).json()
     if (len(metadata) == 0) or ("status" in metadata[0].keys()):
@@ -34,7 +34,7 @@ def getCloudnet(date, site, path, kind, item):
     for row in metadata[:1]:
         res = requests.get(row["downloadUrl"])
         fname = f"{path}/{row['filename']}"
-        with tools.open2(fname, "wb") as f:
+        with tools.open2(fname, config, "wb") as f:
             f.write(res.content)
         fnames.append(fname)
     if len(metadata) > 1:
@@ -43,14 +43,14 @@ def getCloudnet(date, site, path, kind, item):
     return fnames
 
 
-def getARM(date, site, path, product, user):
+def getARM(date, config, path, product, user):
     import requests
 
     print(f"downloading {product} for {date}")
     url = "https://adc.arm.gov/armlive/data/query"
     payload = {
         "user": user,
-        "ds": f"{site}{product}",
+        "ds": f"{config.aux.ARM.site}{product}",
         "start": date,
         "end": date,
         "wt": "json",
@@ -66,7 +66,7 @@ def getARM(date, site, path, product, user):
             }
             fname = f"{path}/{file}"
             res = requests.get(url, payload)
-            with tools.open2(fname, "wb") as f:
+            with tools.open2(fname, config, "wb") as f:
                 f.write(res.content)
             fnames.append(fname)
     else:
@@ -127,7 +127,7 @@ def getMeteoDataCloudnet(case, config):
     if config.aux.meteo.downloadData and (len(fnames) == 0):
         fnames = getCloudnet(
             date,
-            config.aux.cloudnet.site,
+            config,
             config.aux.meteo.path.format(year=fn.year, month=fn.month, day=fn.day),
             "instrument",
             "weather-station",
@@ -166,7 +166,7 @@ def getMeteoDataARM(case, config):
     fnames = glob.glob(fStr)
 
     if config.aux.meteo.downloadData and (len(fnames) == 0):
-        fnames = getARM(date, config.aux.ARM.site, path, product, config.aux.ARM.user)
+        fnames = getARM(date, config, path, product, config.aux.ARM.user)
 
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
@@ -348,7 +348,7 @@ def getRadarDataCloudnetCategorize(case, config, fn):
     if config.aux.radar.downloadData and (len(fnames) == 0):
         fnames = getCloudnet(
             date,
-            config.aux.cloudnet.site,
+            config,
             config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day),
             "product",
             "categorize",
@@ -398,7 +398,7 @@ def getRadarDataCloudnetFMCW94(case, config, fn):
     if config.aux.radar.downloadData and (len(fnames) == 0):
         fnames = getCloudnet(
             date,
-            config.aux.cloudnet.site,
+            config,
             config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day),
             "instrument",
             "rpg-fmcw-94",
@@ -484,7 +484,7 @@ def downloadPangaea1(doi, path, site, type):
     yearmonth = "".join(str(dat.time[0].values).split("T")[0].split("-")[:2])
     fname = f"{path}/{yearmonth}_{type}_{site}_{doipart}.nc"
 
-    tools.to_netcdf2(dat, fname)
+    tools.to_netcdf2(dat, config, fname)
     return fname
 
 

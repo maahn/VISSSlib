@@ -407,7 +407,11 @@ def retrieveCombinedRiming(
 
     if np.all(~coldEnough | ~isPrecip | ~goodQuality | ~enoughParticles):
         with tools.open2("%s.nodata" % lv3File, config, "w") as f:
-            f.write("no snowfall for %s" % case)
+            f.write("no snowfall for %s\r" % case)
+            f.write("coldEnough %i\r" % np.sum(coldEnough))
+            f.write("isPrecip %i\r" % np.sum(isPrecip))
+            f.write("goodQuality %i\r" % np.sum(goodQuality))
+            f.write("enoughParticles %i\r" % np.sum(enoughParticles))
         log.warning("coldEnough %i" % np.sum(coldEnough))
         log.warning("isPrecip %i" % np.sum(isPrecip))
         log.warning("goodQuality %i" % np.sum(goodQuality))

@@ -227,6 +227,12 @@ def getRadarData(
             dat.time < (fn.datetime64 + np.timedelta64(1, "D"))
         )
         dat = dat.isel(time=today).load()
+
+    offset, date = tools.getPreviousCalibrationOffset(case, config)
+    dat["Ze"] = dat["Ze"] + offset
+    if offset != 0:
+        log.warning(f"Applied a calibration offset of {offset} from {date}")
+
     return dat, frequency
 
 

@@ -18,7 +18,7 @@
 # -- Project information -----------------------------------------------------
 
 project = "VISSSlib"
-copyright = "2024, drOPS"
+copyright = "2025, drOPS"
 author = "drOPS"
 
 # The full version, including alpha/beta/rc tags

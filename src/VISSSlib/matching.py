@@ -1353,6 +1353,14 @@ def matchParticles(
             offsetsOnly
             or ("ptpStatus" not in lEvents.data_vars)
             or ("ptpStatus" not in fEvents.data_vars)
+            or np.any(
+                lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
+                == "Disabled"
+            ).values
+            or np.any(
+                fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
+                == "Disabled"
+            ).values
         ):
             ptpTime = False
             try:
@@ -1442,7 +1450,6 @@ def matchParticles(
             }
 
         else:
-            print("USING TIME")
             ptpTime = True
             mu = {
                 "Z": 0,

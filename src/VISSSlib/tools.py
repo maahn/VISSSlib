@@ -107,6 +107,9 @@ DEFAULT_SETTINGS = {
             "heightRange": (120, 360),
             "minHeightBins": 4,
             "timeOffset": 120,
+            "calibrationOffset": {
+                "2000-01-01": 0,  # values that need to be added to radar Z. always previos value is used
+            },
         },
         "cloudnet": {},
         "arm": {},
@@ -249,6 +252,29 @@ def getDateRange(nDays, config, endYesterday=True):
         days = days[days <= datetime.datetime.utcnow()]
 
     return days
+
+
+def getPreviousKey(thisDict, case):
+    thisDict1 = {}
+    for k, v in thisDict.items():
+        thisDict1[np.datetime64(k)] = v
+
+    dates = np.array(list(thisDict1.keys()))
+
+    # 1. Filter for dates before the case
+    previous_dates = dates[dates < case2timestamp(case)]
+
+    # 2. Get the maximum of the remaining dates
+    result = np.max(previous_dates) if previous_dates.size > 0 else None
+
+    if result is None:
+        return None
+    else:
+        return thisDict1[result], result
+
+
+def getPreviousCalibrationOffset(case, config):
+    return getPreviousKey(config.aux.radar.calibrationOffset, case)
 
 
 def otherCamera(camera, config):
@@ -661,15 +687,11 @@ def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
 
 
 def nextCase(case):
-    return str(
-        np.datetime64(f"{case[:4]}-{case[4:6]}-{case[6:8]}") + np.timedelta64(1, "D")
-    ).replace("-", "")
+    return str(case2timestamp(case) + np.timedelta64(1, "D")).replace("-", "")
 
 
 def prevCase(case):
-    return str(
-        np.datetime64(f"{case[:4]}-{case[4:6]}-{case[6:8]}") - np.timedelta64(1, "D")
-    ).replace("-", "")
+    return str(case2timestamp(case) - np.timedelta64(1, "D")).replace("-", "")
 
 
 def timestamp2case(dd):
@@ -678,6 +700,13 @@ def timestamp2case(dd):
     day = "%02i" % dd.day
     case = f"{year}{month}{day}"
     return case
+
+
+def case2timestamp(case):
+    if len(case) == 8:
+        return np.datetime64(f"{case[:4]}-{case[4:6]}-{case[6:8]}")
+    else:
+        raise NotImplementedError("long cases not implemented yet")
 
 
 def rescaleImage(

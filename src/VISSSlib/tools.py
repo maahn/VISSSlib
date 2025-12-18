@@ -2,16 +2,19 @@
 
 import datetime
 import io
+import json
 import logging
 import multiprocessing
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import tarfile
 import time
 import warnings
 import zipfile
+import zlib
 from copy import deepcopy
 
 import numba
@@ -801,6 +804,190 @@ class imageZipFile(zipfile.ZipFile):
     def extractnpy(self, fname):
         array = np.load(io.BytesIO(self.read(fname)))
         return array
+
+
+class BlockImageArchive:
+    """
+    A high-efficiency binary archive for storing thousands of small numpy arrays.
+
+    This class provides a single-file storage solution specifically optimized for
+    small, variable-sized uint8 arrays (greyscale + alpha images). It uses block
+    compression to maximize the compression ratio and maintains a JSON index at
+    the end of the file for O(1) random access.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the archive file.
+    mode : {'a', 'w'}, optional
+        'a' : Append/Read mode. If the file exists, it loads the existing index.
+        'w' : Write mode. Overwrites any existing file.
+        Default is 'a'.
+    block_size : int, optional
+        Number of images to group into a single compressed block. Larger blocks
+        improve compression ratios but increase memory usage during read/write.
+        Default is 100.
+    level : int, optional
+        Zip compression level.
+        Default is 8.
+
+    Attributes
+    ----------
+    filepath : str
+        The path to the underlying storage file.
+    index : dict
+        A dictionary mapping image IDs to their location and shape metadata:
+        ``{id: [block_offset, block_len, inner_offset, img_len, shape]}``.
+    buffer : list
+        Temporary storage for images waiting to be compressed into the next block.
+
+    Notes
+    ----------
+    The file structure consists of:
+    1.  Concatenated compressed blocks of raw image bytes.
+    2.  A JSON-serialized index mapping IDs to byte offsets.
+    3.  A fixed 8-byte footer (uint64) pointing to the start of the index.
+    """
+
+    def __init__(self, filepath, mode="a", block_size=256, level=8):
+        self.filepath = filepath
+        self.block_size = block_size
+        self.level = level
+        self.index = {}
+        self.buffer = []
+        self._f = None
+
+        file_exists = os.path.exists(filepath)
+        if mode == "w" and file_exists:
+            os.remove(filepath)
+            file_exists = False
+
+        createParentDir(filepath)
+        self._f = open(filepath, "rb+" if file_exists else "wb+")
+
+        if file_exists and os.path.getsize(filepath) > 8:
+            self._read_index_from_disk()
+
+    def _read_index_from_disk(self):
+        """Reads the index pointer and loads the index dictionary."""
+        self._f.seek(-8, os.SEEK_END)
+        index_ptr = struct.unpack("<Q", self._f.read(8))[0]
+        self._f.seek(index_ptr)
+        data = self._f.read(os.path.getsize(self.filepath) - index_ptr - 8)
+        self.index = json.loads(data.decode("utf-8"))
+        # Prepare to overwrite the old index on next write
+        self._f.seek(index_ptr)
+
+    def _write_current_block(self):
+        """Compresses buffered images and appends them to the file."""
+        if not self.buffer:
+            return
+
+        raw_bytes_list = [img.tobytes() for _, img, _ in self.buffer]
+        raw_block = b"".join(raw_bytes_list)
+        compressed_block = zlib.compress(raw_block, level=self.level)
+
+        self._f.seek(0, os.SEEK_END)
+        block_offset = self._f.tell()
+        self._f.write(compressed_block)
+        block_len = self._f.tell() - block_offset
+
+        current_inner_offset = 0
+        for i, (image_id, array, shape) in enumerate(self.buffer):
+            img_len = len(raw_bytes_list[i])
+            self.index[str(image_id)] = [
+                block_offset,
+                block_len,
+                current_inner_offset,
+                img_len,
+                shape,
+            ]
+            current_inner_offset += img_len
+
+        self.buffer = []
+
+    def add_npy(self, image_id, array):
+        """
+        Add a numpy array to the archive.
+
+        The array is added to an internal buffer. When the buffer reaches
+        `block_size`, the images are compressed and written to disk.
+
+        Parameters
+        ----------
+        image_id : str or int
+            Unique identifier for the image.
+        array : numpy.ndarray
+            The uint8 array to store.
+        """
+        self.buffer.append((image_id, array, list(array.shape)))
+        if len(self.buffer) >= self.block_size:
+            self._write_current_block()
+
+    def extract_npy(self, image_id):
+        """
+        Retrieve a numpy array by its ID.
+
+        This method reads only the required compressed block from disk,
+        decompresses it in memory, and returns the specific slice.
+
+        Parameters
+        ----------
+        image_id : str or int
+            The identifier of the image to retrieve.
+
+        Returns
+        -------
+        numpy.ndarray
+            The reconstructed uint8 array.
+
+        Raises
+        ------
+        KeyError
+            If the image_id is not found in the archive index.
+        """
+        if str(image_id) not in self.index:
+            raise KeyError(f"ID {image_id} not found.")
+
+        b_offset, b_len, inner_off, img_len, shape = self.index[str(image_id)]
+
+        self._f.seek(b_offset)
+        compressed_block = self._f.read(b_len)
+        raw_block = zlib.decompress(compressed_block)
+
+        img_bytes = raw_block[inner_off : inner_off + img_len]
+        return np.frombuffer(img_bytes, dtype=np.uint8).reshape(shape)
+
+    def close(self):
+        """
+        Finalize the archive and close the file handle.
+
+        Writes any remaining images in the buffer to disk, followed by the
+        JSON index and the 8-byte footer. This must be called to ensure the
+        file is valid and readable.
+        """
+        if self._f and not self._f.closed:
+            self._write_current_block()
+            self._f.seek(0, os.SEEK_END)
+            ptr = self._f.tell()
+            self._f.write(json.dumps(self.index).encode("utf-8"))
+            self._f.write(struct.pack("<Q", ptr))
+            self._f.close()
+            self._f = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        try:
+            if hasattr(self, "_f") and self._f is not None:
+                if not self._f.closed:
+                    self.close()
+        except:
+            pass
 
 
 def createParentDir(file, mode=None):

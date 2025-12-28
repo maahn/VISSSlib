@@ -230,7 +230,7 @@ class FindFiles(object):
             )
         self.fnamesPattern["imagesL1detect"] = self.fnamesPattern[
             "imagesL1detect"
-        ].replace(".nc", ".zip")
+        ].replace(".nc", ".bin")
 
         self.fnamesPatternExt = DictNoDefault({})
         for dL in fileLevels + dailyLevels + hourlyLevels:
@@ -316,8 +316,14 @@ class FindFiles(object):
 
     @property
     def yesterdayObject(self):
+        import pandas as pd
+
         return FindFiles(
-            self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
+            pd.to_datetime(self.datetime64 - np.timedelta64(24, "h")).strftime(
+                "%Y%m%d"
+            ),
+            self.camera,
+            self.config,
         )
 
     @property
@@ -326,8 +332,14 @@ class FindFiles(object):
 
     @property
     def tomorrowObject(self):
+        import pandas as pd
+
         return FindFiles(
-            self.datetime64 + np.timedelta64(24, "h"), self.camera, self.config
+            pd.to_datetime(self.datetime64 + np.timedelta64(24, "h")).strftime(
+                "%Y%m%d"
+            ),
+            self.camera,
+            self.config,
         )
 
     @functools.cache
@@ -625,7 +637,7 @@ class Filenames(object):
             self.fname[fL] = self.fname[fL].replace("//", "/")
 
         self.fname["imagesL1detect"] = self.fname["imagesL1detect"].replace(
-            ".nc", ".zip"
+            ".nc", ".bin"
         )
 
         # self.outpathImg = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
@@ -653,8 +665,14 @@ class Filenames(object):
 
     @property
     def yesterdayObject(self):
+        import pandas as pd
+
         return FindFiles(
-            self.datetime64 - np.timedelta64(24, "h"), self.camera, self.config
+            pd.to_datetime(self.datetime64 - np.timedelta64(24, "h")).strftime(
+                "%Y%m%d"
+            ),
+            self.camera,
+            self.config,
         )
 
     @property
@@ -663,8 +681,14 @@ class Filenames(object):
 
     @property
     def tomorrowObject(self):
+        import pandas as pd
+
         return FindFiles(
-            self.datetime64 + np.timedelta64(24, "h"), self.camera, self.config
+            pd.to_datetime(self.datetime64 + np.timedelta64(24, "h")).strftime(
+                "%Y%m%d"
+            ),
+            self.camera,
+            self.config,
         )
 
     def createDirs(self):

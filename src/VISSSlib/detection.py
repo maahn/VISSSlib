@@ -1354,8 +1354,8 @@ def detectParticles(
     # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
     # before discarding
     tooFewThreads = len(fnamesV) < int(nThreads2)
-    # presence of an event file is a good sign that at least some data has been transferred
-    nextDayAvailable = os.path.isfile(fn.tomorrowObject.fnamesDaily.metaEvents)
+    # presence of a movie file is a good sign that at least some data has been transferred
+    nextDayAvailable = len(fn.tomorrowObject.listFiles("level0")) > 0
     campaignEnded = config.end != "today"
     if tooFewThreads:
         if nextDayAvailable or campaignEnded:
@@ -1572,11 +1572,8 @@ def detectParticles(
     frame = None
 
     if config.level1detect.writeImg:
-        imagesL1detect = tools.imageZipFile(
-            fn.fname.imagesL1detect, mode="w", compresslevel=9
-        )
-
-    tarRoot = fn.fname.imagesL1detect.split("/")[-1].replace(".tar.bz2", "")
+        imagesL1detect = tools.imageZipFile(fn.fname.imagesL1detect, mode="w")
+    imageWritten = False
 
     for pp in pps:
         if len(testing) > 0:
@@ -1687,6 +1684,7 @@ def detectParticles(
 
                     # imagesL1detect.addimage(imName, part.particleBoxAlpha)
                     imagesL1detect.addnpy(pidStr, part.particleBoxAlpha)
+                    imageWritten = True
             if "particle" in testing:
                 print("final particle and mask")
                 img = np.hstack((part.particleBox, part.particleBoxCropped))
@@ -1699,13 +1697,12 @@ def detectParticles(
             part.dropImages()
 
     if config.level1detect.writeImg:
-        nFiles = len(imagesL1detect.namelist())
         try:
             imagesL1detect.close()
         except OSError:
             pass  #  Stale file handle
         log.info("closing %s" % fn.fname.imagesL1detect)
-        if nFiles == 0:
+        if not imageWritten:
             os.remove(fn.fname.imagesL1detect)
 
     for nThread in inVid.keys():

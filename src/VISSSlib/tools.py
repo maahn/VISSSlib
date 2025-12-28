@@ -513,8 +513,8 @@ def compareNDetected(nDetectedL, nDetectedF):
     minParticles = 1000
     nDetected = xr.concat([nDetectedL, nDetectedF], dim="camera")
     ratio = nDetected.min("camera") / nDetected.max("camera")
-    ratio.values[(nDetectedL < minParticles) | (nDetectedF < minParticles)] = np.nan
-
+    ratio = ratio.where((nDetectedL > minParticles) & (nDetectedF > minParticles))
+    # ratio.values[(nDetectedL < minParticles) | (nDetectedF < minParticles)] = np.nan
     return ratio
 
 
@@ -758,66 +758,10 @@ def displayImage(frame, doDisplay=True, rescale=None):
         return IPython.display.Image(data=frame1.tobytes())
 
 
-"""
-monkey patch standard tarfile.TarFile class extended with a special function to add and read a png file
-
-PIL instead of open cv is used because the latter does not support grayscale images with alpha channel 
-"""
-
-
-def _addimage(self, fname, img):
-    from PIL import Image
-
-    assert fname.endswith("png")
-
-    # encode
-    img = Image.fromarray(img)
-    buf1 = io.BytesIO()
-    img.save(buf1, format="PNG", compress_level=9)
-
-    # convert to uint8
-    buf2 = np.frombuffer(buf1.getbuffer(), dtype=np.uint8)
-
-    # io buf
-    io_buf = io.BytesIO(buf2)
-
-    # file info
-    info = tarfile.TarInfo(name=fname)
-    info.size = buf2.size
-
-    # add file
-    self.addfile(info, io_buf)
-
-
-def _extractimage(self, fname):
-    from PIL import Image
-
-    handle = self.extractfile(fname)
-    image = handle.read()
-    image = np.array(Image.open(io.BytesIO(image)))
-    return image
-
-
-imageTarFile = tarfile.TarFile
-imageTarFile.addimage = _addimage
-imageTarFile.extractimage = _extractimage
-
-
-class imageZipFile(zipfile.ZipFile):
+class ZipFile(zipfile.ZipFile):
     def __init__(self, file, **kwargs):
         createParentDir(file)
         super().__init__(file, **kwargs)
-
-    def addimage(self, fname, img):
-        # encode
-        img = Image.fromarray(img)
-        buf1 = io.BytesIO()
-        img.save(buf1, format="PNG", compress_level=9)
-        # convert to uint8
-        buf2 = np.frombuffer(buf1.getbuffer(), dtype=np.uint8)
-
-        # add file
-        return self.writestr(fname, buf2)
 
     def addnpy(self, fname, array):
         # encode
@@ -825,14 +769,21 @@ class imageZipFile(zipfile.ZipFile):
         np.save(buf1, array)
         return self.writestr(fname, buf1.getbuffer())
 
-    def extractimage(self, fname):
-        image = self.read(fname)
-        image = np.array(Image.open(io.BytesIO(image)))
-        return image
-
     def extractnpy(self, fname):
         array = np.load(io.BytesIO(self.read(fname)))
         return array
+
+
+def imageZipFile(fname, **kwargs):
+    """
+    Simple wrapper to make sure the appropiate class is used
+    """
+    createParentDir(fname)
+
+    if fname.endswith("zip"):
+        return ZipFile(fname, **kwargs)
+    else:
+        return BlockImageArchive(fname, **kwargs)
 
 
 class BlockImageArchive:
@@ -840,75 +791,72 @@ class BlockImageArchive:
     A high-efficiency binary archive for storing thousands of small numpy arrays.
 
     This class provides a single-file storage solution specifically optimized for
-    small, variable-sized uint8 arrays (greyscale + alpha images). It uses block
-    compression to maximize the compression ratio and maintains a JSON index at
-    the end of the file for O(1) random access.
+    small, variable-sized uint8 arrays. It uses block compression to maximize the
+    compression ratio and maintains a JSON index for O(1) random access.
 
     Parameters
     ----------
     filepath : str
         Path to the archive file.
-    mode : {'a', 'w'}, optional
-        'a' : Append/Read mode. If the file exists, it loads the existing index.
+    mode : {'a', 'w', 'r'}, optional
+        'a' : Append/Read mode. Loads existing index and allows adding more data.
         'w' : Write mode. Overwrites any existing file.
+        'r' : Read-only mode. Prevents any modifications to the file.
         Default is 'a'.
     block_size : int, optional
-        Number of images to group into a single compressed block. Larger blocks
-        improve compression ratios but increase memory usage during read/write.
-        Default is 100.
+        Number of images to group into a single compressed block.
+        Default is 256.
     level : int, optional
         Zip compression level.
         Default is 8.
-
-    Attributes
-    ----------
-    filepath : str
-        The path to the underlying storage file.
-    index : dict
-        A dictionary mapping image IDs to their location and shape metadata:
-        ``{id: [block_offset, block_len, inner_offset, img_len, shape]}``.
-    buffer : list
-        Temporary storage for images waiting to be compressed into the next block.
-
-    Notes
-    ----------
-    The file structure consists of:
-    1.  Concatenated compressed blocks of raw image bytes.
-    2.  A JSON-serialized index mapping IDs to byte offsets.
-    3.  A fixed 8-byte footer (uint64) pointing to the start of the index.
     """
 
-    def __init__(self, filepath, mode="a", block_size=256, level=8):
+    def __init__(self, filepath, mode="r", block_size=256, level=8):
         self.filepath = filepath
-        self.block_size = block_size
+        self.mode = mode
         self.level = level
+        self.block_size = block_size
         self.index = {}
         self.buffer = []
         self._f = None
 
         file_exists = os.path.exists(filepath)
-        if mode == "w" and file_exists:
-            os.remove(filepath)
-            file_exists = False
 
-        createParentDir(filepath)
-        self._f = open(filepath, "rb+" if file_exists else "wb+")
+        if mode == "r":
+            if not file_exists:
+                raise FileNotFoundError(f"Archive not found: {filepath}")
+            self._f = open(self.filepath, "rb")
+        elif mode == "w":
+            if file_exists:
+                os.remove(filepath)
+            self._f = open(self.filepath, "wb+")
+        elif mode == "a":
+            self._f = open(self.filepath, "rb+" if file_exists else "wb+")
+        else:
+            raise ValueError("Mode must be 'r', 'w', or 'a'")
 
-        if file_exists and os.path.getsize(filepath) > 8:
+        # Load index if the file is not new
+        if file_exists and os.path.getsize(self.filepath) > 8:
             self._read_index_from_disk()
 
     def _read_index_from_disk(self):
         """Reads the index pointer and loads the index dictionary."""
+
         self._f.seek(-8, os.SEEK_END)
         index_ptr = struct.unpack("<Q", self._f.read(8))[0]
         self._f.seek(index_ptr)
         data = self._f.read(os.path.getsize(self.filepath) - index_ptr - 8)
         self.index = json.loads(data.decode("utf-8"))
-        # Prepare to overwrite the old index on next write
+
+        # If appending, seek to the start of the old index to overwrite it.
+        # If reading, this seek doesn't hurt.
         self._f.seek(index_ptr)
 
     def _write_current_block(self):
         """Compresses buffered images and appends them to the file."""
+        if self.mode == "r":
+            raise IOError("Cannot write to an archive opened in read-only mode.")
+
         if not self.buffer:
             return
 
@@ -935,7 +883,7 @@ class BlockImageArchive:
 
         self.buffer = []
 
-    def add_npy(self, image_id, array):
+    def addnpy(self, image_id, array):
         """
         Add a numpy array to the archive.
 
@@ -949,11 +897,13 @@ class BlockImageArchive:
         array : numpy.ndarray
             The uint8 array to store.
         """
+        if self.mode == "r":
+            raise IOError("Archive is in read-only mode.")
         self.buffer.append((image_id, array, list(array.shape)))
         if len(self.buffer) >= self.block_size:
             self._write_current_block()
 
-    def extract_npy(self, image_id):
+    def extractnpy(self, image_id):
         """
         Retrieve a numpy array by its ID.
 
@@ -989,18 +939,18 @@ class BlockImageArchive:
 
     def close(self):
         """
-        Finalize the archive and close the file handle.
-
-        Writes any remaining images in the buffer to disk, followed by the
-        JSON index and the 8-byte footer. This must be called to ensure the
-        file is valid and readable.
+        Closes the file handle. In 'w' or 'a' mode, finalizes the index.
+        In 'r' mode, simply closes the file.
         """
         if self._f and not self._f.closed:
-            self._write_current_block()
-            self._f.seek(0, os.SEEK_END)
-            ptr = self._f.tell()
-            self._f.write(json.dumps(self.index).encode("utf-8"))
-            self._f.write(struct.pack("<Q", ptr))
+            # Only write metadata if we were in a writing mode
+            if self.mode in ("w", "a"):
+                self._write_current_block()
+                self._f.seek(0, os.SEEK_END)
+                ptr = self._f.tell()
+                self._f.write(json.dumps(self.index).encode("utf-8"))
+                self._f.write(struct.pack("<Q", ptr))
+
             self._f.close()
             self._f = None
 

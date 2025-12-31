@@ -82,7 +82,9 @@ def findLastFile(config, prod, camera):
                 lastFileTime = f1.datetime
 
         if not foundComplete:
-            foundComplete = ff.isComplete(prod, ignoreBrokenFiles=True)
+            foundComplete = ff.isComplete(
+                prod, ignoreBrokenFiles=True, requireL0Files=True
+            )
         else:
             break
         lastCase = case
@@ -456,8 +458,15 @@ class FindFiles(object):
     def isCompleteL1track(self):
         return self.nMissingL1track == 0
 
-    def isComplete(self, level, ignoreBrokenFiles=False):
-        return self.nMissing(level, ignoreBrokenFiles=ignoreBrokenFiles) == 0
+    def isComplete(self, level, ignoreBrokenFiles=False, requireL0Files=False):
+        return (
+            self.nMissing(
+                level,
+                ignoreBrokenFiles=ignoreBrokenFiles,
+                requireL0Files=requireL0Files,
+            )
+            == 0
+        )
 
     @property
     def nL0(self):
@@ -483,13 +492,18 @@ class FindFiles(object):
     def nMissingL1track(self):
         return self.nMissing("level1track")
 
-    def nMissing(self, level, ignoreBrokenFiles=False):
+    def nMissing(self, level, ignoreBrokenFiles=False, requireL0Files=False):
         if level in dailyLevels:
             nMissing = 1 - len(
                 self.listFilesExt(level, ignoreBrokenFiles=ignoreBrokenFiles)
             )
         else:
-            nMissing = self.nL0 - len(
+            if requireL0Files and (self.nL0 == 0):
+                # use random number larger 0
+                nL0 = 1
+            else:
+                nL0 = self.nL0
+            nMissing = nL0 - len(
                 self.listFilesExt(level, ignoreBrokenFiles=ignoreBrokenFiles)
             )
 

@@ -405,26 +405,6 @@ def main():
             settings, nDays=nDays, skipExisting=skipExisting
         )
 
-    elif sys.argv[1] == "scripts.loopCreateBatch":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        scripts.loopCreateBatch(settings, nDays=nDays, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "scripts.loopCreateBatchTest":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        scripts.loopCreateBatch(
-            settings, nDays=nDays, skipExisting=skipExisting, products=["test"]
-        )
-
     elif sys.argv[1] == "scripts.reportLastFiles":
         settings = sys.argv[2]
         output = scripts.reportLastFiles(settings)

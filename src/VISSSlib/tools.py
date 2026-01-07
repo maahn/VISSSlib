@@ -109,6 +109,7 @@ DEFAULT_SETTINGS = {
         },
         "radar": {
             # "source": "cloudnetCategorize",
+            "elevation": 90,
             "downloadData": True,
             "heightRange": (120, 360),
             "minHeightBins": 4,
@@ -124,12 +125,12 @@ DEFAULT_SETTINGS = {
     "level3": {
         "combinedRiming": {
             "processRetrieval": False,
-            "radarElevation": 90,
             "habit": "mean",  # SSRG particle habit
             "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
             "maxTemp": 272.15,
             "minZe": -10,
             "minNParticles": 100,
+            "extraFileStr": "",
         }
     },
 }
@@ -1089,7 +1090,8 @@ def tryRemovingFile(file):
     except:
         pass
     else:
-        log.warning(f"removed {file}")
+        if not file.endswith("processing.txt"):
+            log.warning(f"removed {file}")
     return
 
 

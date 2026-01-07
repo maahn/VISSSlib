@@ -442,9 +442,12 @@ class DataProduct(object):
         log.warning(f"{self.tq.enqueued} tasks in Queue")
 
         if runWorkers:
-            tools.workers(self.fileQueue)
+            self.runWorkers()
 
         return
+
+    def runWorkers(self, nJobs=os.cpu_count()):
+        tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
         log.info(f"Deleting {self.tq.enqueued} tasks")
@@ -733,9 +736,12 @@ class DataProductRange(object):
         log.warning(f"{self.tq.enqueued} tasks in Queue")
 
         if runWorkers:
-            tools.workers(self.fileQueue)
+            self.runWorkers()
 
         return
+
+    def runWorkers(self, nJobs=os.cpu_count()):
+        tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
         log.info(f"Deleting {self.tq.enqueued} tasks")

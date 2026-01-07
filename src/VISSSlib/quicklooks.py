@@ -3417,7 +3417,7 @@ def createLevel3RimingQuicklook(
     )
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
     fig.suptitle(
-        "VISSS level3combinedRiming \n"
+        f"VISSS level3combinedRiming {config.level3.combinedRiming.extraFileStr}\n"
         + f"{ff.year}-{ff.month}-{ff.day}"
         + ", "
         + config["name"]

@@ -230,6 +230,12 @@ class FindFiles(object):
         self.fnamesPattern["imagesL1detect"] = self.fnamesPattern[
             "imagesL1detect"
         ].replace(".nc", ".zip")
+        self.fnamesPattern.level3combinedRiming = (
+            self.fnamesPattern.level3combinedRiming.replace(
+                "level3combinedRiming",
+                f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
+            )
+        )
 
         self.fnamesPatternExt = DictNoDefault({})
         for dL in fileLevels + dailyLevels + hourlyLevels:
@@ -240,6 +246,12 @@ class FindFiles(object):
                 self.camera,
                 self.case,
             )  # finds broken & nodata
+        self.fnamesPatternExt.level3combinedRiming = (
+            self.fnamesPatternExt.level3combinedRiming.replace(
+                "level3combinedRiming",
+                f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
+            )
+        )
         self.fnamesPatternExt.level0txt = ""
         self.fnamesPatternExt.level0jpg = ""
         self.fnamesPatternExt.level0 = ""
@@ -258,6 +270,12 @@ class FindFiles(object):
                 self.month,
                 self.day,
             )
+        self.fnamesDaily.level3combinedRiming = (
+            self.fnamesDaily.level3combinedRiming.replace(
+                "level3combinedRiming",
+                f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
+            )
+        )
 
         self.fnamesHourly = DictNoDefault({})
         for dL in hourlyLevels:
@@ -308,6 +326,12 @@ class FindFiles(object):
             self.quicklookCurrent[
                 qL
             ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_current.png"
+        self.quicklook.level3combinedRiming = (
+            self.quicklook.level3combinedRiming.replace(
+                "level3combinedRiming",
+                f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
+            )
+        )
 
     @property
     def yesterday(self):
@@ -507,20 +531,6 @@ class FindFiles(object):
     # def isCompleteL3(self):
     #     return (len(self.listFiles("level2")) == len(self.listFilesExt("level3Ext")))
 
-    def createDirs(self):
-        res = []
-        for fL in dailyLevels + fileLevels + hourlyLevels:
-            # print('mkdir -p %s' %
-            #      self.outpath[fL])
-            res.append(os.system("mkdir -p %s" % self.outpath[fL]))
-        return res
-
-    def createQuicklookDirs(self):
-        res = []
-        for qL in quicklookLevelsSep + quicklookLevelsComb:
-            res.append(os.system("mkdir -p %s" % self.quicklookPath[qL]))
-        return res
-
 
 class Filenames(object):
     def __init__(self, fname, config, version=__version__):
@@ -622,6 +632,10 @@ class Filenames(object):
         self.fname["imagesL1detect"] = self.fname["imagesL1detect"].replace(
             ".nc", ".zip"
         )
+        self.fname.level3combinedRiming = self.fname.level3combinedRiming.replace(
+            "level3combinedRiming",
+            f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
+        )
 
         # self.outpathImg = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
         # self.imagepath = DictNoDefault({})
@@ -639,7 +653,12 @@ class Filenames(object):
             self.quicklookPath[qL] = outpathQuicklooks.format(
                 version=version, site=config["site"], level=qL
             )
-
+        self.quicklookPath.level3combinedRiming = (
+            self.quicklookPath.level3combinedRiming.replace(
+                "level3combinedRiming",
+                f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
+            )
+        )
         return
 
     @property
@@ -661,27 +680,6 @@ class Filenames(object):
         return FindFiles(
             self.datetime64 + np.timedelta64(24, "h"), self.camera, self.config
         )
-
-    def createDirs(self):
-        res = []
-        for fL in dailyLevels + fileLevels:
-            # print('mkdir -p %s' %
-            #      self.outpath.format(version=self.version, site=self.config["site"], level=fL))
-            res.append(
-                os.system(
-                    "mkdir -p %s"
-                    % self.outpath.format(
-                        version=self.version, site=self.config["site"], level=fL
-                    )
-                )
-            )
-        return res
-
-    def createQuicklookDirs(self):
-        res = []
-        for qL in quicklookLevelsSep + quicklookLevelsComb:
-            res.append(os.system("mkdir -p %s" % self.quicklookPath[qL]))
-        return res
 
     def filenamesOtherCamera(self, graceInterval=120, level="level1detect"):
         """

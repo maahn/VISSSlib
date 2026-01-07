@@ -37,7 +37,7 @@ def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
         "dbound": Dbound,
         "shape": config.level3.combinedRiming.habit,
         "frequency": frequency,
-        "elevation": config.level3.combinedRiming.radarElevation,
+        "elevation": config.aux.radar.elevation,
     }
 
     # try:

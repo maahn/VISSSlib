@@ -228,11 +228,6 @@ def getRadarData(
         )
         dat = dat.isel(time=today).load()
 
-    offset, date = tools.getPreviousCalibrationOffset(case, config)
-    dat["Ze"] = dat["Ze"] + offset
-    if offset != 0:
-        log.warning(f"Applied a calibration offset of {offset} from {date}")
-
     return dat, frequency
 
 
@@ -245,6 +240,9 @@ def _getRadarData1(case, config, fn):
 
     elif config.aux.radar.source == "ARMwcloudradarcel":
         dat, frequency = getRadarDataARMwcloudradarcel(case, config, fn)
+
+    elif config.aux.radar.source == "ARMarsclkazr1kollias":
+        dat, frequency = getRadarDataARMarsclkazr1kollias(case, config, fn)
 
     else:
         raise ValueError(
@@ -269,6 +267,12 @@ def _getRadarData1(case, config, fn):
     dat = dat.resample(time=config.level2.freq, label="left").mean()
 
     dat["Ze"] = 10 * np.log10(dat["Ze"])
+
+    offset, date = tools.getPreviousCalibrationOffset(case, config)
+    if offset != 0:
+        dat["Ze"] = dat["Ze"] + offset
+        log.warning(f"Applied a radar calibration offset of {offset} dB from {date}")
+
     # dat["Z_error"] = 10 * np.log10(dat["Z_error"])
 
     # do a linear extrapolation based on the lowest config.aux.radar.heightIndices data points
@@ -345,14 +349,12 @@ def getRadarDataCloudnetCategorize(case, config, fn):
 
 
 def getRadarDataCloudnetFMCW94(case, config, fn):
-    date = f"{fn.year}-{fn.month}-{fn.day}"
-
     fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{case}_{config.aux.cloudnet.site}_rpg-fmcw-94*.nc"
     fnames = glob.glob(fStr)
 
     if config.aux.radar.downloadData and (len(fnames) == 0):
         fnames = getCloudnet(
-            date,
+            f"{fn.year}-{fn.month}-{fn.day}",
             config.aux.cloudnet.site,
             config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day),
             "instrument",
@@ -378,8 +380,6 @@ def getRadarDataCloudnetFMCW94(case, config, fn):
 
 
 def getRadarDataARMwcloudradarcel(case, config, fn):
-    date = f"{fn.year}-{fn.month}-{fn.day}"
-
     fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{config.aux.ARM.site}wcloudradarcel*{case}*.nc"
     fnames = glob.glob(fStr)
 
@@ -389,19 +389,60 @@ def getRadarDataARMwcloudradarcel(case, config, fn):
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
     print(f"Opening {fStr}")
-    dat = xr.open_mfdataset(
+    with xr.open_mfdataset(
         fnames, preprocess=lambda dat: dat[["MeanVel", "ZE", "Elv", "Freq"]]
-    )
+    ) as dat:
+        dat = dat.rename(MeanVel="MDV", ZE="Ze")
+        dat1 = dat[
+            [
+                "Ze",
+                "MDV",
+            ]
+        ].where(np.abs(dat.Elv - config.aux.radar.elevation) < 0.5)
+        freq = float(dat.Freq.mean().values)
 
-    dat = dat.rename(MeanVel="MDV", ZE="Ze")
-    dat1 = dat[
-        [
-            "Ze",
-            "MDV",
+    return dat1, freq
+
+
+def getRadarDataARMarsclkazr1kollias(case, config, fn):
+    date = f"{fn.year}-{fn.month}-{fn.day}"
+
+    fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{config.aux.ARM.site}arsclkazr1kollias*{case}*.nc"
+    fnames = glob.glob(fStr)
+
+    if config.aux.radar.downloadData and (len(fnames) == 0):
+        raise NotImplementedError
+
+    if len(fnames) == 0:
+        raise FileNotFoundError(f"Did not find {fStr}")
+    print(f"Opening {fStr}")
+    with xr.open_mfdataset(
+        fnames,
+        preprocess=lambda dat: dat[
+            [
+                "mean_doppler_velocity",
+                "reflectivity_best_estimate",
+                "qc_reflectivity_best_estimate",
+                "qc_mean_doppler_velocity",
+            ]
+        ],
+    ) as dat:
+        dat = dat.where(dat.qc_reflectivity_best_estimate == 0).where(
+            dat.qc_mean_doppler_velocity == 0
+        )
+
+        dat = dat.rename(
+            mean_doppler_velocity="MDV", reflectivity_best_estimate="Ze", height="range"
+        )
+        dat1 = dat[
+            [
+                "Ze",
+                "MDV",
+            ]
         ]
-    ].where(np.abs(dat.Elv - config.aux.radar.elevation) < 0.5)
 
-    return dat1, float(dat.Freq.mean().values)
+    frq = float(dat.attrs["radar_operating_frequency_burst"].lstrip().split(" ")[0])
+    return dat1, frq
 
 
 def downloadPangaea1(doi, path, site, type):

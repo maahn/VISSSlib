@@ -103,6 +103,7 @@ DEFAULT_SETTINGS = {
         },
         "radar": {
             # "source": "cloudnetCategorize",
+            "elevation": 90,
             "downloadData": True,
             "heightRange": (120, 360),
             "minHeightBins": 4,
@@ -118,7 +119,6 @@ DEFAULT_SETTINGS = {
     "level3": {
         "combinedRiming": {
             "processRetrieval": False,
-            "radarElevation": 90,
             "habit": "mean",  # SSRG particle habit
             "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
             "maxTemp": 275.15,  # +2°C
@@ -245,11 +245,22 @@ def getDateRange(nDays, config, endYesterday=True):
         )
 
     # double check to make sure we did not add too much
-    days = days[days >= pd.Timestamp(config.start)]
-    if config.end != "today":
-        days = days[days <= pd.Timestamp(config.end)]
+    if np.any(days < pd.Timestamp(config.start)):
+        log.warning(
+            f"Date range {nDays} includes cases that are before the specified start {config.start}"
+        )
+        days = days[days >= pd.Timestamp(config.start)]
+
+    if config.end == "today":
+        end = datetime.datetime.utcnow()
     else:
-        days = days[days <= datetime.datetime.utcnow()]
+        end = config.end
+
+    if np.any(days > pd.Timestamp(end)):
+        log.warning(
+            f"Date range {nDays} includes cases that are after the specified end {end}"
+        )
+        days = days[days <= pd.Timestamp(config.end)]
 
     return days
 
@@ -1266,7 +1277,8 @@ def tryRemovingFile(file):
     except:
         pass
     else:
-        log.warning(f"removed {file}")
+        if not file.endswith("processing.txt"):
+            log.warning(f"removed {file}")
     return
 
 
@@ -1571,3 +1583,28 @@ def unpackQualityFlags(quality, doubleTimestamps=False):
 
 def timestamp2str(ts):
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def loopify_with_camera(func):
+    def myinner(*args, **kwargs):
+        case, camera, config = args
+        config = readSettings(config)
+        if camera == "all":
+            cameras = [config.leader, config.follower]
+        elif camera == "leader":
+            cameras = [config.leader]
+        elif camera == "follower":
+            cameras = [config.follower]
+        else:
+            cameras = [camera]
+
+        cases = getCaseRange(case)
+
+        returns = list()
+        for case1 in cases:
+            for camera1 in cameras:
+                returns.append(func(case1, camera1, config, **kwargs))
+        if len(returns):
+            return returns
+
+    return myinner

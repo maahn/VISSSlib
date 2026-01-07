@@ -496,21 +496,27 @@ def createLevel1detectQuicklook(
                 # select pids randomly, figure out how much we need, and sort them again
                 pids = deepcopy(thisDat.fpid.values)
                 fnames = thisDat.fpid.file.values
-                tars = {}
+                particleImages = {}
                 for fname in np.unique(fnames):
                     fn = files.FilenamesFromLevel(fname, config)
                     # tarRoot = fn.fname.imagesL1detect.split("/")[-1].replace(".tar.bz2","")
-                    # tars[fname] = (tools.imageTarFile.open(fn.fname.imagesL1detect, "r:bz2"), tarRoot)
+                    # particleImages[fname] = (tools.imageTarFile.open(fn.fname.imagesL1detect, "r:bz2"), tarRoot)
                     # print(fn.fname.imagesL1detect)
-                    try:
-                        tars[fname] = tools.imageZipFile(
-                            fn.fname.imagesL1detect, mode="r"
-                        )
-                    except FileNotFoundError:
-                        log.warning(f"did not find {fn.fname.imagesL1detect}")
-                    except tools.zipfile.BadZipFile:
-                        log.warning(f"is broken {fn.fname.imagesL1detect}")
 
+                    for imageFile in [
+                        fn.fname.imagesL1detect,
+                        fn.fname.imagesL1detect.replace(".bin", ".zip"),
+                    ]:
+                        try:
+                            particleImages[fname] = tools.imageZipFile(
+                                imageFile, mode="r"
+                            )
+                        except FileNotFoundError:
+                            log.warning(f"did not find {imageFile}")
+                        except tools.zipfile.BadZipFile:
+                            log.warning(f"is broken {imageFile}")
+                        else:
+                            break
                 nPids = len(pids)
                 rng = np.random.default_rng(tt)
                 rng.shuffle(pids)
@@ -577,12 +583,13 @@ def createLevel1detectQuicklook(
                     else:
                         pidStr = "%07i" % pid
                         # imName = '%s.png' % (pidStr)
-                        # imfname = '%s/%s/%s' % (tars[fname][1],pidStr[:4], imName)
+                        # imfname = '%s/%s/%s' % (particleImages[fname][1],pidStr[:4], imName)
                         try:
-                            # im = tars[fname][0].extractimage(imfname)
-                            im = tars[fname].extractnpy(pidStr)
+                            # im = particleImages[fname][0].extractimage(imfname)
+                            im = particleImages[fname].extractnpy(pidStr)
                         except KeyError:
                             print("NOT FOUND ", pidStr)
+                            raise ValueError
                             continue
                         # apply alpha channel
                         # im[...,0][im[...,1] == 0] = background
@@ -632,7 +639,7 @@ def createLevel1detectQuicklook(
 
                 for fname in fnames:
                     try:
-                        tars[fname].close()
+                        particleImages[fname].close()
                     except KeyError:
                         pass
 
@@ -3172,13 +3179,15 @@ def createLevel1matchParticlesQuicklook(
                             time2Fname[camera][starttime1] = zipF[0]
                         else:
                             log.error(f"no zip file for {case} {camera}")
-                tars = {}
+                particleImages = {}
                 for fname in np.unique(fnames):
                     fn = files.FilenamesFromLevel(fname, config)
                     # tarRoot = fn.fname.imagesL1detect.split("/")[-1].replace(".tar.bz2","")
-                    # tars[fname] = (tools.imageTarFile.open(fn.fname.imagesL1detect, "r:bz2"), tarRoot)
+                    # particleImages[fname] = (tools.imageTarFile.open(fn.fname.imagesL1detect, "r:bz2"), tarRoot)
                     # print(fn.fname.imagesL1detect)
-                    tars[fname] = tools.imageZipFile(fn.fname.imagesL1detect, mode="r")
+                    particleImages[fname] = tools.imageZipFile(
+                        fn.fname.imagesL1detect, mode="r"
+                    )
 
                 nPids = fpair_ids.shape[0]
                 # import pdb
@@ -3225,13 +3234,13 @@ def createLevel1matchParticlesQuicklook(
 
                         pidStr = "%07i" % pid
                         # imName = '%s.png' % (pidStr)
-                        # imfname = '%s/%s/%s' % (tars[fname][1],pidStr[:4], imName)
+                        # imfname = '%s/%s/%s' % (particleImages[fname][1],pidStr[:4], imName)
 
                         starttime1 = particle.file_starttime
                         fname1 = time2Fname[camera][starttime1.values]
                         try:
-                            # im = tars[fname][0].extractimage(imfname)
-                            im[cc] = tars[fname1].extractnpy(pidStr)
+                            # im = particleImages[fname][0].extractimage(imfname)
+                            im[cc] = particleImages[fname1].extractnpy(pidStr)
                         except KeyError:
                             print("NOT FOUND ", pidStr)
                             im[cc] = np.array([[0]])
@@ -3282,7 +3291,7 @@ def createLevel1matchParticlesQuicklook(
                     totalArea += np.prod(imT.shape)
 
                 for fname in fnames:
-                    tars[fname].close()
+                    particleImages[fname].close()
 
                 # make tile
                 images = [Image.fromarray(im) for im in ims]

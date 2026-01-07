@@ -268,15 +268,6 @@ def createLevel2(
     #        print(len(fL.listFiles("level0")), "of", len(fL.listFiles("metaFrames")), "transmitted")
     #        return None, None
 
-    allBroken = np.all(
-        [f.endswith("broken.txt") for f in fL.listFilesExt(f"level1{sublevel}")]
-    )
-
-    if allBroken:
-        raise RuntimeError(
-            f"All level1{sublevel} in {fL.fnamesPatternExt[f'level1{sublevel}']} are broken."
-        )
-
     if sublevel == "match":
         if not fL.isCompleteL1match:
             log.error(
@@ -315,6 +306,15 @@ def createLevel2(
             return None, None
     else:
         raise ValueError
+
+    allBroken = np.all(
+        [f.endswith("broken.txt") for f in fL.listFilesExt(f"level1{sublevel}")]
+    )
+
+    if allBroken:
+        raise RuntimeError(
+            f"All level1{sublevel} in {fL.fnamesPatternExt[f'level1{sublevel}']} are broken."
+        )
 
     lv1Files = fL.listFilesWithNeighbors(f"level1{sublevel}")
 

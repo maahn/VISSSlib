@@ -82,8 +82,10 @@ _select = {
 }
 
 
+@tools.loopify_with_camera
 def createLevel2detect(
     case,
+    camera,
     config,
     DbinsPixel=range(301),
     sizeDefinitions=["Dmax", "Dequiv"],
@@ -91,11 +93,48 @@ def createLevel2detect(
     skipExisting=True,
     writeNc=True,
     applyFilters=[],
-    camera="leader",
     doPlot=True,
     doParticlePlot=True,
 ):
-    out = createLevel2(
+    """[summary]
+
+    [description]
+
+
+    Parameters
+    ----------
+    case : [type]
+        [description]
+    config : [type]
+        [description]
+    DbinsPixel : [type], optional
+        [description] (the default is range(301), which [default_description])
+    sizeDefinitions : list, optional
+        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
+    endTime : [type], optional
+        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+    skipExisting : bool, optional
+        [description] (the default is True, which [default_description])
+    writeNc : bool, optional
+        [description] (the default is True, which [default_description])
+    hStep : number, optional
+        [description] (the default is 1, which [default_description])
+    applyFilters : list, optional
+        applyFilter contains list of filters connected by AND.
+        Each filter is a tuple with:
+        1) variable name (e.g. aspectRatio, all lv1 variables work)
+        2) Operator, one of '>','<','>=','<=','=='
+        3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
+        4) if variable contains extra dimensions, which one to select, {} otherwise
+
+        Example to get all particles > 10 pixels (using max of both cameras) with
+        aspectRatio >= 0.7 (using min of both cameras)
+        applyFilters = [
+            ("Dmax",">",10,"max",{}),
+            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+    ]
+    """
+    out = _createLevel2(
         case,
         config,
         DbinsPixel=DbinsPixel,
@@ -110,7 +149,7 @@ def createLevel2detect(
     if doPlot:
         print(f"Running createLevel2detectQuicklook for {case}")
         quicklooks.createLevel2detectQuicklook(
-            case, config, camera, skipExisting=skipExisting
+            case, camera, config, skipExisting=skipExisting
         )
     if doParticlePlot:
         print(f"Running createLevel1detectQuicklook for {case}")
@@ -121,6 +160,7 @@ def createLevel2detect(
     return out
 
 
+@tools.loopify
 def createLevel2match(
     case,
     config,
@@ -133,7 +173,44 @@ def createLevel2match(
     doPlot=True,
     doParticlePlot=True,
 ):
-    out = createLevel2(
+    """[summary]
+
+    [description]
+
+    Parameters
+    ----------
+    case : [type]
+        [description]
+    config : [type]
+        [description]
+    DbinsPixel : [type], optional
+        [description] (the default is range(301), which [default_description])
+    sizeDefinitions : list, optional
+        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
+    endTime : [type], optional
+        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+    skipExisting : bool, optional
+        [description] (the default is True, which [default_description])
+    writeNc : bool, optional
+        [description] (the default is True, which [default_description])
+    hStep : number, optional
+        [description] (the default is 1, which [default_description])
+    applyFilters : list, optional
+        applyFilter contains list of filters connected by AND.
+        Each filter is a tuple with:
+        1) variable name (e.g. aspectRatio, all lv1 variables work)
+        2) Operator, one of '>','<','>=','<=','=='
+        3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
+        4) if variable contains extra dimensions, which one to select, {} otherwise
+
+        Example to get all particles > 10 pixels (using max of both cameras) with
+        aspectRatio >= 0.7 (using min of both cameras)
+        applyFilters = [
+            ("Dmax",">",10,"max",{}),
+            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+    ]
+    """
+    out = _createLevel2(
         case,
         config,
         DbinsPixel=DbinsPixel,
@@ -156,6 +233,7 @@ def createLevel2match(
     return out
 
 
+@tools.loopify
 def createLevel2track(
     case,
     config,
@@ -167,7 +245,44 @@ def createLevel2track(
     applyFilters=[],
     doPlot=True,
 ):
-    out = createLevel2(
+    """[summary]
+
+    [description]
+
+    Parameters
+    ----------
+    case : [type]
+        [description]
+    config : [type]
+        [description]
+    DbinsPixel : [type], optional
+        [description] (the default is range(301), which [default_description])
+    sizeDefinitions : list, optional
+        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
+    endTime : [type], optional
+        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+    skipExisting : bool, optional
+        [description] (the default is True, which [default_description])
+    writeNc : bool, optional
+        [description] (the default is True, which [default_description])
+    hStep : number, optional
+        [description] (the default is 1, which [default_description])
+    applyFilters : list, optional
+        applyFilter contains list of filters connected by AND.
+        Each filter is a tuple with:
+        1) variable name (e.g. aspectRatio, all lv1 variables work)
+        2) Operator, one of '>','<','>=','<=','=='
+        3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
+        4) if variable contains extra dimensions, which one to select, {} otherwise
+
+        Example to get all particles > 10 pixels (using max of both cameras) with
+        aspectRatio >= 0.7 (using min of both cameras)
+        applyFilters = [
+            ("Dmax",">",10,"max",{}),
+            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+    ]
+    """
+    out = _createLevel2(
         case,
         config,
         DbinsPixel=DbinsPixel,
@@ -185,7 +300,7 @@ def createLevel2track(
     return out
 
 
-def createLevel2(
+def _createLevel2(
     case,
     config,
     DbinsPixel=range(301),
@@ -201,6 +316,7 @@ def createLevel2(
     """[summary]
 
     [description]
+
 
     Parameters
     ----------
@@ -245,7 +361,7 @@ def createLevel2(
     if type(config) is str:
         config = tools.readSettings(config)
 
-    fL = files.FindFiles(case, config[camera], config)
+    fL = files.FindFiles(case, camera, config)
     lv2File = fL.fnamesDaily[f"level2{sublevel}"]
 
     log.info(f"Processing {lv2File}")
@@ -338,7 +454,7 @@ def createLevel2(
 
     allEmpty = False
     if len(case) > 8:
-        lv2Dat = createLevel2part(
+        lv2Dat = _createLevel2part(
             case,
             config,
             freq=config.level2.freq,
@@ -363,7 +479,7 @@ def createLevel2(
         for hh in range(0, 24, hStep):
             case1 = f"{case}-{hh:02d}"
 
-            lv2Dat1 = createLevel2part(
+            lv2Dat1 = _createLevel2part(
                 case1,
                 config,
                 freq=config.level2.freq,
@@ -643,7 +759,7 @@ def createLevel2(
     return lv2Dat, lv2File
 
 
-def createLevel2part(
+def _createLevel2part(
     case,
     config,
     freq="1min",
@@ -675,7 +791,7 @@ def createLevel2part(
 
     assert sublevel in ["match", "track", "detect"]
 
-    fL = files.FindFiles(case, config[camera], config)
+    fL = files.FindFiles(case, camera, config)
     lv2File = fL.fnamesDaily[f"level2{sublevel}"]
 
     lv1Files = fL.listFilesWithNeighbors(f"level1{sublevel}")
@@ -2212,7 +2328,7 @@ def applyCalib(pixel, slope, intercept):
 def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     """Estimate data quality for level2"""
 
-    f1 = files.FindFiles(case, config[camera], config)
+    f1 = files.FindFiles(case, camera, config)
 
     fname1 = f1.listFilesWithNeighbors("metaEvents")
 

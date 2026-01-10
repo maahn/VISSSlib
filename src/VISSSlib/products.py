@@ -179,9 +179,7 @@ class DataProduct(object):
             self.parents.update(self.parents[parentCam].parents)
             self.childrensRelatives.update(self.parents)
 
-    def generateAllCommands(
-        self, skipExisting=True, withParents=True, doNotWaitForMissingThreadFiles=False
-    ):
+    def generateAllCommands(self, skipExisting=True, withParents=True):
         # cache for this function
         isComplete = self.isComplete
 
@@ -209,7 +207,6 @@ class DataProduct(object):
         if self.parentsComplete and self.parentsYoungerThanGrandparents:
             commands = self.generateCommands(
                 skipExisting=skipExisting,
-                doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
             )
             if len(commands) > 0:
                 log.warning(
@@ -231,7 +228,6 @@ class DataProduct(object):
                 commands = commands + self.parents[parent].generateAllCommands(
                     skipExisting=True,
                     withParents=False,
-                    doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
                 )
         self.commands = list(set(commands))
         if (len(self.commands) == 0) and (withParents):
@@ -240,9 +236,7 @@ class DataProduct(object):
             )
         return self.commands
 
-    def generateCommands(
-        self, skipExisting=True, nCPU=1, bin=None, doNotWaitForMissingThreadFiles=False
-    ):
+    def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
         if self.level == "level0":
             return []
         elif self.level == "level0txt":
@@ -261,17 +255,12 @@ class DataProduct(object):
         elif self.level == "level1detect":
             originLevel = "level0txt"
             call = "detection.detectParticles"
-            if doNotWaitForMissingThreadFiles:
-                extraStr = "1"
-            else:
-                extraStr = ""
             return self.commandTemplateL1(
                 originLevel,
                 call,
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,
-                extraStr=extraStr,
             )
         elif self.level == "metaRotation":
             return self.commandTemplateDaily(
@@ -346,7 +335,6 @@ class DataProduct(object):
         nCPU=1,
         bin=None,
         extraOrigin=None,
-        extraStr="",
     ):
         nCPU = 1
         skipExisitingInt = int(skipExisting)
@@ -382,7 +370,9 @@ class DataProduct(object):
                     os.remove(ex)
                     log.warning(f"too many files, removed {ex}")
 
-            command = f"{bin} -m VISSSlib {call}  {pName} {self.settings} {extraStr}"
+            command = (
+                f"{bin} -m VISSSlib {call}  {pName} {self.settings} {skipExisitingInt}"
+            )
             if nCPU is not None:
                 command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
             commands.append((command, outFile))
@@ -421,13 +411,11 @@ class DataProduct(object):
         checkForDuplicates=False,
         withParents=True,
         runWorkers=False,
-        doNotWaitForMissingThreadFiles=False,
     ):
         if len(self.commands) == 0:
             self.generateAllCommands(
                 skipExisting=skipExisting,
                 withParents=withParents,
-                doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
             )
 
         if len(self.commands) == 0:
@@ -702,14 +690,11 @@ class DataProductRange(object):
                 ),  # not sure why this is requried, bugs appear otehrwise
             )
 
-    def generateAllCommands(
-        self, skipExisting=True, withParents=True, doNotWaitForMissingThreadFiles=False
-    ):
+    def generateAllCommands(self, skipExisting=True, withParents=True):
         for dd in self.days:
             self.allCommands += self.dailies[dd].generateAllCommands(
                 skipExisting=skipExisting,
                 withParents=withParents,
-                doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
             )
         return self.allCommands
 
@@ -719,13 +704,11 @@ class DataProductRange(object):
         checkForDuplicates=False,
         withParents=True,
         runWorkers=False,
-        doNotWaitForMissingThreadFiles=False,
     ):
         if len(self.allCommands) == 0:
             self.generateAllCommands(
                 skipExisting=skipExisting,
                 withParents=withParents,
-                doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
             )
         if len(self.allCommands) == 0:
             log.error("nothing to submit")

@@ -740,7 +740,7 @@ class _stereoViewDetect(object):
         return self.get(newrr)
 
     def matchTime(self, time1, camera):
-        refCam = tools.getOtherCamera(self.config, camera)
+        refCam = tools.otherCamera(self.config, camera)
         nn = self.rrs
         tDiff = np.abs(
             getattr(self, f"this_{time1}")[refCam] - self.meta[camera][time1].values

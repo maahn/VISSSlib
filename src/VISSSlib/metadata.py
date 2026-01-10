@@ -689,9 +689,8 @@ def _getMetaData1(
     return metaDat
 
 
-def createMetaFrames(
-    case, camera, config, skipExisting=True, doNotWaitForMissingThreadFiles=False
-):
+@tools.loopify_with_camera
+def createMetaFrames(case, camera, config, skipExisting=True):
     if config["nThreads"] is None:
         nThreads = 1
     else:
@@ -1107,6 +1106,7 @@ def getEvents(fnames0, config, fname0status=None):
     return metaDats
 
 
+@tools.loopify_with_camera
 def createEvent(
     case, camera, config, skipExisting=True, quiet=False, version=__version__
 ):

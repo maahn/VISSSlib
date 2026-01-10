@@ -994,6 +994,7 @@ def matchParticles(
     offsetsOnly=False,
     subset=None,
     maxIter=30,
+    skipExisting=True,
 ):
     import pandas as pd
 
@@ -1014,12 +1015,22 @@ def matchParticles(
 
     ffl1 = files.FilenamesFromLevel(fnameLv1Detect, config)
     fname1Match = ffl1.fname["level1match"]
+    fnames1F = ffl1.filenamesOtherCamera(graceInterval=-1, level="level1detect")
+    fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=-1, level="level0txt")
 
     matchedDat = None
     matchedDat4Rot = None
     rotate_time = None
 
     if not doRot:
+        # check whether output exists
+        if skipExisting and tools.checkForExisting(
+            fname1Match,
+            parents=[fnameLv1Detect, fnames1F],
+        ):
+            print("SKIPPING", fname1Match)
+            return None, None
+
         # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
 
@@ -1096,8 +1107,6 @@ def matchParticles(
 
     file_starttime = leader1D.file_starttime[0].values
 
-    fnames1F = ffl1.filenamesOtherCamera(graceInterval=-1, level="level1detect")
-    fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=-1, level="level0txt")
     if len(fnames1FRAW) != len(fnames1F):
         log.error(tools.concat(f"no follower data for {fnameLv1Detect} processed YET"))
         log.error(tools.concat(fnames1F))
@@ -1815,6 +1824,7 @@ def matchParticles(
     )
 
 
+@tools.loopify
 def createMetaRotation(
     case,
     config,
@@ -1841,9 +1851,6 @@ def createMetaRotation(
     nL = None
     nF = None
     nM = None
-
-    if type(config) is str:
-        config = tools.readSettings(config)
 
     # find files
     fl = files.FindFiles(case, config.leader, config, version)

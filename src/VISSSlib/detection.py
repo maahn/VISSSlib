@@ -1266,8 +1266,8 @@ def detectParticles(
     writeNc=True,
     stopAfter=None,
     version=__version__,
+    skipExisting=True,
     verbosity=0,
-    doNotWaitForMissingThreadFiles=False,
 ):
     """
     detect particles
@@ -1320,6 +1320,13 @@ def detectParticles(
     fn = files.Filenames(fname, config, version=version)
     log.info(f"running {fn.fname.level1detect}")
     camera = fn.camera
+
+    # check whether output exists
+    if skipExisting and tools.checkForExisting(
+        fn.fname.level1detect,
+    ):
+        print("SKIPPING", fn.fname.level1detect)
+        return None, None
 
     Dbins = np.arange(0, 201, 10).tolist()
 

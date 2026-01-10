@@ -54,7 +54,7 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
                 )
             elif level == "level2detect":
                 createLevel2detectQuicklook(
-                    case, config, camera, version=version, skipExisting=skipExisting
+                    case, camera, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level2match":
                 createLevel2matchQuicklook(
@@ -236,6 +236,7 @@ def crop(image):
     ]
 
 
+@tools.loopify_with_camera
 def createLevel1detectQuicklookHourly(
     case,
     camera,
@@ -260,8 +261,6 @@ def createLevel1detectQuicklookHourly(
     Create hourly version of particle quicklook. See createLevel1detectQuicklook for details
     """
     import matplotlib.pyplot as plt
-
-    config = tools.readSettings(config)
 
     for hh in hours:
         timestamp = f"{case}-{hh:02d}"
@@ -290,6 +289,7 @@ def createLevel1detectQuicklookHourly(
     return
 
 
+@tools.loopify_with_camera
 def createLevel1detectQuicklook(
     timestamp,
     camera,
@@ -317,7 +317,6 @@ def createLevel1detectQuicklook(
     from PIL import Image, ImageDraw, ImageFont
     from tqdm import tqdm
 
-    config = tools.readSettings(config)
     if minBlur == "config":
         minBlur = config["level1detectQuicklook"]["minBlur"]
     if minSize == "config":
@@ -990,11 +989,10 @@ class Packer_patched(packer.Packer):
 #     return outFile, fig
 
 
+@tools.loopify_with_camera
 def level0Quicklook(case, camera, config, version=__version__, skipExisting=True):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-
-    config = tools.readSettings(config)
 
     global metaDats
     metaDats = []
@@ -1045,6 +1043,7 @@ def level0Quicklook(case, camera, config, version=__version__, skipExisting=True
     return fOut
 
 
+@tools.loopify_with_camera
 def metaFramesQuicklook(
     case, camera, config, version=__version__, skipExisting=True, plotCompleteOnly=True
 ):
@@ -1054,8 +1053,6 @@ def metaFramesQuicklook(
     """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-
-    config = tools.readSettings(config)
 
     global metaDats
     metaDats = []
@@ -1352,6 +1349,7 @@ def metaFramesQuicklook(
     return fOut, fig
 
 
+@tools.loopify
 def createLevel1matchQuicklook(
     case,
     config,
@@ -1365,7 +1363,6 @@ def createLevel1matchQuicklook(
     import pandas as pd
 
     resample = "5min"  # 5 mins
-    config = tools.readSettings(config)
 
     # find files
     fl = files.FindFiles(case, config["leader"], config, version)
@@ -1907,12 +1904,11 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     return fOut, fig
 
 
+@tools.loopify_with_camera
 def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import pandas as pd
-
-    config = tools.readSettings(config)
 
     camera = config.leader
 
@@ -2203,17 +2199,15 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     return fOut, fig
 
 
+@tools.loopify_with_camera
 def createLevel2detectQuicklook(
-    case, config, camera1, version=__version__, skipExisting=True, returnFig=True
+    case, camera, config, version=__version__, skipExisting=True, returnFig=True
 ):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 
     version = __version__
 
-    config = tools.readSettings(config)
-
-    camera = config[camera1]
     nodata = False
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
@@ -2255,7 +2249,7 @@ def createLevel2detectQuicklook(
     )
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
     fig.suptitle(
-        f"VISSS level2detect {camera1}\n"
+        f"VISSS level2detect {camera.split("_")[0]}\n"
         + f"{ff.year}-{ff.month}-{ff.day}"
         + ", "
         + config["name"]
@@ -2431,13 +2425,12 @@ def createLevel2detectQuicklook(
         return fOut
 
 
+@tools.loopify
 def createLevel2matchQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-
-    config = tools.readSettings(config)
 
     camera = config.leader
     nodata = False
@@ -2666,13 +2659,12 @@ def createLevel2matchQuicklook(
         return fOut
 
 
+@tools.loopify
 def createLevel2trackQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-
-    config = tools.readSettings(config)
 
     camera = config.leader
     nodata = False
@@ -2940,6 +2932,7 @@ def createLevel2trackQuicklook(
         return fOut
 
 
+@tools.loopify
 def createLevel1matchParticlesQuicklook(
     timestamp,
     config,
@@ -2967,7 +2960,6 @@ def createLevel1matchParticlesQuicklook(
     from PIL import Image, ImageDraw, ImageFont
     from tqdm import tqdm
 
-    config = tools.readSettings(config)
     camera = config["leader"]
 
     # for convinience, do the other L1match quicklook as well
@@ -3405,6 +3397,7 @@ def createLevel1matchParticlesQuicklook(
         return ffOut
 
 
+@tools.loopify_with_camera
 def createLevel3RimingQuicklook(
     case,
     config,
@@ -3414,8 +3407,6 @@ def createLevel3RimingQuicklook(
 ):
     import matplotlib as mpl
     import matplotlib.pyplot as plt
-
-    config = tools.readSettings(config)
 
     camera = config.leader
     nodata = False

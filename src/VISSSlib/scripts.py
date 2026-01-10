@@ -320,8 +320,8 @@ def loopLevel2detectQuicklooks(
         for camera in ["leader", "follower"]:
             fname, fig = quicklooks.createLevel2detectQuicklook(
                 case,
-                config,
                 camera,
+                config,
                 version=version,
                 skipExisting=skipExisting,
             )
@@ -601,7 +601,7 @@ def loopCreateLevel2detect(
             case = f"{year}{month}{day}"
             for camera in cameras:
                 distributions.createLevel2detect(
-                    case, config, skipExisting=skipExisting, camera=camera
+                    case, config, camera, skipExisting=skipExisting
                 )
 
     if doPlot:
@@ -611,7 +611,10 @@ def loopCreateLevel2detect(
             day = "%02i" % dd.day
             case = f"{year}{month}{day}"
             fname, fig = quicklooks.createLevel2detectQuicklook(
-                case, config, skipExisting=skipExisting, camera=camera
+                case,
+                camera,
+                config,
+                skipExisting=skipExisting,
             )
             try:
                 fig.close()

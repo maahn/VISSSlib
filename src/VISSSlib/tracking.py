@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import glob
 import logging
 import os
 import sys
@@ -945,6 +946,7 @@ def trackParticles(
     doMatchIfRequired=False,
     writeNc=True,
     showFits=False,
+    skipExisting=True,
     verbosity=0,
 ):
     config = tools.readSettings(config)
@@ -953,6 +955,14 @@ def trackParticles(
 
     fnameLv1Match = ffl1.fname["level1match"]
     fnameTracking = ffl1.fname["level1track"]
+
+    # check whether output exists
+    if skipExisting and tools.checkForExisting(
+        fnameTracking,
+        parents=glob.glob(f"{fnameLv1Match}*"),
+    ):
+        print("SKIPPING", fnameTracking)
+        return None, None
 
     if os.path.isfile(fnameLv1Match):
         lv1match = xr.open_dataset(fnameLv1Match)

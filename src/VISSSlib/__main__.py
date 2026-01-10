@@ -157,14 +157,14 @@ def main():
         fname = sys.argv[2]
         settings = sys.argv[3]
         try:
-            doNotWaitForMissingThreadFiles = bool(int(sys.argv[4]))
+            skipExisting = bool(int(sys.argv[4]))
         except IndexError:
-            doNotWaitForMissingThreadFiles = False
+            skipExisting = False
 
         detection.detectParticles(
             fname,
             settings,
-            doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
+            skipExisting=skipExisting,
         )
 
     elif sys.argv[1] == "matching.createMetaRotation":
@@ -184,14 +184,22 @@ def main():
     elif sys.argv[1] == "matching.matchParticles":
         fname = sys.argv[2]
         settings = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
 
-        matching.matchParticles(fname, settings)
+        matching.matchParticles(fname, settings, skipExisting=skipExisting)
 
     elif sys.argv[1] == "tracking.trackParticles":
         fname = sys.argv[2]
         settings = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
 
-        tracking.trackParticles(fname, settings)
+        tracking.trackParticles(fname, settings, skipExisting=skipExisting)
 
     elif sys.argv[1] == "distributions.createLevel2detect":
         settings = sys.argv[2]
@@ -202,7 +210,7 @@ def main():
             skipExisting = True
 
         distributions.createLevel2detect(
-            case, settings, skipExisting=skipExisting, camera=camera
+            case, camera, settings, skipExisting=skipExisting
         )
 
     elif sys.argv[1] == "distributions.createLevel2match":

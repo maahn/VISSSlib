@@ -16,6 +16,7 @@ import warnings
 import zipfile
 import zlib
 from copy import deepcopy
+from functools import wraps
 
 import numba
 import numpy as np
@@ -124,6 +125,7 @@ DEFAULT_SETTINGS = {
             "maxTemp": 275.15,  # +2°C
             "minZe": -10,
             "minNParticles": 100,
+            "extraFileStr": "",
         }
     },
 }
@@ -136,18 +138,119 @@ niceNames = (
 )
 
 
+def loopify_with_camera(func):
+    """
+    Decorator to make function loop over cases and cameras.
+
+    Parameters
+    ----------
+    func : callable
+        Function to be decorated.
+
+    Returns
+    -------
+    callable
+        Wrapped function that loops over cameras.
+    """
+    @wraps(func)
+    def myinner(case, camera, config, *args, **kwargs):
+        config = readSettings(config)
+        if camera == "all":
+            cameras = [config.leader, config.follower]
+        elif camera == "leader":
+            cameras = [config.leader]
+        elif camera == "follower":
+            cameras = [config.follower]
+        else:
+            cameras = [camera]
+
+        cases = getCaseRange(case, config)
+
+        returns = list()
+        for case1 in cases:
+            for camera1 in cameras:
+                returns.append(func(case1, camera1, config, *args, **kwargs))
+        if len(returns) == 1:
+            return returns[0]
+        else:
+            return returns
+
+    return myinner
+
+
+def loopify(func):
+    """
+    Decorator to make function loop over cases.
+
+    Parameters
+    ----------
+    func : callable
+        Function to be decorated.
+
+    Returns
+    -------
+    callable
+        Wrapped function that loops over cases.
+    """
+    @wraps(func)
+    def myinner(case, config, *args, **kwargs):
+        config = readSettings(config)
+        cases = getCaseRange(case, config)
+
+        returns = list()
+        for case1 in cases:
+            returns.append(func(case1, config, *args, **kwargs))
+        if len(returns) == 1:
+            return returns[0]
+        else:
+            return returns
+
+    return myinner
+
+
 class DictNoDefault(Dict):
+    """
+    Dictionary class that raises KeyError when accessing missing keys.
+
+    Inherits from addict.Dict.
+    """
     def __missing__(self, key):
         raise KeyError(key)
 
 
 def nicerNames(string):
+    """
+    Replace VISSS names with up-to-date equivalents.
+
+    Parameters
+    ----------
+    string : str
+        Input string to process.
+
+    Returns
+    -------
+    str
+        String with replaced names.
+    """
     for i in range(len(niceNames)):
         string = string.replace(*niceNames[i])
     return string
 
 
 def readSettings(fname):
+    """
+    Read configuration settings from a YAML file. Default is taken from DEFAULT_SETTINGS
+
+    Parameters
+    ----------
+    fname : str or dict
+        Path to YAML file or already parsed config dict.
+
+    Returns
+    -------
+    addict.Dict
+        Configuration settings.
+    """
     import flatten_dict
     import yaml
 
@@ -166,6 +269,27 @@ def readSettings(fname):
 
 
 def getCaseRange(nDays, config, endYesterday=True):
+    """
+    Get list of case identifiers from a date range.
+
+    Parameters
+    ----------
+    nDays : int, str
+        Number of days going back or date string "YYYYMMDD" or "YYYYMMDD-YYYYMMDD"
+        or "YYYYMMDD,YYYYMMDD,YYYYMMDD".
+    config : dict
+        Configuration settings.
+    endYesterday : bool, optional
+        Whether to end yesterday, by default True.
+
+    Returns
+    -------
+    list of str
+        List of case identifiers.
+    """
+    # shortcut to detect timestamps of YYYYMMDD-HH or YYYYMMDD-HHMMSS
+    if (nDays[-3] == "-") or (nDays[-7] == "-"):
+        return [nDays]
     days = getDateRange(nDays, config, endYesterday=endYesterday)
     cases = []
     for dd in days:
@@ -178,7 +302,28 @@ def getCaseRange(nDays, config, endYesterday=True):
 
 
 def getDateRange(nDays, config, endYesterday=True):
+    """
+    Generate date range based on input parameters.
+
+    Parameters
+    ----------
+    nDays : int, str
+        Number of days going back or date string "YYYYMMDD" or "YYYYMMDD-YYYYMMDD"
+        or "YYYYMMDD,YYYYMMDD,YYYYMMDD".
+    config : dict
+        Configuration settings.
+    endYesterday : bool, optional
+        Whether to end yesterday, by default True.
+
+    Returns
+    -------
+    pandas.DatetimeIndex
+        Date range.
+    """
     import pandas as pd
+
+    if type(nDays) is np.str_:
+        nDays = str(nDays)
 
     config = readSettings(config)
     if config["end"] == "today":
@@ -206,6 +351,7 @@ def getDateRange(nDays, config, endYesterday=True):
             name=None,
             inclusive="both",
         )
+
     elif type(nDays) is str:
         days = nDays.split(",")
         if len(days) == 1:
@@ -266,6 +412,21 @@ def getDateRange(nDays, config, endYesterday=True):
 
 
 def getPreviousKey(thisDict, case):
+    """
+    Get the previous key-value pair in a dictionary based on timestamp.
+
+    Parameters
+    ----------
+    thisDict : dict
+        Dictionary with datetime keys.
+    case : str
+        Case identifier.
+
+    Returns
+    -------
+    tuple
+        Previous value and timestamp, or None if not found.
+    """
     thisDict1 = {}
     for k, v in thisDict.items():
         thisDict1[np.datetime64(k)] = v
@@ -285,19 +446,39 @@ def getPreviousKey(thisDict, case):
 
 
 def getPreviousCalibrationOffset(case, config):
+    """
+    Get the previous calibration offset for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : dict
+        Configuration settings.
+
+    Returns
+    -------
+    tuple
+        Calibration offset and timestamp, or None if not found.
+    """
     return getPreviousKey(config.aux.radar.calibrationOffset, case)
 
 
-def otherCamera(camera, config):
-    if camera == config["instruments"][0]:
-        return config["instruments"][1]
-    elif camera == config["instruments"][1]:
-        return config["instruments"][0]
-    else:
-        raise ValueError
-
 
 def getMode(a):
+    """
+    Compute the mode of an array.
+
+    Parameters
+    ----------
+    a : array_like
+        Input array.
+
+    Returns
+    -------
+    ndarray
+        Mode of the array.
+    """
     (_, idx, counts) = np.unique(a, return_index=True, return_counts=True)
     index = idx[np.argmax(counts)]
     mode = a[index]
@@ -306,7 +487,25 @@ def getMode(a):
 
 def open_mfmetaFrames(fnames, config, start=None, end=None, skipFixes=[]):
     """
-    helper function to open multiple metaFrame files at once
+    Open multiple metaFrame files.
+
+    Parameters
+    ----------
+    fnames : list of str
+        File names.
+    config : dict
+        Configuration settings.
+    start : datetime, optional
+        Start time, by default None.
+    end : datetime, optional
+        End time, by default None.
+    skipFixes : list of str, optional
+        Fixes to skip, by default [].
+
+    Returns
+    -------
+    xarray.Dataset
+        Combined dataset.
     """
 
     def preprocess(dat):
@@ -363,10 +562,27 @@ def open_mflevel1detect(
     fnamesExt, config, start=None, end=None, skipFixes=[], datVars="all"
 ):
     """
-    helper function to open multiple level1detect files at once
-    """
-    """
-    helper function to open multiple level1detect files at once
+    Open multiple level1detect files.
+
+    Parameters
+    ----------
+    fnamesExt : list of str
+        File names.
+    config : dict
+        Configuration settings.
+    start : datetime, optional
+        Start time, by default None.
+    end : datetime, optional
+        End time, by default None.
+    skipFixes : list of str, optional
+        Fixes to skip, by default [].
+    datVars : str or list of str, optional
+        Variables to include, by default "all".
+
+    Returns
+    -------
+    xarray.Dataset
+        Combined dataset.
     """
 
     def preprocess(dat):
@@ -447,7 +663,21 @@ def open_mflevel1detect(
 
 def open_mflevel1match(fnamesExt, config, datVars="all"):
     """
-    helper function to open multiple level1match files at once
+    Open multiple level1match files.
+
+    Parameters
+    ----------
+    fnamesExt : list of str
+        File names.
+    config : dict
+        Configuration settings.
+    datVars : str or list of str, optional
+        Variables to include, by default "all".
+
+    Returns
+    -------
+    xarray.Dataset
+        Combined dataset.
     """
     if type(fnamesExt) is not list:
         fnamesExt = [fnamesExt]
@@ -486,6 +716,25 @@ def open_mflevel1match(fnamesExt, config, datVars="all"):
 
 
 def identifyBlockedBlowingSnowData(fnames, config, timeIndex1, sublevel):
+    """
+    Identify blocked blowing snow data.
+
+    Parameters
+    ----------
+    fnames : list of str
+        File names.
+    config : dict
+        Configuration settings.
+    timeIndex1 : array_like
+        Time bins.
+    sublevel : str
+        Sublevel identifier.
+
+    Returns
+    -------
+    tuple of xarray.DataArray
+        Blowing snow ratio and detected particles.
+    """
     # handle blowing snow, estimate ratio of skipped frames
 
     # print("starting identifyBlowingSnowData", cam)
@@ -521,6 +770,21 @@ def identifyBlockedBlowingSnowData(fnames, config, timeIndex1, sublevel):
 
 
 def compareNDetected(nDetectedL, nDetectedF):
+    """
+    Compare detected particles between two cameras.
+
+    Parameters
+    ----------
+    nDetectedL : xarray.DataArray
+        Detected particles for leader.
+    nDetectedF : xarray.DataArray
+        Detected particles for follower.
+
+    Returns
+    -------
+    xarray.DataArray
+        Ratio of minimum to maximum detections.
+    """
     minParticles = 1000
     nDetected = xr.concat([nDetectedL, nDetectedF], dim="camera")
     ratio = nDetected.min("camera") / nDetected.max("camera")
@@ -531,7 +795,23 @@ def compareNDetected(nDetectedL, nDetectedF):
 
 def removeBlockedBlowingData(dat1D, events, config, threshold=0.1):
     """
-    remove data where window was blocked more than 10%
+    Remove blocked or blowing snow data.
+
+    Parameters
+    ----------
+    dat1D : xarray.Dataset
+        Input dataset.
+    events : str or xarray.Dataset
+        Events file or dataset.
+    config : dict
+        Configuration settings.
+    threshold : float, optional
+        Blocking threshold, by default 0.1 i.e. 10%
+
+    Returns
+    -------
+    xarray.Dataset
+        Filtered dataset or None if empty.
     """
     # shortcut
     if dat1D is None:
@@ -574,8 +854,29 @@ def estimateCaptureIdDiff(
     maxDiffMs=1,
 ):
     """
-    estimate capture id difference between two cameras
-    look at capture id difference of images at the "same" time
+    Estimate capture ID difference between cameras.
+
+    Parameters
+    ----------
+    leaderFile : str
+        Leader camera file.
+    followerFiles : list of str
+        Follower camera files.
+    config : dict
+        Configuration settings.
+    dim : str
+        Dimension to use.
+    concat_dim : str, optional
+        Concatenation dimension, by default "capture_time".
+    nPoints : int, optional
+        Number of points to sample, by default 500.
+    maxDiffMs : int, optional
+        Maximum difference in milliseconds, by default 1.
+
+    Returns
+    -------
+    tuple
+        Estimated ID difference and number of samples.
     """
     leaderDat = xr.open_dataset(leaderFile)
     followerDat = xr.open_mfdataset(
@@ -613,6 +914,34 @@ def estimateCaptureIdDiff(
 def estimateCaptureIdDiffCore(
     leaderDat, followerDat, dim, nPoints=500, maxDiffMs=1, timeDim="capture_time"
 ):
+    """
+    Core function to estimate capture ID difference.
+
+    Parameters
+    ----------
+    leaderDat : xarray.Dataset
+        Leader data.
+    followerDat : xarray.Dataset
+        Follower data.
+    dim : str
+        Dimension to use.
+    nPoints : int, optional
+        Number of points to sample, by default 500.
+    maxDiffMs : int, optional
+        Maximum difference in milliseconds, by default 1.
+    timeDim : str, optional
+        Time dimension, by default "capture_time".
+
+    Returns
+    -------
+    tuple
+        Estimated ID difference and number of samples.
+
+    Raises
+    ------
+    RuntimeError
+        If capture ID varies too much.
+    """
     if len(leaderDat[dim]) == 0:
         raise RuntimeError(f"leaderDat has zero length")
     if len(followerDat[dim]) == 0:
@@ -674,16 +1003,56 @@ def estimateCaptureIdDiffCore(
         return None, nIdDiffs
 
 
-def getOtherCamera(config, camera):
-    if camera == config.instruments[0]:
-        return config.instruments[1]
-    elif camera == config.instruments[1]:
-        return config.instruments[0]
+def otherCamera(camera, config):
+    """
+    Get the other VISSS camera based on configuration.
+
+    Parameters
+    ----------
+    camera : str
+        Camera identifier.
+    config : dict
+        Configuration settings.
+
+    Returns
+    -------
+    str
+        Other camera identifier.
+
+    Raises
+    ------
+    ValueError
+        If camera is not in instruments list.
+    """
+    if camera == config["instruments"][0]:
+        return config["instruments"][1]
+    elif camera == config["instruments"][1]:
+        return config["instruments"][0]
     else:
         raise ValueError
 
 
+
 def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
+    """
+    Cut follower data to match leader data with respect to time.
+
+    Parameters
+    ----------
+    leader : xarray.Dataset
+        Leader data.
+    follower : xarray.Dataset
+        Follower data.
+    gracePeriod : int, optional
+        Grace period in seconds, by default 1.
+    dim : str, optional
+        Dimension to use, by default "fpid".
+
+    Returns
+    -------
+    xarray.Dataset
+        Cut follower data.
+    """
     start = leader.capture_time[0].values - np.timedelta64(
         int(gracePeriod * 1000), "ms"
     )
@@ -698,14 +1067,53 @@ def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
 
 
 def nextCase(case):
+    """
+    Get the next case identifier.
+
+    Parameters
+    ----------
+    case : str
+        Current case identifier.
+
+    Returns
+    -------
+    str
+        Next case identifier.
+    """
     return str(case2timestamp(case) + np.timedelta64(1, "D")).replace("-", "")
 
 
 def prevCase(case):
+    """
+    Get the previous case identifier.
+
+    Parameters
+    ----------
+    case : str
+        Current case identifier.
+
+    Returns
+    -------
+    str
+        Previous case identifier.
+    """
     return str(case2timestamp(case) - np.timedelta64(1, "D")).replace("-", "")
 
 
 def timestamp2case(dd):
+    """
+    Convert timestamp to case identifier.
+
+    Parameters
+    ----------
+    dd : datetime
+        Timestamp.
+
+    Returns
+    -------
+    str
+        Case identifier.
+    """
     year = str(dd.year)
     month = "%02i" % dd.month
     day = "%02i" % dd.day
@@ -714,6 +1122,24 @@ def timestamp2case(dd):
 
 
 def case2timestamp(case):
+    """
+    Convert case identifier to timestamp.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+
+    Returns
+    -------
+    numpy.datetime64
+        Timestamp.
+
+    Raises
+    ------
+    NotImplementedError
+        If long cases are not implemented.
+    """
     if len(case) == 8:
         return np.datetime64(f"{case[:4]}-{case[4:6]}-{case[6:8]}")
     else:
@@ -723,6 +1149,27 @@ def case2timestamp(case):
 def rescaleImage(
     frame1, rescale, anti_aliasing=False, anti_aliasing_sigma=None, mode="edge"
 ):
+    """
+    Rescale an image.
+
+    Parameters
+    ----------
+    frame1 : array_like
+        Input image.
+    rescale : float
+        Scaling factor.
+    anti_aliasing : bool, optional
+        Apply anti-aliasing, by default False.
+    anti_aliasing_sigma : float, optional
+        Anti-aliasing sigma, by default None.
+    mode : str, optional
+        Resizing mode, by default "edge".
+
+    Returns
+    -------
+    array_like
+        Rescaled image.
+    """
     import skimage
 
     if len(frame1.shape) == 3:
@@ -744,6 +1191,23 @@ def rescaleImage(
 
 
 def displayImage(frame, doDisplay=True, rescale=None):
+    """
+    Display an image.
+
+    Parameters
+    ----------
+    frame : array_like
+        Input image.
+    doDisplay : bool, optional
+        Whether to display, by default True.
+    rescale : float, optional
+        Scaling factor, by default None.
+
+    Returns
+    -------
+    IPython.display.Image or None
+        Image object if doDisplay=False, otherwise None.
+    """
     # opencv cannot handle grayscale png with alpha channel
     import cv2
     import IPython.display
@@ -770,6 +1234,10 @@ def displayImage(frame, doDisplay=True, rescale=None):
 
 
 class ZipFile(zipfile.ZipFile):
+    """
+    Extended zip file class with automatic parent directory creation. 
+    Extra functions to store and retrieve images as numpy arrays
+    """
     def __init__(self, file, **kwargs):
         createParentDir(file)
         super().__init__(file, **kwargs)
@@ -787,7 +1255,19 @@ class ZipFile(zipfile.ZipFile):
 
 def imageZipFile(fname, **kwargs):
     """
-    Simple wrapper to make sure the appropiate class is used
+    Create appropriate archive file handler.
+
+    Parameters
+    ----------
+    fname : str
+        File name.
+    **kwargs : dict
+        Additional arguments for archive creation.
+
+    Returns
+    -------
+    Archive handler
+        ZipFile or BlockImageArchive instance.
     """
     createParentDir(fname)
 
@@ -981,6 +1461,16 @@ class BlockImageArchive:
 
 
 def createParentDir(file, mode=None):
+    """
+    Create parent directory if it doesn't exist.
+
+    Parameters
+    ----------
+    file : str
+        File path.
+    mode : int, optional
+        Directory mode, by default None.
+    """
     parent_dir = os.path.dirname(os.path.abspath(file))
     if parent_dir and not os.path.exists(parent_dir):
         os.makedirs(parent_dir, exist_ok=True)
@@ -997,10 +1487,16 @@ def savefig(fig, config, filename, **kwargs):
     - Directories: owner rwx, group rwx, others rx (0o775)
     - File: owner rw, group rw, others r (0o664)
 
-    Args:
-        fig: matplotlib.figure.Figure object
-        filename: path to save the figure
-        **kwargs: passed to fig.savefig()
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to save.
+    config : dict
+        Configuration settings.
+    filename : str
+        Output file name.
+    **kwargs : dict
+        Additional arguments for saving.
     """
     # Ensure parent directory exists
     createParentDir(filename, config.dirMode)
@@ -1022,6 +1518,23 @@ def savefig(fig, config, filename, **kwargs):
 
 
 def ncAttrs(site, visssGen, extra={}):
+    """
+    Generate NetCDF attributes.
+
+    Parameters
+    ----------
+    site : str
+        Site identifier.
+    visssGen : str
+        Generator information.
+    extra : dict, optional
+        Extra attributes, by default {}.
+
+    Returns
+    -------
+    dict
+        NetCDF attributes.
+    """
     import cv2
     import psutil
 
@@ -1045,6 +1558,25 @@ def ncAttrs(site, visssGen, extra={}):
 
 
 def finishNc(dat, site, visssGen, extra={}):
+    """
+    Finalize NetCDF dataset with attributes and encoding.
+
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Dataset to finalize.
+    site : str
+        Site identifier.
+    visssGen : str
+        Generator information.
+    extra : dict, optional
+        Extra attributes, by default {}.
+
+    Returns
+    -------
+    xarray.Dataset
+        Finalized dataset.
+    """
     # todo: add yaml dump of config file
 
     extra = deepcopy(extra)
@@ -1077,7 +1609,19 @@ def finishNc(dat, site, visssGen, extra={}):
 
 def getPrevRotationEstimates(datetime64, config):
     """
-    Extract reotation first guess from config structure
+    Extract rotation estimates from config.
+
+    Parameters
+    ----------
+    datetime64 : numpy.datetime64
+        Datetime to query.
+    config : dict
+        Configuration settings.
+
+    Returns
+    -------
+    tuple
+        Rotation matrix, error matrix, and timestamp.
     """
     rotate, rotate_time = getPrevRotationEstimate(datetime64, "transformation", config)
     assert len(rotate) != 0
@@ -1092,7 +1636,26 @@ def getPrevRotationEstimates(datetime64, config):
 
 def getPrevRotationEstimate(datetime64, key, config):
     """
-    Extract reotation first guess from config structure
+    Extract single rotation estimate from config.
+
+    Parameters
+    ----------
+    datetime64 : numpy.datetime64
+        Datetime to query.
+    key : str
+        Key for rotation estimate.
+    config : dict
+        Configuration settings.
+
+    Returns
+    -------
+    tuple
+        Rotation estimate and timestamp.
+
+    Raises
+    ------
+    RuntimeError
+        If no rotation estimate found.
     """
 
     rotate_all = {
@@ -1116,7 +1679,21 @@ def getPrevRotationEstimate(datetime64, key, config):
 
 
 def rotXr2dict(dat, config=None):
-    """convert rotation structure into config dictionary"""
+    """
+    Convert rotation xarray data to dictionary.
+
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Rotation data.
+    config : dict, optional
+        Configuration settings, by default None.
+
+    Returns
+    -------
+    dict
+        Configuration dictionary with rotation info.
+    """
     import pandas as pd
 
     if config is None:
@@ -1139,6 +1716,23 @@ def rotXr2dict(dat, config=None):
 
 
 def rotDict2Xr(rotate, rotate_err, prevTime):
+    """
+    Convert rotation dictionary to xarray dataset.
+
+    Parameters
+    ----------
+    rotate : dict
+        Rotation matrix.
+    rotate_err : dict
+        Rotation error matrix.
+    prevTime : numpy.datetime64
+        Previous timestamp.
+
+    Returns
+    -------
+    xarray.Dataset
+        Rotation dataset.
+    """
     if rotate is np.nan:
         rotate = {"camera_Ofz": np.nan, "camera_phi": np.nan, "camera_theta": np.nan}
     if rotate_err is np.nan:
@@ -1159,6 +1753,19 @@ def rotDict2Xr(rotate, rotate_err, prevTime):
 
 
 def execute_stdout(command):
+    """
+    Execute command and print output continuously.
+
+    Parameters
+    ----------
+    command : str
+        Command to execute.
+
+    Returns
+    -------
+    tuple
+        Exit code and output.
+    """
     # launch application as subprocess and print output constantly:
     # http://stackoverflow.com/questions/4417546/constantly-print-subprocess-output-while-process-is-running
     print(command)
@@ -1187,28 +1794,39 @@ def execute_stdout(command):
 
 def concat(*strs):
     """
-    helper function to make transition from print to logging easier
+    Concatenate strings with spaces.
+
+    Parameters
+    ----------
+    *strs : str
+        Strings to concatenate.
+
+    Returns
+    -------
+    str
+        Concatenated string.
     """
     concat = " ".join([str(s) for s in strs])
     return concat
 
 
 def concatImgY(im1, im2, background=0):
-    """helper function to concat to images in Y direction
+    """
+    Concatenate images vertically.
 
     Parameters
     ----------
-    im1 : np.array
-        upper image
-    im2 : np.array
-        lower image
-    background : number, optional
-        background color (the default is 0)
+    im1 : array_like
+        Upper image.
+    im2 : array_like
+        Lower image.
+    background : int, optional
+        Background color, by default 0.
 
     Returns
     -------
-    np.array
-        new image as array
+    array_like
+        Concatenated image.
     """
     y1, x1 = im1.shape
     y2, x2 = im2.shape
@@ -1224,20 +1842,22 @@ def concatImgY(im1, im2, background=0):
 
 
 def concatImgX(im1, im2, background=0):
-    """helper function to concat to images in X direction
+    """
+    Concatenate images horizontally.
+
     Parameters
     ----------
-    im1 : np.array
-        left image
-    im2 : np.array
-        right image
-    background : number, optional
-        background color (the default is 0)
+    im1 : array_like
+        Left image.
+    im2 : array_like
+        Right image.
+    background : int, optional
+        Background color, by default 0.
 
     Returns
     -------
-    np.array
-        new image as array
+    array_like
+        Concatenated image.
     """
     y1, x1 = im1.shape
     y2, x2 = im2.shape
@@ -1255,7 +1875,25 @@ def concatImgX(im1, im2, background=0):
 
 def open2(file, config, mode="r", cleanUp=True, **kwargs):
     """
-    like standard open, but creating directories if needed
+    Open file with directory creation and permissions.
+
+    Parameters
+    ----------
+    file : str
+        File path.
+    config : dict
+        Configuration settings.
+    mode : str, optional
+        File mode, by default "r".
+    cleanUp : bool, optional
+        Clean up temporary files, by default True.
+    **kwargs : dict
+        Additional arguments for opening.
+
+    Returns
+    -------
+    file handle
+        Opened file handle.
     """
     createParentDir(file, mode=config.dirMode)
 
@@ -1272,6 +1910,14 @@ def open2(file, config, mode="r", cleanUp=True, **kwargs):
 
 
 def tryRemovingFile(file):
+    """
+    Try to remove a file.
+
+    Parameters
+    ----------
+    file : str
+        File path.
+    """
     try:
         os.remove(file)
     except:
@@ -1284,9 +1930,26 @@ def tryRemovingFile(file):
 
 def to_netcdf2(dat, config, file, **kwargs):
     """
-    like xarray netcdf open, but creating directories if needed
-    write to random file and move to final file to avoid errors due to race conditions or exisiting files
+    Save dataset to NetCDF with directory creation.
+    Write to random file and move to final file to 
+    avoid errors due to race conditions or exisiting files
+    
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Dataset to save.
+    config : dict
+        Configuration settings.
+    file : str
+        Output file name.
+    **kwargs : dict
+        Additional arguments for saving.
+
+    Returns
+    -------
+    None
     """
+
     from dask.diagnostics import ProgressBar
 
     print(f"saving {file}")
@@ -1316,13 +1979,22 @@ def to_netcdf2(dat, config, file, **kwargs):
 @numba.jit(nopython=True)
 def linreg(x, y):
     """
-    Summary
-        Linear regression of y = ax + b
-    Usage
-        real, real, real = linreg(list, list)
-    Returns coefficients to the regression line "y=ax+b" from x[] and y[]
+    Perform linear regression.
+    Turns out to be a lot faster than scipy and 
+    numpy code when using numba (1.7 us vs 25 us)
 
-    Turns out to be a lot faster than  scipy and numpy code when using numba (1.7 us vs 25 us)
+
+    Parameters
+    ----------
+    x : array_like
+        Independent variable.
+    y : array_like
+        Dependent variable.
+
+    Returns
+    -------
+    tuple
+        Slope and intercept of regression line.
     """
     mean_x = np.mean(x)
     mean_y = np.mean(y)
@@ -1341,7 +2013,21 @@ def linreg(x, y):
 
 
 def cart2pol(x, y):
-    """coordinate transform"""
+    """
+    Convert Cartesian coordinates to polar.
+
+    Parameters
+    ----------
+    x : array_like
+        X coordinates.
+    y : array_like
+        Y coordinates.
+
+    Returns
+    -------
+    tuple
+        Polar coordinates (rho, phi).
+    """
 
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
@@ -1351,7 +2037,19 @@ def cart2pol(x, y):
 @taskqueue.queueable
 def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     """
-    helper function to run command on the shell
+    Run command in queue with file locking.
+
+    Parameters
+    ----------
+    IN : tuple
+        Command and output file.
+    stdout : file handle, optional
+        Standard output, by default subprocess.DEVNULL.
+
+    Returns
+    -------
+    bool
+        Success status.
     """
     import portalocker
 
@@ -1420,6 +2118,14 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
 
 
 def create_TaskQueuePatched():
+    """
+    Create patched TaskQueue class with custom is_empty_wait function.
+
+    Returns
+    -------
+    class
+        Patched TaskQueue class.
+    """
     import taskqueue
 
     class TaskQueuePatched(taskqueue.TaskQueue):
@@ -1457,6 +2163,24 @@ def create_TaskQueuePatched():
 
 
 def worker1(queue, ww=0, status=None, waitTime=5):
+    """
+    Worker function for processing queue items.
+
+    Parameters
+    ----------
+    queue : str
+        Queue name.
+    ww : int, optional
+        Worker number, by default 0.
+    status : array, optional
+        Status array, by default None.
+    waitTime : int, optional
+        Wait time between checks, by default 5.
+
+    Returns
+    -------
+    None
+    """
     print(f"starting worker {ww} for {queue}", flush=True)
     time.sleep(ww / 5.0)  # to avoid race conditions
     TaskQueuePatched = create_TaskQueuePatched()  # generator for lazy import
@@ -1501,6 +2225,25 @@ def worker1(queue, ww=0, status=None, waitTime=5):
 
 
 def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
+    """
+    Start multiple worker processes.
+
+    Parameters
+    ----------
+    queue : str
+        Queue name.
+    nJobs : int, optional
+        Number of jobs, by default os.cpu_count().
+    waitTime : int, optional
+        Wait time between checks, by default 60.
+    join : bool, optional
+        Join processes, by default True.
+
+    Returns
+    -------
+    list
+        Worker processes.
+    """
     # for communication between subprocesses
     print(f"starting {nJobs} workers")
     status = multiprocessing.Array("i", [0] * nJobs)
@@ -1523,6 +2266,25 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
 
 
 def checkForExisting(ffOut, level0=None, events=None, parents=None):
+    """
+    Check if file exists and is up-to-date including potential parents.
+    
+    Parameters
+    ----------
+    ffOut : str
+        Output file path.
+    level0 : list, optional
+        Level 0 data files, by default None.
+    events : list, optional
+        Event files, by default None.
+    parents : list, optional
+        Parent files, by default None.
+
+    Returns
+    -------
+    bool
+        True if file should be regenerated.
+    """
     # checks whether file exists and checks age of parents and meta files
     if not os.path.isfile(ffOut):
         return False
@@ -1552,6 +2314,21 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
 
 
 def unpackQualityFlags(quality, doubleTimestamps=False):
+    """
+    Unpack quality flags into boolean array.
+
+    Parameters
+    ----------
+    quality : xarray.DataArray
+        Quality flags.
+    doubleTimestamps : bool, optional
+        Double timestamps for plotting, by default False.
+
+    Returns
+    -------
+    xarray.DataArray
+        Expanded quality flags.
+    """
     flags = xr.DataArray(
         [
             "recordingFailed",
@@ -1582,29 +2359,17 @@ def unpackQualityFlags(quality, doubleTimestamps=False):
 
 
 def timestamp2str(ts):
+    """
+    Convert timestamp to string.
+
+    Parameters
+    ----------
+    ts : int
+        Timestamp.
+
+    Returns
+    -------
+    str
+        Formatted timestamp string.
+    """
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def loopify_with_camera(func):
-    def myinner(*args, **kwargs):
-        case, camera, config = args
-        config = readSettings(config)
-        if camera == "all":
-            cameras = [config.leader, config.follower]
-        elif camera == "leader":
-            cameras = [config.leader]
-        elif camera == "follower":
-            cameras = [config.follower]
-        else:
-            cameras = [camera]
-
-        cases = getCaseRange(case)
-
-        returns = list()
-        for case1 in cases:
-            for camera1 in cameras:
-                returns.append(func(case1, camera1, config, **kwargs))
-        if len(returns):
-            return returns
-
-    return myinner

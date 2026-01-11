@@ -22,6 +22,23 @@ logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def _preprocess(dat):
+    """
+    Preprocess the input data for further processing in distributions.
+
+    This function handles the initial data preparation steps, such as filtering
+    variables and renaming coordinates, to ensure consistency in subsequent
+    processing steps.
+
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Input dataset to be preprocessed.
+
+    Returns
+    -------
+    xarray.Dataset
+        Preprocessed dataset ready for further analysis.
+    """
     try:
         # we do not need all variables
         data_vars = [
@@ -96,31 +113,35 @@ def createLevel2detect(
     doPlot=True,
     doParticlePlot=True,
 ):
-    """[summary]
+    """
+    Create level2detect data for a given case and camera.
 
-    [description]
-
+    Processes raw particle detection data to generate statistical distributions
+    and quality metrics for precipitation analysis.
 
     Parameters
     ----------
-    case : [type]
-        [description]
-    config : [type]
-        [description]
-    DbinsPixel : [type], optional
-        [description] (the default is range(301), which [default_description])
+    case : str
+        Case identifier.
+        This can be a date string (YYYYMMDD) or date range (YYYYMMDD-YYYYMMDD)
+        or comma-separated dates (YYYYMMDD,YYYYMMDD,YYYYMMDD).
+    camera : str
+        Camera identifier.
+        this can be also "all", "leader", or "follower".
+    config : dict
+        Configuration settings.
+    DbinsPixel : range, optional
+        Pixel bins for size distribution, defaults to range(301).
     sizeDefinitions : list, optional
-        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
-    endTime : [type], optional
-        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+        Size definitions, defaults to ["Dmax", "Dequiv"].
+    endTime : numpy.timedelta64, optional
+        End time for processing, defaults to np.timedelta64(1, "D").
     skipExisting : bool, optional
-        [description] (the default is True, which [default_description])
+        Skip existing outputs, defaults to True.
     writeNc : bool, optional
-        [description] (the default is True, which [default_description])
-    hStep : number, optional
-        [description] (the default is 1, which [default_description])
+        Write NetCDF outputs, defaults to True.
     applyFilters : list, optional
-        applyFilter contains list of filters connected by AND.
+        Filters to apply, defaults to [].
         Each filter is a tuple with:
         1) variable name (e.g. aspectRatio, all lv1 variables work)
         2) Operator, one of '>','<','>=','<=','=='
@@ -132,7 +153,16 @@ def createLevel2detect(
         applyFilters = [
             ("Dmax",">",10,"max",{}),
             ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-    ]
+        ]
+    doPlot : bool, optional
+        Create plots, defaults to True.
+    doParticlePlot : bool, optional
+        Create particle plots, defaults to True.
+
+    Returns
+    -------
+    tuple
+        Processed dataset and file path.
     """
     out = _createLevel2(
         case,
@@ -173,30 +203,32 @@ def createLevel2match(
     doPlot=True,
     doParticlePlot=True,
 ):
-    """[summary]
+    """
+    Create level2match data for a given case and camera.
 
-    [description]
+    Processes raw particle detection data to generate statistical distributions
+    and quality metrics for precipitation analysis.
 
     Parameters
     ----------
-    case : [type]
-        [description]
-    config : [type]
-        [description]
-    DbinsPixel : [type], optional
-        [description] (the default is range(301), which [default_description])
+    case : str
+        Case identifier.
+        This can be a date string (YYYYMMDD) or date range (YYYYMMDD-YYYYMMDD)
+        or comma-separated dates (YYYYMMDD,YYYYMMDD,YYYYMMDD).
+    config : dict
+        Configuration settings.
+    DbinsPixel : range, optional
+        Pixel bins for size distribution, defaults to range(301).
     sizeDefinitions : list, optional
-        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
-    endTime : [type], optional
-        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+        Size definitions, defaults to ["Dmax", "Dequiv"].
+    endTime : numpy.timedelta64, optional
+        End time for processing, defaults to np.timedelta64(1, "D").
     skipExisting : bool, optional
-        [description] (the default is True, which [default_description])
+        Skip existing outputs, defaults to True.
     writeNc : bool, optional
-        [description] (the default is True, which [default_description])
-    hStep : number, optional
-        [description] (the default is 1, which [default_description])
+        Write NetCDF outputs, defaults to True.
     applyFilters : list, optional
-        applyFilter contains list of filters connected by AND.
+        Filters to apply, defaults to [].
         Each filter is a tuple with:
         1) variable name (e.g. aspectRatio, all lv1 variables work)
         2) Operator, one of '>','<','>=','<=','=='
@@ -208,7 +240,16 @@ def createLevel2match(
         applyFilters = [
             ("Dmax",">",10,"max",{}),
             ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-    ]
+        ]
+    doPlot : bool, optional
+        Create plots, defaults to True.
+    doParticlePlot : bool, optional
+        Create particle plots, defaults to True.
+
+    Returns
+    -------
+    tuple
+        Processed dataset and file path.
     """
     out = _createLevel2(
         case,
@@ -245,30 +286,32 @@ def createLevel2track(
     applyFilters=[],
     doPlot=True,
 ):
-    """[summary]
+    """
+    Create level2track data for a given case and camera.
 
-    [description]
+    Processes raw particle detection data to generate statistical distributions
+    and quality metrics for precipitation analysis.
 
     Parameters
     ----------
-    case : [type]
-        [description]
-    config : [type]
-        [description]
-    DbinsPixel : [type], optional
-        [description] (the default is range(301), which [default_description])
+    case : str
+        Case identifier.
+        This can be a date string (YYYYMMDD) or date range (YYYYMMDD-YYYYMMDD)
+        or comma-separated dates (YYYYMMDD,YYYYMMDD,YYYYMMDD).
+    config : dict
+        Configuration settings.
+    DbinsPixel : range, optional
+        Pixel bins for size distribution, defaults to range(301).
     sizeDefinitions : list, optional
-        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
-    endTime : [type], optional
-        [description] (the default is np.timedelta64(1, "D"), which [default_description])
+        Size definitions, defaults to ["Dmax", "Dequiv"].
+    endTime : numpy.timedelta64, optional
+        End time for processing, defaults to np.timedelta64(1, "D").
     skipExisting : bool, optional
-        [description] (the default is True, which [default_description])
+        Skip existing outputs, defaults to True.
     writeNc : bool, optional
-        [description] (the default is True, which [default_description])
-    hStep : number, optional
-        [description] (the default is 1, which [default_description])
+        Write NetCDF outputs, defaults to True.
     applyFilters : list, optional
-        applyFilter contains list of filters connected by AND.
+        Filters to apply, defaults to [].
         Each filter is a tuple with:
         1) variable name (e.g. aspectRatio, all lv1 variables work)
         2) Operator, one of '>','<','>=','<=','=='
@@ -280,7 +323,16 @@ def createLevel2track(
         applyFilters = [
             ("Dmax",">",10,"max",{}),
             ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-    ]
+        ]
+    doPlot : bool, optional
+        Create plots, defaults to True.
+    doParticlePlot : bool, optional
+        Create particle plots, defaults to True.
+
+    Returns
+    -------
+    tuple
+        Processed dataset and file path.
     """
     out = _createLevel2(
         case,
@@ -313,45 +365,12 @@ def _createLevel2(
     camera="leader",
     applyFilters=[],
 ):
-    """[summary]
+    """
+    Internal function to create level 2 data for different sublevels.
 
-    [description]
+    Core processing function that orchestrates the creation of level 2 data
+    for match, track, or detect sublevels.
 
-
-    Parameters
-    ----------
-    case : [type]
-        [description]
-    config : [type]
-        [description]
-    DbinsPixel : [type], optional
-        [description] (the default is range(301), which [default_description])
-    sizeDefinitions : list, optional
-        [description] (the default is ["Dmax", "Dequiv"], which [default_description])
-    endTime : [type], optional
-        [description] (the default is np.timedelta64(1, "D"), which [default_description])
-    skipExisting : bool, optional
-        [description] (the default is True, which [default_description])
-    writeNc : bool, optional
-        [description] (the default is True, which [default_description])
-    hStep : number, optional
-        [description] (the default is 1, which [default_description])
-    sublevel : str, optional
-        [description] (the default is "match", which [default_description])
-    applyFilters : list, optional
-        applyFilter contains list of filters connected by AND.
-        Each filter is a tuple with:
-        1) variable name (e.g. aspectRatio, all lv1 variables work)
-        2) Operator, one of '>','<','>=','<=','=='
-        3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
-        4) if variable contains extra dimensions, which one to select, {} otherwise
-
-        Example to get all particles > 10 pixels (using max of both cameras) with
-        aspectRatio >= 0.7 (using min of both cameras)
-        applyFilters = [
-            ("Dmax",">",10,"max",{}),
-            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-    ]
     """
     import dask.array
     import pandas as pd
@@ -771,18 +790,8 @@ def _createLevel2part(
     camera="leader",
     applyFilters=[],
 ):
-    """applyFilter contains list of filters connected by AND.
-    Each filter is a tuple with:
-    1) variable name (e.g. aspectRatio, all lv1 variables work)
-    2) Operator, one of '>','<','>=','<=','=='
-    3) Value for comparison or a list of two values, used as intercept and slope (in this order) for comparison with a linear function of Dmax
-    4) if variable contains extra dimensions, which one to select, {} otherwise
-
-    Example to get all particles > 10 pixels (using max of both cameras) with aspectRatio >= 0.7 (using min of both cameras)
-    applyFilters = [
-        ("Dmax",">",10,"max",{}),
-        ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-    ]
+    """
+    Create level 2 data for chunk of time
     """
     import dask
     import pandas as pd
@@ -1730,6 +1739,25 @@ def _createLevel2part(
 
 
 def addPerParticleVariables(level1dat_camAve, config):
+    """
+    Add per-particle variables to the dataset.
+
+    This function computes additional particle characteristics like complexity
+    and normalized rime mass based on existing particle data.
+
+    Parameters
+    ----------
+    level1dat_camAve : xarray.Dataset
+        Dataset containing particle data.
+    config : dict
+        Configuration settings for computation.
+
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with additional particle variables.
+    """
+
     # add area equivalent radius
     level1dat_camAve["Dequiv"] = np.sqrt(
         4 * level1dat_camAve["areaConsideringHoles"] / np.pi
@@ -1798,6 +1826,35 @@ def addVariables(
     sublevel,
     camera="leader",
 ):
+    """
+    Add additional variables to the calibrated dataset.
+
+    Computes derived quantities such as particle size distribution (PSD),
+    moments, and quality flags based on the calibrated particle data.
+
+    Parameters
+    ----------
+    calibDat : xarray.Dataset
+        Calibrated dataset with basic particle properties.
+    case : str
+        Case identifier for data context. For loopify decorator, this is
+        a date string (YYYYMMDD) or date range (YYYYMMDD-YYYYMMDD) or comma-separated dates.
+    config : dict
+        Configuration settings for computations.
+    timeIndex : numpy.ndarray
+        Time index for data aggregation.
+    timeIndex1 : numpy.ndarray
+        Detailed time index for computations.
+    sublevel : str
+        Processing sublevel. Must be one of ["match", "track", "detect"].
+    camera : str, optional
+        Camera identifier, defaults to "leader". Used for match and track sublevels.
+
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with added variables.
+    """
     import scipy.special
 
     # 1 min data
@@ -1972,7 +2029,25 @@ def addVariables(
 
 def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
     """
-    go from particle statitics to per track statisticks with the mean/min/max/std along cameras and track
+    Extract statistical information from particle tracks.
+
+    Computes track-level statistics by aggregating particle data along
+    trajectory dimensions and calculating descriptive metrics.
+
+    Parameters
+    ----------
+    level1dat : xarray.Dataset
+        Input dataset containing particle tracking data.
+    maxAngleDiff : float, optional
+        Maximum angle difference for track continuation, defaults to 20.
+    extraVars : list, optional
+        Extra variables to include in computation, defaults to [].
+
+    Returns
+    -------
+    tuple
+        Tuple containing track statistics dataset, 2D track data,
+        time-resolved track data, individual particle data, and number of cuts.
     """
     import pandas as pd
     import scipy.stats
@@ -2107,6 +2182,24 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
 
 
 def removeTrackEdges(level1dat_track2D, maxAngleDiff):
+    """
+    Remove track edges identified by large angular differences.
+
+    Identifies potentially erroneous track terminations by detecting large
+    angular deviations and removes those sections from the data.
+
+    Parameters
+    ----------
+    level1dat_track2D : xarray.Dataset
+        Track dataset with particle trajectory data.
+    maxAngleDiff : float
+        Maximum allowable angular difference for track continuity.
+
+    Returns
+    -------
+    tuple
+        Updated track dataset and number of removed edges.
+    """
     import vg
     import xarray_extras.sort
 
@@ -2165,10 +2258,27 @@ def removeTrackEdges(level1dat_track2D, maxAngleDiff):
 
 def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
     """
-    in pixel
+    Estimate observation volumes for different particle sizes.
 
+    Calculates the effective observation volume for each particle size bin
+    based on camera configuration and particle characteristics.
+
+    Parameters
+    ----------
+    level1dat_time : xarray.Dataset
+        Time-resolved dataset with camera rotation parameters.
+    config : dict
+        Configuration settings for volume estimation.
+    DbinsPixel : range
+        Pixel bins for size distribution.
+    timeIndex1 : numpy.ndarray
+        Detailed time index for volume calculation.
+
+    Returns
+    -------
+    list
+        List of estimated observation volumes for each bin.
     """
-
     if config.correctForSmallOnes:
         log.info("adjust observation volujme for smallest particles")
 
@@ -2222,7 +2332,7 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
             #                              rotDat1.camera_phi.values,
             #                              rotDat1.camera_theta.values,
             #                              rotDat1.camera_Ofz.values, DbinsPixel)
-            Ds, volume = estimateVolumes(
+            Ds, volume = _estimateVolumes(
                 config.frame_width,
                 config.frame_height,
                 config.correctForSmallOnes,
@@ -2237,7 +2347,7 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
 
             volumes.append(volume[1:])
     else:  # for detect only:
-        Ds, volume = estimateVolumes(
+        Ds, volume = _estimateVolumes(
             config.frame_width,
             config.frame_height,
             config.correctForSmallOnes,
@@ -2258,7 +2368,30 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
 
 
 def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
-    """go from pixel to SI units"""
+    """
+    Apply calibration to level 2 data.
+
+    Transforms pixel-based measurements into calibrated physical units
+    and adjusts for instrument-specific characteristics.
+
+    Parameters
+    ----------
+    level2dat : xarray.Dataset
+        Level 2 dataset with raw pixel measurements.
+    level1dat_time : xarray.Dataset
+        Time-resolved dataset with camera parameters.
+    config : dict
+        Configuration settings for calibration.
+    DbinsPixel : range
+        Pixel bins for size distribution.
+    timeIndex1 : numpy.ndarray
+        Detailed time index for calibration.
+
+    Returns
+    -------
+    xarray.Dataset
+        Calibrated dataset with physical units.
+    """
 
     assert "slope" in config.calibration.keys()
 
@@ -2318,14 +2451,7 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     return calibDat
 
 
-def applyCalib(pixel, slope, intercept):
-    # pix = slope*um + intercept
-    um = (pixel - intercept) / slope
-    m = um / 1e6
-    return m
-
-
-def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
+def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     """Estimate data quality for level2"""
 
     f1 = files.FindFiles(case, camera, config)
@@ -2402,6 +2528,35 @@ def getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
 
 
 def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
+    """
+    Estimate comprehensive data quality for level 2 processing.
+
+    This function aggregates data quality metrics across both cameras for
+    match and track processing levels.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier for reference data. For loopify decorator, this is
+        a date string (YYYYMMDD) or date range (YYYYMMDD-YYYYMMDD) or comma-separated dates.
+    config : dict
+        Configuration settings for quality assessment.
+    timeIndex : numpy.ndarray
+        Time index for quality evaluation.
+    timeIndex1 : numpy.ndarray
+        Detailed time index for quality calculations.
+    sublevel : str
+        Processing sublevel. Must be one of ["match", "track", "detect"].
+    camera : str, optional
+        Camera identifier for quality metrics, defaults to None.
+        For loopify_with_camera decorator, can be "all", "leader", or "follower".
+
+    Returns
+    -------
+    tuple
+        Quality metrics including recording failures, processing failures,
+        blocked pixels ratios, blowing snow ratios, and observations ratio.
+    """
     if sublevel in ["match", "track"]:
         (
             recordingFailedL,
@@ -2409,7 +2564,7 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             blockedPixelsL,
             blowingSnowRatioL,
             nDetectedL,
-        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
+        ) = _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
 
         (
             recordingFailedF,
@@ -2417,7 +2572,7 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             blockedPixelsF,
             blowingSnowRatioF,
             nDetectedF,
-        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "follower")
+        ) = _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "follower")
 
         recordingFailed = xr.concat((recordingFailedL, recordingFailedF), dim="camera")
         recordingFailed["camera"] = ["leader", "follower"]
@@ -2447,11 +2602,40 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             blockedPixels,
             blowingSnowRatio,
             nDetected,
-        ) = getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera)
+        ) = _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera)
         return recordingFailed, processingFailed, blockedPixels, blowingSnowRatio, 1
 
 
 def _createBox(p1, p2, p3, p4, p5, p6, p7, p8):
+    """
+    Create a 3D box geometry for observation volume calculation.
+
+    Constructs a trimesh representation of a box defined by eight corner points.
+
+    Parameters
+    ----------
+    p1 : array-like
+        First corner point.
+    p2 : array-like
+        Second corner point.
+    p3 : array-like
+        Third corner point.
+    p4 : array-like
+        Fourth corner point.
+    p5 : array-like
+        Fifth corner point.
+    p6 : array-like
+        Sixth corner point.
+    p7 : array-like
+        Seventh corner point.
+    p8 : array-like
+        Eighth corner point.
+
+    Returns
+    -------
+    trimesh.Trimesh
+        Trimesh object representing the box geometry.
+    """
     import trimesh
 
     vertices = np.array([p1, p2, p3, p4, p5, p6, p7, p8])
@@ -2476,25 +2660,29 @@ def _createBox(p1, p2, p3, p4, p5, p6, p7, p8):
 
 
 def createLeaderBox(width, height, delta=0, deltaExtra1=0, deltaExtra2=0):
-    """get trimesh representing the leader observation volume
+    """
+    Create a 3D box representing the leader camera observation volume.
+
+    Defines the physical volume observable by the leader camera based on
+    image dimensions and boundary constraints.
 
     Parameters
     ----------
     width : int
-        image width
+        Image width.
     height : int
-        image height
+        Image height.
     delta : number, optional
-        distance to all edges (the default is 0)
+        Distance to all edges, defaults to 0.
     deltaExtra1 : number, optional
-        distance to left vertical edge (the default is 0)
+        Distance to left vertical edge, defaults to 0.
     deltaExtra2 : number, optional
-        distance to right vertical edge (the default is 0)
+        Distance to right vertical edge, defaults to 0.
 
     Returns
     -------
-    trimesh
-        trimesh object
+    trimesh.Trimesh
+        Trimesh object representing the leader observation volume.
     """
 
     X0 = -width
@@ -2526,31 +2714,35 @@ def createFollowerBox(
     deltaExtra1=0,
     deltaExtra2=0,
 ):
-    """get trimesh representing the follower observation volume
+    """
+    Create a 3D box representing the follower camera observation volume.
+
+    Defines the physical volume observable by the follower camera based on
+    image dimensions, camera orientation, and boundary constraints.
 
     Parameters
     ----------
     width : int
-        image width
+        Image width.
     height : int
-        image height
+        Image height.
     camera_phi : float
-        roll of follower camera
+        Roll of follower camera.
     camera_theta : float
-        pitch of follower camera
+        Pitch of follower camera.
     camera_Ofz : float
-        offset in z direction
+        Offset in z direction.
     delta : number, optional
-        distance to all edges (the default is 0)
+        Distance to all edges, defaults to 0.
     deltaExtra1 : number, optional
-        distance to left vertical edge (the default is 0)
+        Distance to left vertical edge, defaults to 0.
     deltaExtra2 : number, optional
-        distance to right vertical edge (the default is 0)
+        Distance to right vertical edge, defaults to 0.
 
     Returns
     -------
-    trimesh
-        trimesh object
+    trimesh.Trimesh
+        Trimesh object representing the follower observation volume.
     """
     X0 = 0 + max(delta, deltaExtra1)
     X1 = width - max(delta, deltaExtra2)
@@ -2589,7 +2781,7 @@ def createFollowerBox(
     return _createBox(p1, p2, p3, p4, p5, p6, p7, p8)
 
 
-def estimateVolume(
+def _estimateVolume(
     width,
     height,
     camera_phi,
@@ -2601,36 +2793,39 @@ def estimateVolume(
     deltaFollowerExtra1=0,
     deltaFollowerExtra2=0,
 ):
-    """estimate intersecting volume of leader and follower
+    """
+    Estimate intersecting volume of leader and follower observation volumes.
 
+    Calculates the three-dimensional intersection volume shared by both
+    cameras' observation regions.
 
     Parameters
     ----------
     width : int
-        image width
+        Image width.
     height : int
-        image height
+        Image height.
     camera_phi : float
-        roll of follower camera
+        Roll of follower camera.
     camera_theta : float
-        pitch of follower camera
+        Pitch of follower camera.
     camera_Ofz : float
-        offset in z direction
+        Offset in z direction.
     delta : number, optional
-        distance to left vertical edge (the default is 0)
+        Distance to all edges, defaults to 0.
     deltaLeaderExtra1 : number, optional
-        distance to left vertical edge (the default is 0)
+        Distance to left vertical edge for leader, defaults to 0.
     deltaLeaderExtra2 : number, optional
-        distance to right vertical edge (the default is 0)
+        Distance to right vertical edge for leader, defaults to 0.
     deltaFollowerExtra1 : number, optional
-        distance to left vertical edge (the default is 0)
+        Distance to left vertical edge for follower, defaults to 0.
     deltaFollowerExtra2 : number, optional
-        distance to right vertical edge (the default is 0)
+        Distance to right vertical edge for follower, defaults to 0.
 
     Returns
     -------
     float
-        intersection volume
+        Intersection volume in cubic units.
     """
 
     follower = createFollowerBox(
@@ -2657,7 +2852,7 @@ def estimateVolume(
 
 
 @functools.cache
-def estimateVolumes(
+def _estimateVolumes(
     width,
     height,
     correctForSmallOnes,
@@ -2671,36 +2866,44 @@ def estimateVolumes(
     nSteps=5,
     interpolate=True,
 ):
-    """estimate intersecting volume of leader and follower for different distances to
-    the edge of the volume
+    """
+    Estimate intersecting observation volumes for different particle sizes.
+
+    Calculates the observation volume for multiple particle size bins based on
+    camera configuration and geometric constraints.
 
     Parameters
     ----------
     width : int
-        image width
+        Image width.
     height : int
-        image height
+        Image height.
+    correctForSmallOnes : bool
+        Flag for small particle correction.
     camera_phi : float
-        roll of follower camera
+        Roll of follower camera.
     camera_theta : float
-        pitch of follower camera
+        Pitch of follower camera.
     camera_Ofz : float
-        offset in z direction
-    minSize : int
-        minimum size to consider for distamce to the edge
-    maxSize : int
-        maximum size to consider for distamce to the edge
+        Offset in z direction.
+    sizeBins : array-like
+        Particle size bins.
+    maxSharpnessSizes : array-like
+        Sizes requiring special treatment.
+    maxSharpnessLeader : array-like
+        Leader camera adjustment parameters.
+    maxSharpnessFollower : array-like
+        Follower camera adjustment parameters.
     nSteps : int, optional
-        number of points were the colume is estimated (the default is 5)
+        Number of interpolation points, defaults to 5.
+    interpolate : bool, optional
+        Apply interpolation, defaults to True.
 
     Returns
     -------
-    array
-        distances to the edge
-    array
-        volumes of corresponding distances
+    tuple
+        Size bins and corresponding volumes.
     """
-    # print(1)
     if np.any(np.isnan((camera_phi, camera_theta, camera_Ofz))):
         volumes = np.full(len(sizeBins), np.nan)
     else:
@@ -2737,7 +2940,7 @@ def estimateVolumes(
             delta = np.ceil(dd / 2).astype(int)
 
             volumes.append(
-                estimateVolume(
+                _estimateVolume(
                     width,
                     height,
                     camera_phi,
@@ -2761,23 +2964,25 @@ def estimateVolumes(
 
 
 def interpolateVolumes(Dfull, Dstep, volumes1):
-    """interpolate volumes considering the cube dependency
+    """
+    Interpolate volumes considering the cubic dependency.
+
+    Applies cubic interpolation to volume data between specified intervals
+    to obtain smooth volume estimates across all particle sizes.
 
     Parameters
     ----------
-    Dfull : array
-        list of distances wanted
-    Dstep : array
-        list of calculates distances
-    volumes1 : array
-        list of volumes
+    Dfull : array-like
+        Full range of particle sizes.
+    Dstep : array-like
+        Step sizes for interpolation.
+    volumes1 : array-like
+        Volume values at step sizes.
 
     Returns
     -------
-    array
-        distances to the edge used for interpolation
-    array
-        volumes of corresponding interpolated distances
+    tuple
+        Interpolated size bins and volumes.
     """
 
     volumes = np.interp(Dfull, Dstep, np.array(volumes1) ** (1 / 3.0)) ** 3

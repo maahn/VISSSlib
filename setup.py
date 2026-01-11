@@ -55,6 +55,7 @@ setuptools.setup(
         "pangaeapy",
         "netCDF4",
         "ninja",
+        "pytest",
     ],
     setup_requires=["setuptools_scm"],
 )

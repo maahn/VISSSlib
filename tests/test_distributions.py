@@ -1,5 +1,5 @@
 import numpy as np
-from VISSSlib.distributions import *
+import VISSSlib
 
 nSample = 100
 seed = 0
@@ -19,7 +19,7 @@ class TestVolume(object):
         phi, theta, Of_z = np.random.random(3)
         minDmax, maxDmax = 0, 20
         sizeBins = tuple(np.linspace(minDmax, maxDmax))
-        D_highRes, V_highRes = estimateVolumes(
+        D_highRes, V_highRes = VISSSlib.distributions._estimateVolumes(
             width,
             height,
             correctForSmallOnes,
@@ -33,7 +33,7 @@ class TestVolume(object):
             nSteps=21,
             interpolate=True,
         )
-        D_lowRes, V_lowRes = estimateVolumes(
+        D_lowRes, V_lowRes = VISSSlib.distributions._estimateVolumes(
             width,
             height,
             correctForSmallOnes,
@@ -57,6 +57,6 @@ class TestVolume(object):
         # no rotation!
         phi, theta, Of_z = 0, 0, 0
 
-        V = estimateVolume(width, height, phi, theta, Of_z)
+        V = VISSSlib.distributions._estimateVolume(width, height, phi, theta, Of_z)
 
         assert np.isclose(V, width * width * height)

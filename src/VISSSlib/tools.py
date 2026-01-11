@@ -152,6 +152,7 @@ def loopify_with_camera(func):
     callable
         Wrapped function that loops over cameras.
     """
+
     @wraps(func)
     def myinner(case, camera, config, *args, **kwargs):
         config = readSettings(config)
@@ -192,6 +193,7 @@ def loopify(func):
     callable
         Wrapped function that loops over cases.
     """
+
     @wraps(func)
     def myinner(case, config, *args, **kwargs):
         config = readSettings(config)
@@ -214,6 +216,7 @@ class DictNoDefault(Dict):
 
     Inherits from addict.Dict.
     """
+
     def __missing__(self, key):
         raise KeyError(key)
 
@@ -462,7 +465,6 @@ def getPreviousCalibrationOffset(case, config):
         Calibration offset and timestamp, or None if not found.
     """
     return getPreviousKey(config.aux.radar.calibrationOffset, case)
-
 
 
 def getMode(a):
@@ -1032,7 +1034,6 @@ def otherCamera(camera, config):
         raise ValueError
 
 
-
 def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
     """
     Cut follower data to match leader data with respect to time.
@@ -1235,9 +1236,10 @@ def displayImage(frame, doDisplay=True, rescale=None):
 
 class ZipFile(zipfile.ZipFile):
     """
-    Extended zip file class with automatic parent directory creation. 
+    Extended zip file class with automatic parent directory creation.
     Extra functions to store and retrieve images as numpy arrays
     """
+
     def __init__(self, file, **kwargs):
         createParentDir(file)
         super().__init__(file, **kwargs)
@@ -1931,9 +1933,9 @@ def tryRemovingFile(file):
 def to_netcdf2(dat, config, file, **kwargs):
     """
     Save dataset to NetCDF with directory creation.
-    Write to random file and move to final file to 
+    Write to random file and move to final file to
     avoid errors due to race conditions or exisiting files
-    
+
     Parameters
     ----------
     dat : xarray.Dataset
@@ -1980,7 +1982,7 @@ def to_netcdf2(dat, config, file, **kwargs):
 def linreg(x, y):
     """
     Perform linear regression.
-    Turns out to be a lot faster than scipy and 
+    Turns out to be a lot faster than scipy and
     numpy code when using numba (1.7 us vs 25 us)
 
 
@@ -2268,7 +2270,7 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
 def checkForExisting(ffOut, level0=None, events=None, parents=None):
     """
     Check if file exists and is up-to-date including potential parents.
-    
+
     Parameters
     ----------
     ffOut : str

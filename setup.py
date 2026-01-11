@@ -54,6 +54,7 @@ setuptools.setup(
         "tqdm",
         "pangaeapy",
         "netCDF4",
+        "ninja",
     ],
     setup_requires=["setuptools_scm"],
 )

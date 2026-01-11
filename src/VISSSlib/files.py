@@ -15,8 +15,7 @@ from addict import Dict
 log = logging.getLogger(__name__)
 
 from . import __version__, metadata
-from .tools import (DictNoDefault, getCaseRange, nicerNames, otherCamera,
-                    readSettings)
+from .tools import DictNoDefault, getCaseRange, nicerNames, otherCamera, readSettings
 
 # to do merge to single class using different constructors with @classmethod?
 
@@ -1547,7 +1546,8 @@ class Filenames(object):
         -----
         More robust than nextFile when the reference file does not exist yet.
         Uses timestamp comparisons to avoid issues with missing files.
-        """        allOffsets = _getOffsets(self, level, maxOffset, +1)
+        """
+        allOffsets = _getOffsets(self, level, maxOffset, +1)
 
         if len(allOffsets) == 0:
             return None
@@ -1751,5 +1751,3 @@ class FilenamesFromLevel(Filenames):
         super().__init__(fnameLevel0, config, version)
 
         return
-
-

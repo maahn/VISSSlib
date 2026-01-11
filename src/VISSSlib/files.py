@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-
 import datetime
 import functools
 import glob
@@ -16,7 +15,8 @@ from addict import Dict
 log = logging.getLogger(__name__)
 
 from . import __version__, metadata
-from .tools import DictNoDefault, getCaseRange, nicerNames, otherCamera, readSettings
+from .tools import (DictNoDefault, getCaseRange, nicerNames, otherCamera,
+                    readSettings)
 
 # to do merge to single class using different constructors with @classmethod?
 
@@ -59,6 +59,32 @@ imageLevels = ["imagesL1detect"]
 
 
 def findLastFile(config, prod, camera):
+    """
+    Find the last available file and related metadata for a given product and camera.
+
+    Parameters
+    ----------
+    config : dict or str
+        Configuration settings or path to configuration file.
+    prod : str
+        Product name (e.g., 'level1detect').
+    camera : str
+        Camera identifier (e.g., 'leader' or 'follower').
+
+    Returns
+    -------
+    tuple
+        Tuple containing:
+        - foundLastFile: bool indicating if last file was found
+        - lastCase: str, the last case found
+        - lastFile: str, the path to the last file
+        - lastFileTime: datetime obj, the timestamp of the last file
+
+    Notes
+    -----
+    This function iterates through recent cases to find the most recent file
+    of the requested product and camera combination.
+    """
     config = readSettings(config)
     cases = getCaseRange(0, config, endYesterday=False)[::-1]
 
@@ -92,11 +118,78 @@ def findLastFile(config, prod, camera):
 
 
 class FindFiles(object):
+    """
+    Class to manage and locate files based on case and camera specifications.
+
+    This class handles finding and managing file paths for different processing
+    levels of VISSS data, including level0, level1, level2, and level3 products.
+    It provides methods to search, validate, and organize file locations based
+    on timestamps and camera configurations.
+
+    Attributes
+    ----------
+    case : str
+        The case identifier (YYYYMMDD).
+    camera : str
+        The camera identifier (e.g., 'leader' or 'follower').
+    config : dict
+        Configuration dictionary containing paths and settings.
+    version : str
+        Version string for the VISSS processing.
+    year : str
+        Year component of the case.
+    month : str
+        Month component of the case.
+    day : str
+        Day component of the case.
+    hour : str
+        Hour component of the case (if applicable).
+    minute : str
+        Minute component of the case (if applicable).
+    datetime : datetime.datetime
+        Parsed datetime from the case identifier.
+    datetime64 : numpy.datetime64
+        Parsed datetime64 from the case identifier.
+    logpath : str
+        Path to log files for this camera.
+    outpath : dict
+        Dictionary mapping processing level to output directory path.
+    fnamesPattern : dict
+        Dictionary mapping processing level to filename pattern.
+    fnamesPatternExt : dict
+        Dictionary mapping processing level to expanded filename pattern.
+    fnamesDaily : dict
+        Dictionary mapping processing level to daily filename pattern.
+    fnamesHourly : dict
+        Dictionary mapping processing level to hourly filename pattern.
+    quicklook : dict
+        Dictionary mapping processing level to quicklook image filename.
+    quicklookCurrent : dict
+        Dictionary mapping processing level to current quicklook image filename.
+    quicklookPath : dict
+        Dictionary mapping processing level to quicklook image path.
+    """
+
     def __init__(self, case, camera, config, version=__version__):
         """
-        find all files corresponding to certain case
+        Initialize FindFiles object with case, camera, and config details.
 
-        for level 0, only thread 0 files are returned!
+        Parameters
+        ----------
+        case : str
+            Case identifier (YYYYMMDD format).
+        camera : str
+            Camera identifier ('leader' or 'follower').
+        config : dict or str
+            Configuration dictionary or path to configuration file.
+        version : str, optional
+            Version string, defaults to __version__.
+
+        Notes
+        -----
+        This constructor builds file paths for different processing levels
+        and creates patterns for locating various types of files based on
+        the case, camera, and configuration.
         """
         import pandas as pd
 
@@ -338,10 +431,26 @@ class FindFiles(object):
 
     @property
     def yesterday(self):
+        """
+        Get the previous day's case identifier.
+
+        Returns
+        -------
+        str
+            Date in YYYYMMDD format for the day before this case.
+        """
         return self.yesterdayObject.case.split("-")[0]
 
     @property
     def yesterdayObject(self):
+        """
+        Get the FindFiles object for the previous day.
+
+        Returns
+        -------
+        FindFiles
+            FindFiles object for the previous day.
+        """
         import pandas as pd
 
         return FindFiles(
@@ -354,10 +463,26 @@ class FindFiles(object):
 
     @property
     def tomorrow(self):
+        """
+        Get the next day's case identifier.
+
+        Returns
+        -------
+        str
+            Date in YYYYMMDD format for the day after this case.
+        """
         return self.tomorrowObject.case.split("-")[0]
 
     @property
     def tomorrowObject(self):
+        """
+        Get the FindFiles object for the next day.
+
+        Returns
+        -------
+        FindFiles
+            FindFiles object for the next day.
+        """
         import pandas as pd
 
         return FindFiles(
@@ -370,22 +495,19 @@ class FindFiles(object):
 
     @functools.cache
     def getEvents(self, skipExisting=True):
-        """Get (and create if necessary) event dataset.
+        """
+        Retrieve and optionally create the event dataset for this case and camera.
 
         Parameters
         ----------
         skipExisting : bool, optional
-            skip processing exisiting files (the default is True)
+            Whether to skip processing if files already exist, defaults to True
 
         Returns
         -------
-        str
-            event filename
-
-        xr.Dataset
-            event Dataset
+        tuple(str, xarray.Dataset)
+            Tuple of (event_filename, event_dataset) or (None, None) if not found
         """
-
         # just in case it is missing
         metadata.createEvent(
             self.case,
@@ -408,6 +530,24 @@ class FindFiles(object):
 
     @functools.cache
     def listFiles(self, level):
+        """
+        List all files of a specific processing level for this case and camera.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to list files for (e.g., 'level1detect').
+
+        Returns
+        -------
+        list
+            List of full paths to files matching the pattern.
+
+        Raises
+        ------
+        ValueError
+            If the level is not recognized.
+        """
         if level not in self.fnamesPattern.keys():
             raise ValueError(
                 f"Level not found, level must be in {self.fnamesPattern.keys()}"
@@ -416,6 +556,22 @@ class FindFiles(object):
 
     @functools.cache
     def listFilesExt(self, level, ignoreBrokenFiles=False):
+        """
+        List all files of a specific processing level for this case and camera,
+        including broken and nodata files.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to list files for (e.g., 'level1detect').
+        ignoreBrokenFiles : bool, optional
+            Ignore broken files in the listing (defaults to False).
+
+        Returns
+        -------
+        list
+            List of full paths to files matching the pattern.
+        """
         res = sorted(
             filter(
                 os.path.isfile,
@@ -429,6 +585,19 @@ class FindFiles(object):
 
     @functools.cache
     def listBroken(self, level):
+        """
+        List all broken files of a specific processing level for this case and camera.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to list broken files for (e.g., 'level1detect').
+
+        Returns
+        -------
+        list
+            List of full paths to broken files matching the pattern.
+        """
         return sorted(
             filter(
                 os.path.isfile,
@@ -440,6 +609,19 @@ class FindFiles(object):
 
     @functools.cache
     def listNoData(self, level):
+        """
+        List all nodata files of a specific processing level for this case and camera.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to list nodata files for (e.g., 'level1detect').
+
+        Returns
+        -------
+        list
+            List of full paths to nodata files matching the pattern.
+        """
         return sorted(
             filter(
                 os.path.isfile,
@@ -451,6 +633,20 @@ class FindFiles(object):
 
     @functools.cache
     def listFilesWithNeighbors(self, level):
+        """
+        List all files of a specific processing level for this case and camera,
+        including neighboring files.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to list files for (e.g., 'level1detect').
+
+        Returns
+        -------
+        list
+            List of full paths to files (including neighbors) matching the pattern.
+        """
         fnames = self.listFiles(level)
         if len(fnames) > 0:
             ff1 = FilenamesFromLevel(fnames[0], self.config)
@@ -464,25 +660,82 @@ class FindFiles(object):
 
     @property
     def isCompleteL0(self):
+        """
+        Check if all level0 files for this case and camera are complete.
+
+        Returns
+        -------
+        bool
+            True if all level0 files are complete, False otherwise.
+        """
         return self.nMissingL0 == 0
 
     @property
     def isCompleteL1detect(self):
+        """
+        Check if all level1detect files for this case and camera are complete.
+
+        Returns
+        -------
+        bool
+            True if all level1detect files are complete, False otherwise.
+        """
         return self.nMissingL1detect == 0
 
     @property
     def isCompleteMetaFrames(self):
+        """
+        Check if all metaFrames files for this case and camera are complete.
+
+        Returns
+        -------
+        bool
+            True if all metaFrames files are complete, False otherwise.
+        """
         return self.nMissingMetaFrames == 0
 
     @property
     def isCompleteL1match(self):
+        """
+        Check if all level1match files for this case and camera are complete.
+
+        Returns
+        -------
+        bool
+            True if all level1match files are complete, False otherwise.
+        """
         return self.nMissingL1match == 0
 
     @property
     def isCompleteL1track(self):
+        """
+        Check if all level1track files for this case and camera are complete.
+
+        Returns
+        -------
+        bool
+            True if all level1track files are complete, False otherwise.
+        """
         return self.nMissingL1track == 0
 
     def isComplete(self, level, ignoreBrokenFiles=False, requireL0Files=False):
+        """
+        Check if all files of a specific processing level for this case and camera are complete.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to check (e.g., 'level1detect').
+        ignoreBrokenFiles : bool, optional
+            Ignore broken files in the completeness check (defaults to False).
+        requireL0Files : bool, optional
+            Require the presence of level0 files (defaults to False).
+
+        Returns
+        -------
+        bool
+            True if all files of the specified level are complete, False otherwise.
+        """
         return (
             self.nMissing(
                 level,
@@ -494,29 +747,94 @@ class FindFiles(object):
 
     @property
     def nL0(self):
+        """
+        Get the number of level0 files for this case and camera.
+
+        Returns
+        -------
+        int
+            Number of level0 files.
+        """
         return len(self.listFiles("level0txt"))
 
     @property
     def nMissingL0(self):
+        """
+        Get the number of missing level0 files for this case and camera.
+
+        Returns
+        -------
+        int
+            Number of missing level0 files.
+        """
         return self.nMissing("level0")
 
     @property
     def nMissingL1detect(self):
+        """
+        Get the number of missing level1detect files for this case and camera.
+
+        Returns
+        -------
+        int
+            Number of missing level1detect files.
+        """
         return self.nMissing("level1detect")
 
     @property
     def nMissingMetaFrames(self):
+        """
+        Get the number of missing metaFrames files for this case and camera.
+
+        Returns
+        -------
+        int
+            Number of missing metaFrames files.
+        """
         return self.nMissing("metaFrames")
 
     @property
     def nMissingL1match(self):
+        """
+        Get the number of missing level1match files for this case and camera.
+
+        Returns
+        -------
+        int
+            Number of missing level1match files.
+        """
         return self.nMissing("level1match")
 
     @property
     def nMissingL1track(self):
+        """
+        Get the number of missing level1track files for this case and camera.
+
+        Returns
+        -------
+        int
+            Number of missing level1track files.
+        """
         return self.nMissing("level1track")
 
     def nMissing(self, level, ignoreBrokenFiles=False, requireL0Files=False):
+        """
+        Get the number of missing files of a specific processing level for this case and camera.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to check (e.g., 'level1detect').
+        ignoreBrokenFiles : bool, optional
+            Ignore broken files in the count (defaults to False).
+        requireL0Files : bool, optional
+            Require the presence of level0 files (defaults to False).
+
+        Returns
+        -------
+        int
+            Number of missing files.
+        """
         if level in dailyLevels:
             nMissing = 1 - len(
                 self.listFilesExt(level, ignoreBrokenFiles=ignoreBrokenFiles)
@@ -540,6 +858,19 @@ class FindFiles(object):
         return nMissing
 
     def reportDuplicates(self, level):
+        """
+        Report duplicate files of a specific processing level for this case and camera.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to check (e.g., 'level1detect').
+
+        Returns
+        -------
+        list
+            List of duplicate file paths.
+        """
         duplicates = []
         if self.nMissing(level) < 0:
             if level not in dailyLevels:
@@ -564,10 +895,77 @@ class FindFiles(object):
 
 
 class Filenames(object):
+    """
+    Class to manage file paths and related information for VISSS data processing.
+
+    This class provides methods to construct and manage file paths for different
+    processing levels of VISSS data. It handles both level0 (raw video) and higher
+    level files (processed data). The class supports operations such as finding
+    neighboring files, determining if data is complete, and creating file paths
+    for various processing stages.
+
+    Attributes
+    ----------
+    fname : dict
+        Dictionary mapping processing level to full file path.
+    config : dict
+        Configuration dictionary containing paths and settings.
+    version : str
+        Version string for the VISSS processing.
+    basename : str
+        Basename of the file without extension.
+    dirname : str
+        Directory name of the file.
+    case : str
+        Case identifier (YYYYMMDD).
+    year : str
+        Year component of the case.
+    month : str
+        Month component of the case.
+    day : str
+        Day component of the case.
+    timestamp : str
+        Timestamp component of the case (HHMMSS).
+    datetime : datetime.datetime
+        Parsed datetime from the case identifier.
+    datetime64 : numpy.datetime64
+        Parsed datetime64 from the case identifier.
+    camera : str
+        Camera identifier (e.g., 'leader_001').
+    visssGen : str
+        VISSS generation identifier.
+    computer : str
+        Computer identifier.
+    basenameShort : str
+        Short basename for daily files.
+    outpath : str
+        Output path for the current date.
+    outpathDaily : str
+        Daily output path for the current date.
+    logpath : str
+        Log path for this camera.
+    quicklookPath : dict
+        Dictionary mapping processing level to quicklook image path.
+    """
+
     def __init__(self, fname, config, version=__version__):
         """
-        create matching filenames based on mov file
-        Use always thread 0 file!
+        Initialize Filenames object with file path and configuration details.
+
+        Parameters
+        ----------
+        fname : str
+            Full path to the level0 mkv file.
+        config : dict or str
+            Configuration dictionary or path to configuration file.
+        version : str, optional
+            Version string, defaults to __version__.
+
+        Notes
+        -----
+        This constructor extracts all necessary information from the filename
+        and builds paths for different processing levels based on the configuration.
+        It handles both single-threaded and multi-threaded scenarios.
         """
         config = readSettings(config)
         if fname.endswith("txt"):
@@ -694,10 +1092,26 @@ class Filenames(object):
 
     @property
     def yesterday(self):
+        """
+        Get the previous day's case identifier.
+
+        Returns
+        -------
+        str
+            Date in YYYYMMDD format for the day before this case.
+        """
         return self.yesterdayObject.case.split("-")[0]
 
     @property
     def yesterdayObject(self):
+        """
+        Get the FindFiles object for the previous day.
+
+        Returns
+        -------
+        FindFiles
+            FindFiles object for the previous day.
+        """
         import pandas as pd
 
         return FindFiles(
@@ -710,10 +1124,26 @@ class Filenames(object):
 
     @property
     def tomorrow(self):
+        """
+        Get the next day's case identifier.
+
+        Returns
+        -------
+        str
+            Date in YYYYMMDD format for the day after this case.
+        """
         return self.tomorrowObject.case.split("-")[0]
 
     @property
     def tomorrowObject(self):
+        """
+        Get the FindFiles object for the next day.
+
+        Returns
+        -------
+        FindFiles
+            FindFiles object for the next day.
+        """
         import pandas as pd
 
         return FindFiles(
@@ -726,8 +1156,24 @@ class Filenames(object):
 
     def filenamesOtherCamera(self, graceInterval=120, level="level1detect"):
         """
-        Find all relevant files of the other camera of ´level´. ´graceinterval´ accounts for
-        potential time offsets
+        Find all relevant files of the other camera for a given level.
+
+        Parameters
+        ----------
+        graceInterval : int, optional
+            Grace interval in seconds to account for time offsets, defaults to 120.
+        level : str, optional
+            Processing level to check, defaults to "level1detect".
+
+        Returns
+        -------
+        list
+            List of filenames from the other camera matching the criteria.
+
+        Notes
+        -----
+        This method considers time windows and handles cases where files might be
+        from adjacent days due to time synchronization issues.
         """
         import pandas as pd
 
@@ -792,7 +1238,18 @@ class Filenames(object):
     @functools.cached_property
     def fnameTxtAllThreads(self):
         """
-        find level 0 fnames of other threads
+        Find level 0 txt filenames of all threads.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping thread number to txt filename.
+
+        Notes
+        -----
+        For single-threaded setups, this returns a dictionary with only thread 0.
+        For multi-threaded setups, it returns file paths for all threads.
+        Handles cases where files may have slightly different timestamps.
         """
 
         if (self.config["nThreads"] is None) or (self.config["nThreads"] == 1):
@@ -830,7 +1287,17 @@ class Filenames(object):
     @functools.cached_property
     def fnameMovAllThreads(self):
         """
-        find level 0 fnames of other threads
+        Find level 0 movie filenames of all threads.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping thread number to movie filename.
+
+        Notes
+        -----
+        Similar to fnameTxtAllThreads but returns movie files instead of txt files.
+        Uses the same logic for handling multiple threads and timestamp variations.
         """
 
         # shortcut
@@ -852,15 +1319,73 @@ class Filenames(object):
 
     @functools.cache
     def nextFile(self, level="level0", debug=False):
+        """
+        Find the next file in sequence for the specified processing level.
+
+        Parameters
+        ----------
+        level : str, optional
+            Processing level, defaults to "level0".
+        debug : bool, optional
+            Enable debug output, defaults to False.
+
+        Returns
+        -------
+        str or None
+            Path to the next file, or None if not found.
+
+        Notes
+        -----
+        If the file does not exist yet, it searches across day boundaries for
+        nearby files matching the processing level.
+        """
         return self.findNeighborFile(+1, level=level, debug=debug)
 
     @functools.cache
     def prevFile(self, level="level0", debug=False):
+        """
+        Find the previous file in sequence for the specified processing level.
+
+        Parameters
+        ----------
+        level : str, optional
+            Processing level, defaults to "level0".
+        debug : bool, optional
+            Enable debug output, defaults to False.
+
+        Returns
+        -------
+        str or None
+            Path to the previous file, or None if not found.
+
+        Notes
+        -----
+        If the file does not exist yet, it searches across day boundaries for
+        nearby files matching the processing level.
+        """
         return self.findNeighborFile(-1, level=level, debug=debug)
 
     def findNeighborFile(self, offset, level="level0", debug=False):
         """
-        find file at difstance of x offsets
+        Find file at a specific offset from the current file.
+
+        Parameters
+        ----------
+        offset : int
+            Offset to search for (positive for future, negative for past).
+        level : str, optional
+            Processing level, defaults to "level0".
+        debug : bool, optional
+            Enable debug output, defaults to False.
+
+        Returns
+        -------
+        str or None
+            Path to the neighbor file, or None if not found.
+
+        Notes
+        -----
+        Handles boundary conditions when searching across day boundaries.
         """
         if debug:
             print("find a neighbor", offset, level)
@@ -936,7 +1461,23 @@ class Filenames(object):
 
     @functools.cache
     def _getOffsets(self, level, maxOffset, direction):
-        # helper function nextFile2 and prevFile2
+        """
+        Helper method to compute temporal offsets for neighbor file search.
+
+        Parameters
+        ----------
+        level : str
+            Processing level to search.
+        maxOffset : numpy.timedelta64
+            Maximum offset to consider.
+        direction : int
+            Search direction (+1 for future, -1 for past).
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of temporal offsets.
+        """
 
         assert maxOffset <= np.timedelta64(1, "D"), "not supported yet"
         case = self.case.split("-")[0]
@@ -987,8 +1528,26 @@ class Filenames(object):
 
     @functools.cache
     def nextFile2(self, level="level0", maxOffset=np.timedelta64(2, "h")):
-        # alternative implementation based on timestamp. works also when reference file does not exist yet
-        allOffsets = _getOffsets(self, level, maxOffset, +1)
+        """
+        Alternative implementation to find next file using timestamp-based search.
+
+        Parameters
+        ----------
+        level : str, optional
+            Processing level to search, defaults to "level0".
+        maxOffset : numpy.timedelta64, optional
+            Maximum time offset to search, defaults to 2 hours.
+
+        Returns
+        -------
+        str or None
+            Path to the next file, or None if not found.
+
+        Notes
+        -----
+        More robust than nextFile when the reference file does not exist yet.
+        Uses timestamp comparisons to avoid issues with missing files.
+        """        allOffsets = _getOffsets(self, level, maxOffset, +1)
 
         if len(allOffsets) == 0:
             return None
@@ -1008,7 +1567,26 @@ class Filenames(object):
 
     @functools.cache
     def prevFile2(self, level="level0", maxOffset=np.timedelta64(2, "h")):
-        # alternative implementation based on timestamp. works also when reference file does not exist yet
+        """
+        Alternative implementation to find previous file using timestamp-based search.
+
+        Parameters
+        ----------
+        level : str, optional
+            Processing level to search, defaults to "level0".
+        maxOffset : numpy.timedelta64, optional
+            Maximum time offset to search, defaults to 2 hours.
+
+        Returns
+        -------
+        str or None
+            Path to the previous file, or None if not found.
+
+        Notes
+        -----
+        More robust than prevFile when the reference file does not exist yet.
+        Uses timestamp comparisons to avoid issues with missing files.
+        """
         allOffsets = self._getOffsets(level, maxOffset, -1)
 
         if len(allOffsets) == 0:
@@ -1029,20 +1607,23 @@ class Filenames(object):
 
     @functools.cache
     def getEvents(self, skipExisting=True):
-        """Get (and create if necessary) event dataset.
+        """
+        Get (and create if necessary) event dataset for this case and camera.
 
         Parameters
         ----------
         skipExisting : bool, optional
-            skip processing exisiting files (the default is True)
+            Skip processing existing files (defaults to True).
 
         Returns
         -------
-        str
-            event filename
+        tuple(str, xarray.Dataset)
+            Tuple containing event filename and event Dataset.
 
-        xr.Dataset
-            event Dataset
+        Notes
+        -----
+        This method ensures event files are available for data validation
+        and processing workflows.
         """
 
         eventFile = self.fname.metaEvents
@@ -1062,9 +1643,73 @@ class Filenames(object):
 
 
 class FilenamesFromLevel(Filenames):
+    """
+    Class to manage file paths for VISSS data processing starting from level 1 or level 2 files.
+
+    This class extends the Filenames class and is specifically designed to handle
+    file paths when starting from processed level 1 or level 2 files. It extracts
+    essential information from these files to reconstruct the full path structure
+    including case, camera, and processing level details.
+
+    Attributes
+    ----------
+    fname : dict
+        Dictionary mapping processing level to full file path.
+    config : dict
+        Configuration dictionary containing paths and settings.
+    version : str
+        Version string for the VISSS processing.
+    basename : str
+        Basename of the file without extension.
+    dirname : str
+        Directory name of the file.
+    case : str
+        Case identifier (YYYYMMDD).
+    year : str
+        Year component of the case.
+    month : str
+        Month component of the case.
+    day : str
+        Day component of the case.
+    timestamp : str
+        Timestamp component of the case (HHMMSS).
+    datetime : datetime.datetime
+        Parsed datetime from the case identifier.
+    datetime64 : numpy.datetime64
+        Parsed datetime64 from the case identifier.
+    camera : str
+        Camera identifier (e.g., 'leader_001').
+    visssGen : str
+        VISSS generation identifier.
+    computer : str
+        Computer identifier.
+    basenameShort : str
+        Short basename for daily files.
+    outpath : str
+        Output path for the current date.
+    outpathDaily : str
+        Daily output path for the current date.
+    logpath : str
+        Log path for this camera.
+    quicklookPath : dict
+        Dictionary mapping processing level to quicklook image path.
+    """
+
     def __init__(self, fname, config):
         """
-        get all filenames from a level 1 or level 2 file
+        Initialize FilenamesFromLevel object with level 1 or level 2 file path and configuration.
+
+        Parameters
+        ----------
+        fname : str
+            Full path to the level 1 or level 2 file.
+        config : dict or str
+            Configuration dictionary or path to configuration file.
+
+        Notes
+        -----
+        This constructor parses the filename of level 1 or level 2 files to extract
+        case, camera, and other relevant information to build complete path structures.
         """
 
         config = readSettings(config)
@@ -1107,43 +1752,4 @@ class FilenamesFromLevel(Filenames):
 
         return
 
-    # def __init__(self, fname, config):
-    #     '''
-    #     get all filenames from a level 1 or level 2 file
-    #     '''
 
-    #     self.level, self.version, self.site, self.computer, self.visssGen, visssType, visssSerial, ts = fname.split("/")[-1].split("_")
-    #     #remove leading "V"
-    #     self.version = self.version[1:]
-    #     self.case = ts.split(".")[0]
-    #     self.camera = "_".join((visssType, visssSerial))
-
-    #     self.config = config
-    #     self.basename = "_".join((self.computer, self.visssGen, visssType, visssSerial, self.case))
-
-    #     self.year = self.case[:4]
-    #     self.month = self.case[4:6]
-    #     self.day = self.case[6:8]
-    #     self.timestamp = self.case[-6:]
-
-    #     self.datetime = datetime.datetime.strptime(f"{self.year}{self.month}{self.day}-{self.timestamp}", "%Y%m%d-%H%M%S")
-    #     self.datetime64= np.datetime64(self.datetime, "ns")
-
-    #     self.outpath0 = "%s/%s_visss_%s/%s/%s/%s" % (config["pathOut"].format(level=0), self.computer, self.camera, self.year, self.month, self.day)
-    #     if config["nThreads"] is None:
-    #         self.fnameLevel0 = f"{self.outpath0}/{self.basename}.{config['movieExtension']}"
-    #     else:
-    #         self.fnameLevel0 = f"{self.outpath0}/{self.basename}_0.{config['movieExtension']}"
-
-    #     self.outpath = "%s/%s/%s/%s" % (config["pathOut"], self.year, self.month, self.day)
-    #     self.fnameLevel1 = '%s/level1_V%s_%s_%s.nc' % (
-    #         self.outpath.format(site=self.site, level='1'), self.version, self.site, self.basename)
-    #     self.fnameLevel2 = '%s/level2_V%s_%s_%s.nc' % (
-    #         self.outpath.format(site=self.site, level='2'), self.version, self.site, self.basename)
-    #     self.fnameLevel3 = '%s/level3_V%s_%s_%s.nc' % (
-    #         self.outpath.format(site=self.site, level='3'), self.version, self.site, self.basename)
-
-    #     self.outpathImg = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
-    #     self.fnameLevel2images = "%s/%s/{ppid}"%(self.outpathImg.format(site=self.site, level='2images'),self.fnameLevel2.split("/")[-1])
-
-    #     return

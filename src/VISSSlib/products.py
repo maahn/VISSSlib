@@ -29,6 +29,35 @@ class DataProduct(object):
         fileObject=None,
         childrensRelatives=tools.DictNoDefault({}),
     ):
+        """
+        Initialize a DataProduct for processing VISSS data.
+
+        Parameters
+        ----------
+        level : str
+            Processing level (e.g., 'level0', 'level1detect', 'metaEvents')
+        case : str
+            Case identifier for the data
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str
+            Camera identifier ('leader' or 'follower')
+        relatives : str, optional
+            Relative path specification
+        addRelatives : bool, default True
+            Whether to add relatives of the corresponding product
+        fileObject : object, optional
+            File object for processing
+        childrensRelatives : dict, default {}
+            Dictionary of child relatives
+
+        Raises
+        ------
+        ValueError
+            If camera is not 'leader' or 'follower'
+        """
         import taskqueue
 
         """
@@ -152,6 +181,14 @@ class DataProduct(object):
             self.addRelatives()
 
     def __repr__(self):
+        """
+        Return string representation of the DataProduct object.
+
+        Returns
+        -------
+        str
+            String representation of the object
+        """
         reprstr = (
             f"<VISSSlib.products.DataProduct object {self.level} for "
             f"{self.settings} using {self.camera} on {self.case}>"
@@ -159,6 +196,12 @@ class DataProduct(object):
         return reprstr
 
     def addRelatives(self):
+        """
+        Add relative products to the current product.
+
+        This method recursively adds parent products based on the parent names
+        defined for the current level.
+        """
         for parentCam in self.parentNames:
             # save time by not adding a product more than once
             if parentCam in self.childrensRelatives.keys():
@@ -180,6 +223,21 @@ class DataProduct(object):
             self.childrensRelatives.update(self.parents)
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
+        """
+        Generate all commands for processing this product and its dependencies.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        withParents : bool, default True
+            Whether to include parent commands
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         # cache for this function
         isComplete = self.isComplete
 
@@ -192,19 +250,19 @@ class DataProduct(object):
         if (
             skipExisting
             and isComplete
-            and self.youngerThanParents
+            and self._youngerThanParents
             and self.parentsComplete
         ):
             if withParents:
                 log.warning(f"{self.case} {self.relatives}: everything processed")
             return []
-        if isComplete and (not self.youngerThanParents):
+        if isComplete and (not self._youngerThanParents):
             for name, younger in self._youngerThanParentsDict.items():
                 if not younger:
                     log.warning(
                         f"{self.case} {self.relatives} redoing level, parent {name} is younger"
                     )
-        if self.parentsComplete and self.parentsYoungerThanGrandparents:
+        if self.parentsComplete and self._parentsYoungerThanGrandparents:
             commands = self.generateCommands(
                 skipExisting=skipExisting,
             )
@@ -237,16 +295,38 @@ class DataProduct(object):
         return self.commands
 
     def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
+        """
+        Generate commands for processing this product.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        nCPU : int, default 1
+            Number of CPU cores to use
+        bin : str, optional
+            Python binary path
+
+        Returns
+        -------
+        list
+            List of commands to execute
+
+        Raises
+        ------
+        ValueError
+            If the level is not recognized
+        """
         if self.level == "level0":
             return []
         elif self.level == "level0txt":
             return []
         elif self.level == "metaEvents":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "metadata.createEvent", skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
         elif self.level == "metaFrames":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "scripts.loopCreateMetaFrames",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
@@ -255,7 +335,7 @@ class DataProduct(object):
         elif self.level == "level1detect":
             originLevel = "level0txt"
             call = "detection.detectParticles"
-            return self.commandTemplateL1(
+            return self._commandTemplateL1(
                 originLevel,
                 call,
                 skipExisting=skipExisting,
@@ -263,7 +343,7 @@ class DataProduct(object):
                 bin=bin,
             )
         elif self.level == "metaRotation":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "matching.createMetaRotation",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
@@ -272,7 +352,7 @@ class DataProduct(object):
         elif self.level == "level1match":
             originLevel = "level1detect"
             call = "matching.matchParticles"
-            return self.commandTemplateL1(
+            return self._commandTemplateL1(
                 originLevel,
                 call,
                 skipExisting=skipExisting,
@@ -283,38 +363,38 @@ class DataProduct(object):
         elif self.level == "level1track":
             originLevel = "level1match"
             call = "tracking.trackParticles"
-            return self.commandTemplateL1(
+            return self._commandTemplateL1(
                 originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
         # elif self.level == "level1shape":
         #     originLevel = "level1track"
         #     call = "particleshape.classifyParticles"
-        #     return self.commandTemplateL1(
+        #     return self._commandTemplateL1(
         #         originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
         #     )
         elif self.level == "level2detect":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "distributions.createLevel2detect",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,
             )
         elif self.level == "level2match":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "distributions.createLevel2match",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,
             )
         elif self.level == "level2track":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "distributions.createLevel2track",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,
             )
         elif self.level == "level3combinedRiming":
-            return self.commandTemplateDaily(
+            return self._commandTemplateDaily(
                 "level3.retrieveCombinedRiming",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
@@ -325,9 +405,9 @@ class DataProduct(object):
             command = f"mkdir -p {os.path.dirname(outFile)} && touch {outFile}"
             return [(command, outFile)]
         else:
-            raise ValueError(f"Do not understand {level}")
+            raise ValueError(f"Do not understand {self.level}")
 
-    def commandTemplateL1(
+    def _commandTemplateL1(
         self,
         originLevel,
         call,
@@ -336,6 +416,29 @@ class DataProduct(object):
         bin=None,
         extraOrigin=None,
     ):
+        """
+        Generate commands for L1 processing steps.
+
+        Parameters
+        ----------
+        originLevel : str
+            Origin level for processing
+        call : str
+            Function call to execute
+        skipExisting : bool, default True
+            Whether to skip existing files
+        nCPU : int, default 1
+            Number of CPU cores to use
+        bin : str, optional
+            Python binary path
+        extraOrigin : str, optional
+            Extra origin level for comparison
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         nCPU = 1
         skipExisitingInt = int(skipExisting)
         if bin is None:
@@ -378,7 +481,26 @@ class DataProduct(object):
             commands.append((command, outFile))
         return commands
 
-    def commandTemplateDaily(self, call, skipExisting=True, nCPU=1, bin=None):
+    def _commandTemplateDaily(self, call, skipExisting=True, nCPU=1, bin=None):
+        """
+        Generate commands for daily processing steps.
+
+        Parameters
+        ----------
+        call : str
+            Function call to execute
+        skipExisting : bool, default True
+            Whether to skip existing files
+        nCPU : int, default 1
+            Number of CPU cores to use
+        bin : str, optional
+            Python binary path
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         nCPU = 1
         skipExisitingInt = int(skipExisting)
         if bin is None:
@@ -396,7 +518,7 @@ class DataProduct(object):
         outFile = self.fn.fnamesDaily[self.level]
 
         exisiting = glob.glob(f"{outFile}*")
-        if skipExisting and (len(exisiting) >= 1) and (self.youngerThanParents):
+        if skipExisting and (len(exisiting) >= 1) and (self._youngerThanParents):
             log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
             return []
 
@@ -412,6 +534,20 @@ class DataProduct(object):
         withParents=True,
         runWorkers=False,
     ):
+        """
+        Submit commands to the task queue.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        checkForDuplicates : bool, default False
+            Whether to check for duplicate commands
+        withParents : bool, default True
+            Whether to include parent commands
+        runWorkers : bool, default False
+            Whether to run workers immediately
+        """
         if len(self.commands) == 0:
             self.generateAllCommands(
                 skipExisting=skipExisting,
@@ -445,15 +581,34 @@ class DataProduct(object):
         return
 
     def runWorkers(self, nJobs=os.cpu_count()):
+        """
+        Run worker processes.
+
+        Parameters
+        ----------
+        nJobs : int, default os.cpu_count()
+            Number of jobs to run
+        """
         tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
+        """
+        Delete all tasks from the queue.
+        """
         log.info(f"Deleting {self.tq.enqueued} tasks")
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
     @cached_property
     def isComplete(self):
+        """
+        Check if all required files for this level exist.
+
+        Returns
+        -------
+        bool
+            True if all files are complete, False otherwise
+        """
         nMissing = self.fn.nMissing(self.level)
         if nMissing > 0:
             log.info(f"{self.case} {self.relatives} {nMissing} files are missing")
@@ -461,6 +616,15 @@ class DataProduct(object):
 
     @cached_property
     def _youngerThanParentsDict(self):
+        """
+        Check if this product is younger than its parents.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping parent names to boolean values indicating
+            whether this product is younger than each parent
+        """
         youngerThanParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
             isYounger = parent.fileCreation < self.fileCreation
@@ -478,23 +642,52 @@ class DataProduct(object):
         return youngerThanParentsDict
 
     @cached_property
-    def youngerThanParents(self):
+    def _youngerThanParents(self):
+        """
+        Check if this product is younger than all parents.
+
+        Returns
+        -------
+        bool
+            True if this product is younger than all parents, False otherwise
+        """
         youngerThanParents = np.all(list(self._youngerThanParentsDict.values()))
         return youngerThanParents
 
     @cached_property
-    def parentsYoungerThanGrandparents(self):
+    def _parentsYoungerThanGrandparents(self):
+        """
+        Check if parents are younger than their grandparents.
+
+        Returns
+        -------
+        bool
+            True if all parents are younger than their grandparents, False otherwise
+        """
         parentsYoungerThanGrandparents = True
         for name, parent in self.parents.items():
             parentsYoungerThanGrandparents = (
-                parentsYoungerThanGrandparents and parent.youngerThanParents
+                parentsYoungerThanGrandparents and parent._youngerThanParents
             )
             log.info(
-                f"{self.relatives} parent {name} is younger than its (grand)parents { parent.youngerThanParents}"
+                f"{self.relatives} parent {name} is younger than its (grand)parents { parent._youngerThanParents}"
             )
         return parentsYoungerThanGrandparents
 
     def _fileCreation(self, files):
+        """
+        Get the creation time of the most recent file.
+
+        Parameters
+        ----------
+        files : list
+            List of file paths
+
+        Returns
+        -------
+        float
+            Maximum modification time of the files
+        """
         if len(files) > 0:
             return np.max([os.path.getmtime(f) for f in files])
         else:
@@ -502,11 +695,27 @@ class DataProduct(object):
 
     @cached_property
     def fileCreation(self):
+        """
+        Get the creation time of this product.
+
+        Returns
+        -------
+        float
+            Modification time of the newest file
+        """
         files = self.listFilesExt()
         return self._fileCreation(files)
 
     @cached_property
     def parentsComplete(self):
+        """
+        Check if product's parent are complete.
+
+        Returns
+        -------
+        bool
+            True if all parents are complete, False otherwise
+        """
         parentsComplete = True
         for name, parent in self.parents.items():
             thisParentIsComplete = parent.isComplete
@@ -519,6 +728,14 @@ class DataProduct(object):
         return parentsComplete
 
     def report(self, withParents=True):
+        """
+        Print a report about this product's status.
+
+        Parameters
+        ----------
+        withParents : bool, default True
+            Whether to include parent reports
+        """
         nMissing = self.fn.nMissing(self.level)
         print(
             self.camera,
@@ -528,7 +745,7 @@ class DataProduct(object):
             "newest file",
             tools.timestamp2str(self.fileCreation),
             "younger than parents",
-            self.youngerThanParents,
+            self._youngerThanParents,
         )
         if nMissing > 0:
             print(
@@ -541,29 +758,95 @@ class DataProduct(object):
 
     @cached_property
     def dataAvailable(self):
+        """
+        Check if data is available for this product.
+
+        Returns
+        -------
+        bool
+            True if data is available, False otherwise
+        """
         return len(self.fn.listFiles("level0txt")) > 0
 
     @cached_property
     def allComplete(self):
-        return self.isComplete and self.youngerThanParents and self.parentsComplete
+        """
+        Check if this product and all its dependencies are complete.
+
+        Returns
+        -------
+        bool
+            True if all is complete, False otherwise
+        """
+        return self.isComplete and self._youngerThanParents and self.parentsComplete
 
     @cached_property
     def nFiles(self):
+        """
+        Get the number of files for this product.
+
+        Returns
+        -------
+        int
+            Number of files
+        """
         return len(self.fn.listFilesExt(self.level))
 
     def listFilesExt(self):
+        """
+        List all files for this product.
+
+        Returns
+        -------
+        list
+            List of file paths
+        """
         return self.fn.listFilesExt(self.level)
 
     def listFiles(self):
+        """
+        List files for this product.
+
+        Returns
+        -------
+        list
+            List of file paths
+        """
         return self.fn.listFiles(self.level)
 
     def listBroken(self):
+        """
+        List broken files for this product.
+
+        Returns
+        -------
+        list
+            List of broken file paths
+        """
         return self.fn.listBroken(self.level)
 
     def listNoData(self):
+        """
+        List files with no data for this product.
+
+        Returns
+        -------
+        list
+            List of no-data file paths
+        """
         return self.fn.listNoData(self.level)
 
     def cleanUpBroken(self, withParents=False, withNoData=False):
+        """
+        Clean up broken files.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to clean up parents too
+        withNoData : bool, default False
+            Whether to clean up no-data files too
+        """
         for fname in self.listBroken():
             assert fname.endswith("broken.txt")
             os.remove(fname)
@@ -578,6 +861,14 @@ class DataProduct(object):
                 parent.cleanUpBroken(withParents=False, withNoData=withNoData)
 
     def cleanUpDuplicates(self, withParents=False):
+        """
+        Clean up duplicate files.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to clean up parents too
+        """
         for fname in self.fn.reportDuplicates(self.level):
             os.remove(fname)
             log.warning(f"{fname} removed")
@@ -588,41 +879,153 @@ class DataProduct(object):
 
 class allDone(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize an allDone product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("allDone", case, settings, fileQueue, camera)
 
 
 class level2track(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level2track product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level2track", case, settings, fileQueue, camera)
 
 
 class level2match(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level2match product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level2match", case, settings, fileQueue, camera)
 
 
 class level2detect(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level2detect product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level2detect", case, settings, fileQueue, camera)
 
 
 class level1track(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level1track product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level1track", case, settings, fileQueue, camera)
 
 
 class level1match(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level1match product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level1match", case, settings, fileQueue, camera)
 
 
 class metaRotation(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a metaRotation product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("metaRotation", case, settings, fileQueue, camera)
 
 
 class level1detect(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level1detect product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level1detect", case, settings, fileQueue, camera)
 
 
@@ -633,16 +1036,58 @@ class level1detect(DataProduct):
 
 class metaFrames(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a metaFrames product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("metaFrames", case, settings, fileQueue, camera)
 
 
 class metaEvents(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a metaEvents product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("metaEvents", case, settings, fileQueue, camera)
 
 
 class level0(DataProduct):
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """
+        Initialize a level0 product.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level0", case, settings, fileQueue, camera)
 
 
@@ -656,6 +1101,25 @@ class DataProductRange(object):
         camera="leader",
         addRelatives=True,
     ):
+        """
+        Initialize a range of DataProducts for multiple days.
+
+        Parameters
+        ----------
+        level : str
+            Processing level
+        nDays : int
+            Number of days going back or date string "YYYYMMDD" or "YYYYMMDD-YYYYMMDD"
+            or "YYYYMMDD,YYYYMMDD,YYYYMMDD".
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        addRelatives : bool, default True
+            Whether to add relatives of the corresponding product
+        """
         import taskqueue
 
         self.settings = settings
@@ -691,6 +1155,21 @@ class DataProductRange(object):
             )
 
     def generateAllCommands(self, skipExisting=True, withParents=True):
+        """
+        Generate all commands for the range of products.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        withParents : bool, default True
+            Whether to include parent commands
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         for dd in self.days:
             self.allCommands += self.dailies[dd].generateAllCommands(
                 skipExisting=skipExisting,
@@ -705,6 +1184,20 @@ class DataProductRange(object):
         withParents=True,
         runWorkers=False,
     ):
+        """
+        Submit commands for the range of products.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        checkForDuplicates : bool, default False
+            Whether to check for duplicate commands
+        withParents : bool, default True
+            Whether to include processing of product's parents
+        runWorkers : bool, default False
+            Whether to run workers immediately
+        """
         if len(self.allCommands) == 0:
             self.generateAllCommands(
                 skipExisting=skipExisting,
@@ -740,6 +1233,14 @@ class DataProductRange(object):
 
     @property
     def isComplete(self):
+        """
+        Check if all products in the range are complete.
+
+        Returns
+        -------
+        bool
+            True if all products are complete, False otherwise
+        """
         if len(self.days) == 0:
             log.warning(f"Number of days is zero")
         isComplete = True
@@ -748,20 +1249,49 @@ class DataProductRange(object):
         return isComplete
 
     def runWorkers(self, nJobs=os.cpu_count()):
+        """
+        Run worker processes for the range.
+
+        Parameters
+        ----------
+        nJobs : int, default os.cpu_count()
+            Number of jobs to run
+        """
         tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
+        """
+        Delete all tasks from the queue.
+        """
         log.info(f"Deleting {self.tq.enqueued} tasks")
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
     def cleanUpBroken(self, withParents=False, withNoData=False):
+        """
+        Clean up broken files for the range.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to clean up parents too
+        withNoData : bool, default False
+            Whether to clean up no-data files too
+        """
         for dd in self.days:
             self.dailies[dd].cleanUpBroken(
                 withParents=withParents, withNoData=withNoData
             )
 
     def cleanUpDuplicates(self, withParents=False):
+        """
+        Clean up duplicate files for the range.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to clean up parents too
+        """
         for dd in self.days:
             self.dailies[dd].cleanUpDuplicates(withParents=withParents)
 
@@ -778,6 +1308,37 @@ def submitAll(
     cleanUpBroken=False,
     cleanUpDuplicates=False,
 ):
+    """
+    Submit all processing jobs for a given range of days.
+
+    Parameters
+    ----------
+    nDays : int
+        Number of days to process
+    settings : str
+        Path to settings file
+    fileQueue : str
+        File queue for task management
+    doMetaRot : bool, default True
+        Whether to perform meta rotation
+    submitJobs : bool, default True
+        Whether to submit jobs to the queue
+    skipExisting : bool, default True
+        Whether to skip existing files
+    checkForDuplicates : bool, default True
+        Whether to check for duplicate commands
+    runWorkers : bool, default False
+        Whether to run workers immediately
+    cleanUpBroken : bool, default False
+        Whether to clean up broken files
+    cleanUpDuplicates : bool, default False
+        Whether to clean up duplicate files
+
+    Returns
+    -------
+    object
+        DataProductRange object
+    """
     if submitJobs:
         import taskqueue
 

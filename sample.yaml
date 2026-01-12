@@ -1,0 +1,85 @@
+level1detect: 
+  maxMovingObjects: 1000
+computers:
+- visss11gb
+- visss11gb
+cropImage: null
+fps: 140
+exposureTime: 0.0002
+resolution: 58.75
+frame_height: 1024
+frame_width: 1280
+height_offset: 64
+instruments:
+- leader_S1145792
+- follower_S1143155
+instrumentsOrig:
+- leader_S1242799
+- follower_S1242357
+leader: leader_S1145792
+follower: follower_S1143155
+minMovingPixels:
+- 20
+- 10
+- 5
+- 2
+- 2
+- 2
+- 2
+movieExtension: mkv
+nThreads: 1
+path: /path/to/raw/visss/{level}
+pathOut: /path/to/products/visss_{version}/{level}
+pathTmp: /path/to/products/visss_{version}/{level}
+pathQuicklooks: /path/to/quicklooks/visss/{level}
+threshs:
+- 20
+- 30
+- 40
+- 60
+- 80
+- 100
+- 120
+visssGen: visss
+site: test
+goodFiles:
+- None
+- None
+start: "2025-11-20"
+end: today
+name: "Test Site"
+dataFixes: []
+newFileInt: 600
+model: M1280
+logo: /path/to/drops_logo_small.png
+rotate:
+  20251120-000000: # based on insect at 091000
+    transformation:
+      camera_Ofz: -26.727516
+      camera_phi: 0.407378
+      camera_theta: 0.470329
+    transformation_err:
+      camera_Ofz: 0.4086
+      camera_phi: 0.018426
+      camera_theta: 0.02951
+  20251121-054000:
+    transformation:
+      camera_Ofz: -36.823511
+      camera_phi: 9.753242
+      camera_theta: 5.260528
+    transformation_err:
+      camera_Ofz: 0.605003
+      camera_phi: 0.099999
+      camera_theta: 0.060927
+  20251203-000000: #0820
+    transformation:
+      camera_Ofz: -29.045155
+      camera_phi: 0.431595
+      camera_theta: 0.43763
+    transformation_err:
+      camera_Ofz: 0.316207
+      camera_phi: 0.01977
+      camera_theta: 0.01905
+calibration: #based on HYY sphere calib 20210907 and sail 20230606
+  slope: 0.01700
+  slope_err: 0.00001

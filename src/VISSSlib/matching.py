@@ -19,52 +19,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 deltaY = deltaH = deltaI = 1.0
 
 
-def calc_Fz(phi, theta, Ofz, Lx, Lz, Fy):
-    raise NotImplementedError("Do not use any more!")
-
-    """
-    Parameters
-    ----------
-    phi : 
-        Follower roll in deg
-    theta :
-        Follower pitch in deg
-    Ofz :
-        Offset Follower z in deg
-    Lx :
-        Leader x coordinate (in common xyz)
-    Lz :
-        Leader z coordinate (in common xyz)
-    Fy :
-        Follower y coordinate (in common xyz)
-        
-    Returns
-    -------
-    Fz :
-        Offset and rotation corrected Follower z coordinate (in common xyz)
-
-    
-    Leader pitch, roll, and yaw as well as Follower yaw assumed to be 0.
-    
-    Olx (offset of leader in x) and Ofy (offset of follower in y) can be 
-    ignored becuase only the difference for Fz is evaluated - 
-    and Ofz can fix all shifts of the coordinate system
-    """
-    Lzp = Lz  # + Olz
-    Fyp = Fy  # + Ofy
-    Lxp = Lx  # + Olx
-    phi = np.deg2rad(phi)
-    theta = np.deg2rad(theta)
-
-    Fzp = (
-        (np.sin(theta) * Lxp) - (np.sin(phi) * Fyp) + (np.cos(theta) * Lzp)
-    ) / np.cos(phi)
-    Fz = Fzp - Ofz
-    return Fz
-
-
 def rotate_L2F(L_x, L_y, L_z, phi, theta, psi):
-    """rotate from leader to follower coordinate system
+    """
+    Rotate from leader to follower coordinate system.
 
     Parameters
     ----------
@@ -75,19 +32,17 @@ def rotate_L2F(L_x, L_y, L_z, phi, theta, psi):
     L_z : float
         Leader z coordinate (in common xyz)
     phi : float
-        Follower roll in deg
+        Follower roll in degrees
     theta : float
-        Follower pitch in deg
+        Follower pitch in degrees
     psi : float
-        Follower yaw in deg
+        Follower yaw in degrees
 
     Returns
     -------
-    array
+    tuple
         Follower x, y, z coordinates
     """
-
-    #
     phi = np.deg2rad(phi)
     theta = np.deg2rad(theta)
     psi = np.deg2rad(psi)
@@ -112,7 +67,8 @@ def rotate_L2F(L_x, L_y, L_z, phi, theta, psi):
 
 
 def shiftRotate_L2F(L_x, L_y, L_z, phi, theta, psi, Olx, Ofy, Ofz):
-    """shift and rotate from leader to follower coordinate system
+    """
+    Shift and rotate from leader to follower coordinate system.
 
     Parameters
     ----------
@@ -123,24 +79,23 @@ def shiftRotate_L2F(L_x, L_y, L_z, phi, theta, psi, Olx, Ofy, Ofz):
     L_z : float
         Leader z coordinate (in common xyz)
     phi : float
-        Follower roll in deg
+        Follower roll in degrees
     theta : float
-        Follower pitch in deg
+        Follower pitch in degrees
     psi : float
-        Follower yaw in deg
+        Follower yaw in degrees
     Olx : float
-        leader shift in x direction
+        Leader shift in x direction
     Ofy : float
-        follower shift in y direction
+        Follower shift in y direction
     Ofz : float
-        follower shift in z direction
+        Follower shift in z direction
 
     Returns
     -------
-    array
+    tuple
         Follower x, y, z coordinates
     """
-
     L_xp = L_x + Olx
 
     F_x, F_yp, F_zp = rotate_L2F(L_xp, L_y, L_z, phi, theta, psi)
@@ -152,26 +107,27 @@ def shiftRotate_L2F(L_x, L_y, L_z, phi, theta, psi, Olx, Ofy, Ofz):
 
 
 def rotate_F2L(F_xp, F_yp, F_zp, phi, theta, psi):
-    """rotate from follower to leader coordinate system
+    """
+    Rotate from follower to leader coordinate system.
 
     Parameters
     ----------
-    L_x : float
+    F_xp : float
         Follower x coordinate (in common xyz)
-    L_y : float
+    F_yp : float
         Follower y coordinate (in common xyz)
-    L_z : float
+    F_zp : float
         Follower z coordinate (in common xyz)
     phi : float
-        Follower roll in deg
+        Follower roll in degrees
     theta : float
-        Follower pitch in deg
+        Follower pitch in degrees
     psi : float
-        Follower yaw in deg
+        Follower yaw in degrees
 
     Returns
     -------
-    array
+    tuple
         Leader x, y, z coordinates
     """
     phi = np.deg2rad(phi)
@@ -198,22 +154,23 @@ def rotate_F2L(F_xp, F_yp, F_zp, phi, theta, psi):
 
 
 def shiftRotate_F2L(F_x, F_y, F_z, phi, theta, psi, Olx, Ofy, Ofz):
-    """shift and rotate from follower to leader coordinate system
+    """
+    Shift and rotate from follower to leader coordinate system.
 
     Parameters
     ----------
-    L_x : float
+    F_x : float
         Follower x coordinate (in common xyz)
-    L_y : float
+    F_y : float
         Follower y coordinate (in common xyz)
-    L_z : float
+    F_z : float
         Follower z coordinate (in common xyz)
     phi : float
-        Follower roll in deg
+        Follower roll in degrees
     theta : float
-        Follower pitch in deg
+        Follower pitch in degrees
     psi : float
-        Follower yaw in deg
+        Follower yaw in degrees
     Olx : float
         Leader shift in x direction
     Ofy : float
@@ -223,7 +180,7 @@ def shiftRotate_F2L(F_x, F_y, F_z, phi, theta, psi, Olx, Ofy, Ofz):
 
     Returns
     -------
-    array
+    tuple
         Leader x, y, z coordinates
     """
     F_yp = F_y + Ofy
@@ -237,10 +194,8 @@ def shiftRotate_F2L(F_x, F_y, F_z, phi, theta, psi, Olx, Ofy, Ofz):
 
 
 def calc_L_z(L_x, F_yp, F_zp, phi, theta, psi):
-    """estimate z coordinate for the leader based on combined leade rand follower
-    measurements
-
-    [description]
+    """
+    Estimate z coordinate for the leader based on combined leader and follower measurements.
 
     Parameters
     ----------
@@ -251,19 +206,18 @@ def calc_L_z(L_x, F_yp, F_zp, phi, theta, psi):
     F_zp : float
         z measurement of follower without shift
     phi : float
-        Follower roll in deg in deg
+        Follower roll in degrees
     theta : float
-        Follower pitch in de in degg
+        Follower pitch in degrees
     psi : float
-        Follower yaw in deg in deg
+        Follower yaw in degrees
 
     Returns
     -------
     float
         z coordinate as seen by leader ignoring offsets
     """
-
-    # with  wolfram simplification
+    # with wolfram simplification
 
     phi = np.deg2rad(phi)
     theta = np.deg2rad(theta)
@@ -292,38 +246,35 @@ def calc_L_z_withOffsets(
     camera_Ofz=0,
     camera_Olx=0,
 ):
-    """estimate z coordinate for the leader based on combined leade rand follower
-    measurements
-
-    [description]
+    """
+    Estimate z coordinate for the leader based on combined leader and follower measurements.
 
     Parameters
     ----------
     L_x : float
         x measurement of leader
-    F_yp : float
+    F_y : float
         y measurement of follower
-    F_zp : float
+    F_z : float
         z measurement of follower
-    phi : float
-        Follower roll in deg in deg
-    theta : float
-        Follower pitch in de in degg
-    psi : float
-        Follower yaw in deg in deg
-    Olx : float
-        Leader shift in x direction
-    Ofy : float
-        Follower shift in y direction
-    Ofz : float
-        Follower shift in z direction
+    camera_phi : float, optional
+        Follower roll in degrees (default is 0)
+    camera_theta : float, optional
+        Follower pitch in degrees (default is 0)
+    camera_psi : float, optional
+        Follower yaw in degrees (default is 0)
+    camera_Ofy : float, optional
+        Follower shift in y direction (default is 0)
+    camera_Ofz : float, optional
+        Follower shift in z direction (default is 0)
+    camera_Olx : float, optional
+        Leader shift in x direction (default is 0)
 
     Returns
     -------
     float
         z coordinate as seen by leader
     """
-
     for k in camera_phi, camera_theta, camera_psi, camera_Ofy, camera_Ofz, camera_Olx:
         assert not np.any(np.isnan(k)), k
 
@@ -334,28 +285,20 @@ def calc_L_z_withOffsets(
     return calc_L_z(L_xp, F_yp, F_zp, camera_phi, camera_theta, camera_psi)
 
 
-# def forward(x, Lx=None, Lz=None, Fy=None):
-#     '''
-#     forward model for pyOptimalEstimation
-#     '''
-#     y = calc_Fz(x.phi, x.theta, x.Ofz, Lx, Lz, Fy)
-#     y = pd.Series(y, index=np.array(range(len(y))))
-#     return y
-
-
 def forward(x, L_x=None, F_y=None, F_z=None):
-    """forward model for pyOptimalEstimation
+    """
+    Forward model for pyOptimalEstimation.
 
     Parameters
     ----------
     x : pandas Series
-       state vector "phi", "theta", "psi", "Ofy", "Ofz", "Olx"
+        State vector "phi", "theta", "psi", "Ofy", "Ofz", "Olx"
     L_x : array, optional
-        x coordinate as seen by the leader (the default is None)
+        x coordinate as seen by the leader (default is None)
     F_y : array, optional
-        y coordinate as seen by the follower (the default is None)
+        y coordinate as seen by the follower (default is None)
     F_z : array, optional
-        z coordinate as seen by the follower (the default is None)
+        z coordinate as seen by the follower (default is None)
 
     Returns
     -------
@@ -373,9 +316,30 @@ def retrieveRotation(
     dat3, x_ap, x_cov_diag, y_cov_diag, config, verbose=False, maxIter=30
 ):
     """
-    apply Optimal Estimation to retrieve rotation of cameras
-    """
+    Apply Optimal Estimation to retrieve rotation of cameras.
 
+    Parameters
+    ----------
+    dat3 : xarray Dataset
+        Input data containing particle information
+    x_ap : dict
+        A priori values for state variables
+    x_cov_diag : array-like
+        Diagonal elements of a priori covariance matrix
+    y_cov_diag : array-like
+        Diagonal elements of observation covariance matrix
+    config : object
+        Configuration object with camera settings
+    verbose : bool, optional
+        Whether to print verbose output (default is False)
+    maxIter : int, optional
+        Maximum number of iterations (default is 30)
+
+    Returns
+    -------
+    tuple
+        (x_op, x_op_err, dgf_x) - Optimal state vector, errors, and goodness of fit
+    """
     import pandas as pd
     import pyOptimalEstimation as pyOE
 
@@ -432,6 +396,25 @@ def retrieveRotation(
 
 
 def probability(x, mu, sigma, delta):
+    """
+    Calculate probability using normal distribution.
+
+    Parameters
+    ----------
+    x : array-like
+        Values to calculate probability for
+    mu : float
+        Mean of the distribution
+    sigma : float
+        Standard deviation of the distribution
+    delta : float
+        Width of integration interval
+
+    Returns
+    -------
+    array-like
+        Probability values
+    """
     import scipy.stats
 
     x = x.astype(float)
@@ -442,7 +425,7 @@ def probability(x, mu, sigma, delta):
     x1 = x - (delta / 2)
     x2 = x + (delta / 2)
 
-    # intergrated over delta x region
+    # integrated over delta x region
     return scipy.stats.norm.cdf(x2, loc=mu, scale=sigma) - scipy.stats.norm.cdf(
         x1, loc=mu, scale=sigma
     )
@@ -450,8 +433,21 @@ def probability(x, mu, sigma, delta):
 
 def step(x, mu, sigma):
     """
-    like probability but with a step function. returns either 1 or 0
-    depending whether abs(x-mu) < sigma or not.
+    Step function for probability calculation.
+
+    Parameters
+    ----------
+    x : array-like
+        Values to calculate probability for
+    mu : float
+        Mean value for comparison
+    sigma : float
+        Threshold for comparison
+
+    Returns
+    -------
+    array-like
+        Binary values (0 or 1) based on comparison
     """
     x = x.astype(float)
     mu = float(mu)
@@ -465,6 +461,23 @@ def step(x, mu, sigma):
 
 
 def removeDoubleCounts(mPart, mProp, doubleCounts):
+    """
+    Remove duplicate particle matches.
+
+    Parameters
+    ----------
+    mPart : array-like
+        Particle match indices
+    mProp : array-like
+        Match probabilities
+    doubleCounts : array-like
+        Indices of particles that appear multiple times
+
+    Returns
+    -------
+    tuple
+        Updated mPart and mProp arrays with duplicates removed
+    """
     for doubleCount in doubleCounts:
         ii = np.where(mPart[:, 0] == doubleCount)[0]
         bestProp = mProp[ii, 0].values.argmax()
@@ -496,11 +509,41 @@ def doMatch(
     testing=False,
 ):
     """
-    match magic function
+    Match particles between leader and follower cameras.
 
-    minProp: minimal required probability
-    maxMatches number of best matches to consider to select best one
-    minNumber4Stats: min. number of samples to estimate sigmas and mus
+    Parameters
+    ----------
+    leader1D : xarray Dataset
+        Leader camera particle data
+    follower1D : xarray Dataset
+        Follower camera particle data
+    sigmaIn : dict or str
+        Sigma values for matching criteria or 'default'
+    mu : dict
+        Mean values for matching criteria
+    delta : dict
+        Delta values for matching criteria
+    config : object
+        Configuration object with camera settings
+    rotate : dict
+        Rotation parameters
+    ptpTime : bool
+        Whether to use PTP time synchronization
+    minProp : float, optional
+        Minimum required probability (default is 1e-10)
+    minNumber4Stats : int, optional
+        Minimum number of samples for statistics (default is 10)
+    maxMatches : int, optional
+        Maximum number of matches to consider (default is 100)
+    indexOffset : int, optional
+        Offset for pairing indices (default is 0)
+    testing : bool, optional
+        Whether to generate test plots (default is False)
+
+    Returns
+    -------
+    tuple
+        (matchedDat, disputedPairs, new_sigma, new_mu) - Matched data, disputed pairs, updated sigma and mu values
     """
     import bottleneck as bn
     import pandas as pd
@@ -794,6 +837,23 @@ def doMatch(
 
 
 def get3DPosition(leaderDat, followerDat, config):
+    """
+    Get 3D positions from leader and follower data.
+
+    Parameters
+    ----------
+    leaderDat : xarray Dataset
+        Leader camera particle data
+    followerDat : xarray Dataset
+        Follower camera particle data
+    config : object
+        Configuration object with camera settings
+
+    Returns
+    -------
+    tuple
+        (L_x, L_z, F_y, F_z) - Position coordinates
+    """
     F_z = (
         followerDat.position_upperLeft.sel(dim2D="y")
         + (followerDat.Droi.sel(dim2D="y") / 2)
@@ -818,6 +878,23 @@ def get3DPosition(leaderDat, followerDat, config):
 
 
 def get3DCentroid(leaderDat, followerDat, config):
+    """
+    Get 3D centroids from leader and follower data.
+
+    Parameters
+    ----------
+    leaderDat : xarray Dataset
+        Leader camera particle data
+    followerDat : xarray Dataset
+        Follower camera particle data
+    config : object
+        Configuration object with camera settings
+
+    Returns
+    -------
+    tuple
+        (L_x, L_z, F_y, F_z) - Centroid coordinates
+    """
     F_z = followerDat.position_centroid.sel(dim2D="y").values
     F_y = followerDat.position_centroid.sel(dim2D="x").values
     L_x = leaderDat.position_centroid.sel(dim2D="x").values
@@ -831,7 +908,23 @@ def get3DCentroid(leaderDat, followerDat, config):
 
 def addPosition(matchedDat, rotate, rotate_err, config):
     """
-    add postion variable to match dataset based on retrieved rotation parameters
+    Add position variable to match dataset based on retrieved rotation parameters.
+
+    Parameters
+    ----------
+    matchedDat : xarray Dataset
+        Matched particle data
+    rotate : dict
+        Rotation parameters
+    rotate_err : dict
+        Rotation parameter errors
+    config : object
+        Configuration object with camera settings
+
+    Returns
+    -------
+    xarray Dataset
+        Updated dataset with position information added
     """
     matchedDat["dim3D"] = ["x", "y", "z", "z_rotated"]
 
@@ -884,10 +977,41 @@ def doMatchSlicer(
     testing=False,
 ):
     """
-    doMatch with slicing  to make sure data fits into memory
-    Also, smaller chunks are computationally much more efficient, optimum appears to be around 500 for
-    a file with 50.000 particles but we use 700 to avoid double matched particles at the gaps
+    Do matching with slicing to handle memory constraints.
 
+    Parameters
+    ----------
+    leader1D : xarray Dataset
+        Leader camera particle data
+    follower1D : xarray Dataset
+        Follower camera particle data
+    sigma : dict
+        Sigma values for matching criteria
+    mu : dict
+        Mean values for matching criteria
+    delta : dict
+        Delta values for matching criteria
+    config : object
+        Configuration object with camera settings
+    rotate : dict
+        Rotation parameters
+    ptpTime : bool
+        Whether to use PTP time synchronization
+    minProp : float, optional
+        Minimum required probability (default is 1e-10)
+    maxMatches : int, optional
+        Maximum number of matches to consider (default is 100)
+    minNumber4Stats : int, optional
+        Minimum number of samples for statistics (default is 10)
+    chunckSize : int, optional
+        Size of data chunks (default is 700)
+    testing : bool, optional
+        Whether to generate test plots (default is False)
+
+    Returns
+    -------
+    tuple
+        (matchedDat, disputedPairs, new_sigma, new_mu) - Matched data, disputed pairs, updated sigma and mu values
     """
     import pandas as pd
     from tqdm import tqdm
@@ -996,6 +1120,61 @@ def matchParticles(
     maxIter=30,
     skipExisting=True,
 ):
+    """
+    Match particles between leader and follower cameras.
+
+    Parameters
+    ----------
+    fnameLv1Detect : str
+        Path to level1 detect file
+    config : object
+        Configuration object with camera settings
+    y_cov_diag : float, optional
+        Observation covariance diagonal (default is 1.65**2)
+    version : str, optional
+        Version string (default is __version__)
+    chunckSize : int, optional
+        Size of data chunks (default is 1000)
+    rotate : dict or str, optional
+        Initial rotation parameters or "config" (default is "config")
+    rotate_err : dict or str, optional
+        Initial rotation parameter errors or "config" (default is "config")
+    maxDiffMs : float or str, optional
+        Maximum time difference in milliseconds or "config" (default is "config")
+    rotationOnly : bool, optional
+        Whether to only estimate rotation (default is False)
+    nPoints : int, optional
+        Number of points for estimation (default is 500)
+    sigma : dict or str, optional
+        Sigma values for matching criteria or "default" (default is "default")
+    nSamples4rot : int, optional
+        Number of samples for rotation estimation (default is 300)
+    minSamples4rot : int, optional
+        Minimum samples for rotation estimation (default is 100)
+    testing : bool, optional
+        Whether to generate test plots (default is False)
+    minDMax4rot : float, optional
+        Minimum DMax threshold for rotation estimation (default is 0)
+    singleParticleFramesOnly : bool, optional
+        Whether to use only single particle frames (default is False)
+    doRot : bool, optional
+        Whether to perform rotation estimation (default is False)
+    writeNc : bool, optional
+        Whether to write NetCDF files (default is True)
+    offsetsOnly : bool, optional
+        Whether to only estimate offsets (default is False)
+    subset : tuple, optional
+        Subset of particles to process (default is None)
+    maxIter : int, optional
+        Maximum iterations for optimization (default is 30)
+    skipExisting : bool, optional
+        Whether to skip existing files (default is True)
+
+    Returns
+    -------
+    tuple
+        (fname1Match, matchedDat, rotate_final, rotate_err_final, nLeader, nFollower, nMatched, errors) - Results of matching
+    """
     import pandas as pd
 
     errors = pd.Series(
@@ -1846,6 +2025,55 @@ def createMetaRotation(
     stopOnFailure=False,
     maxAgeDaysPrevFile=1,
 ):
+    """
+    Create meta rotation data for camera alignment.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier
+    config : object
+        Configuration object with camera settings
+    skipExisting : bool, optional
+        Whether to skip existing files (default is True)
+    version : str, optional
+        Version string (default is __version__)
+    y_cov_diag : float, optional
+        Observation covariance diagonal (default is 1.65**2)
+    chunckSize : int, optional
+        Size of data chunks (default is 1000)
+    rotate : dict or str, optional
+        Initial rotation parameters or "config" (default is "config")
+    rotate_err : dict or str, optional
+        Initial rotation parameter errors or "config" (default is "config")
+    maxDiffMs : float or str, optional
+        Maximum time difference in milliseconds or "config" (default is "config")
+    nPoints : int, optional
+        Number of points for estimation (default is 500)
+    sigma : dict or str, optional
+        Sigma values for matching criteria or "default" (default is "default")
+    minDMax4rot : float, optional
+        Minimum DMax threshold for rotation estimation (default is 10)
+    nSamples4rot : int, optional
+        Number of samples for rotation estimation (default is 300)
+    minSamples4rot : int, optional
+        Minimum samples for rotation estimation (default is 50)
+    testing : bool, optional
+        Whether to generate test plots (default is False)
+    completeDaysOnly : bool, optional
+        Whether to process only complete days (default is True)
+    writeNc : bool, optional
+        Whether to write NetCDF files (default is True)
+    stopOnFailure : bool, optional
+        Whether to stop on failure (default is False)
+    maxAgeDaysPrevFile : int, optional
+        Maximum age of previous file in days (default is 1)
+
+    Returns
+    -------
+    tuple
+        (metaRotation, fnameMetaRotation) - Meta rotation data and file name
+    """
     import pandas as pd
 
     nL = None

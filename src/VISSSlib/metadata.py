@@ -55,11 +55,11 @@ def getMetaData(
 ):
     """
     Get metadata from video files for a given camera.
-    
+
     This function processes metadata files from video recordings and extracts
     timing and capture information for each frame. It handles various issues
     such as timestamp jumps, ghost frames, and capture_id overflows.
-    
+
     Parameters
     ----------
     fnames : str or list
@@ -78,7 +78,7 @@ def getMetaData(
         Offset for capture IDs, default is 0
     fixIteration : int, optional
         Iteration count for fixing issues, default is 3
-        
+
     Returns
     -------
     tuple
@@ -185,17 +185,17 @@ def getMetaData(
 def readHeaderData(fname, returnLasttime=False):
     """
     Read header information from metadata file.
-    
+
     This function parses the header section of a metadata file to extract
     configuration and timing information.
-    
+
     Parameters
     ----------
     fname : str
         Path to the metadata file
     returnLasttime : bool, optional
         Whether to return last timestamp information, default is False
-        
+
     Returns
     -------
     tuple
@@ -367,10 +367,10 @@ def _getMetaData1(
 ):
     """
     Get metadata from a single metadata file.
-    
+
     This internal function processes a single metadata file and extracts
     frame-level information including timing, capture IDs, and motion statistics.
-    
+
     Parameters
     ----------
     metaFname : str
@@ -389,7 +389,7 @@ def _getMetaData1(
         Whether to include header information, default is True
     version : str, optional
         Version string, default is __version__
-        
+
     Returns
     -------
     xarray.Dataset or None
@@ -787,10 +787,10 @@ def _getMetaData1(
 def createMetaFrames(case, camera, config, skipExisting=True):
     """
     Create metadata frames for a given case and camera.
-    
+
     This function processes all metadata files for a given case and camera
     to generate consolidated metadata frames for further processing.
-    
+
     Parameters
     ----------
     case : str
@@ -801,7 +801,7 @@ def createMetaFrames(case, camera, config, skipExisting=True):
         Configuration dictionary or path to configuration file
     skipExisting : bool, optional
         Whether to skip existing files, default is True
-        
+
     Returns
     -------
     xarray.Dataset or None
@@ -867,10 +867,10 @@ def createMetaFrames(case, camera, config, skipExisting=True):
 def getEvents(fnames0, config, fname0status=None):
     """
     Get event metadata for a given set of files.
-    
+
     This function processes metadata files to extract event information
     including file start times, capture times, and camera status.
-    
+
     Parameters
     ----------
     fnames0 : list
@@ -879,7 +879,7 @@ def getEvents(fnames0, config, fname0status=None):
         Configuration dictionary
     fname0status : str, optional
         Status file name, default is None
-        
+
     Returns
     -------
     xarray.Dataset
@@ -1245,10 +1245,10 @@ def createEvent(
 ):
     """
     Create event file for a given case and camera.
-    
+
     This function generates event metadata files that summarize the status
     and timing information for all video files in a given case.
-    
+
     Parameters
     ----------
     case : str
@@ -1263,7 +1263,7 @@ def createEvent(
         Whether to suppress logging output, default is False
     version : str, optional
         Version string, default is __version__
-        
+
     Returns
     -------
     xarray.Dataset or None

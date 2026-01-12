@@ -20,22 +20,22 @@ log = logging.getLogger(__name__)
 def fixMosaicTimeL1(dat1, config):
     """
     Attempt to fix drift of capture time with record_time.
-    
+
     This function attempts to correct timing drift between capture_time and
     record_time by estimating and interpolating drift patterns over time.
-    
+
     Parameters
     ----------
     dat1 : xarray.Dataset
         Input dataset containing capture_time and record_time variables
     config : object
         Configuration object containing fps parameter for frame rate
-        
+
     Returns
     -------
     xarray.Dataset
         Dataset with corrected capture_time values
-        
+
     Notes
     -----
     This is a poor attempt at fixing drift and is not used anymore.
@@ -116,10 +116,10 @@ def fixMosaicTimeL1(dat1, config):
 def captureIdOverflows(dat, config, storeOrig=True, idOffset=0, dim="pid"):
     """
     Fix capture_id overflows for M1280 devices.
-    
+
     For M1280 devices, capture_id is a 16-bit integer that overflows every few minutes.
     This function detects and fixes overflow conditions by applying appropriate offsets.
-    
+
     Parameters
     ----------
     dat : xarray.Dataset
@@ -132,12 +132,12 @@ def captureIdOverflows(dat, config, storeOrig=True, idOffset=0, dim="pid"):
         Constant offset to add to capture_id, default is 0
     dim : str, optional
         Dimension name for diff operations, default is "pid"
-        
+
     Returns
     -------
     xarray.Dataset
         Dataset with fixed capture_id values
-        
+
     Notes
     -----
     This function handles the specific case where capture_id overflows due to
@@ -199,20 +199,20 @@ def captureIdOverflows(dat, config, storeOrig=True, idOffset=0, dim="pid"):
 def revertIdOverflowFix(dat):
     """
     Revert capture_id overflow fix by restoring original values.
-    
+
     This function restores the original capture_id values by renaming
     the fixed and original variables back to their original names.
-    
+
     Parameters
     ----------
     dat : xarray.Dataset
         Input dataset with fixed capture_id and capture_id_orig variables
-        
+
     Returns
     -------
     xarray.Dataset
         Dataset with original capture_id restored
-        
+
     Notes
     -----
     This function is used to undo the effects of captureIdOverflows when
@@ -227,11 +227,11 @@ def revertIdOverflowFix(dat):
 def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteration=3):
     """
     Remove ghost frames from MOSAiC follower data.
-    
+
     For MOSAiC follower devices, additional ghost frames are occasionally added
     to the dataset. These can be identified by their spacing being less than
     1/fps apart. This function identifies and removes such frames.
-    
+
     Parameters
     ----------
     metaDat : xarray.Dataset
@@ -244,7 +244,7 @@ def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteratio
         Offset to add to capture_id, default is 0
     fixIteration : int, optional
         Number of iterations to attempt ghost frame removal, default is 3
-        
+
     Returns
     -------
     tuple
@@ -253,7 +253,7 @@ def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteratio
         - fixed_dataset is the dataset with ghost frames removed
         - dropped_frames is the count of removed frames
         - beyond_repair_flag indicates if data is beyond repair
-        
+
     Notes
     -----
     Ghost frames are typically identified by their spacing being significantly
@@ -324,22 +324,22 @@ def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteratio
 def delayedClockReset(metaDat, config):
     """
     Check for and fix delayed clock reset issues.
-    
+
     This function detects delayed clock resets in the data and attempts to
     correct them by adjusting timestamps accordingly.
-    
+
     Parameters
     ----------
     metaDat : xarray.Dataset
         Input dataset containing capture_time and capture_id variables
     config : object
         Configuration object containing fps parameter for frame rate
-        
+
     Returns
     -------
     xarray.Dataset
         Dataset with corrected timestamps if reset was detected
-        
+
     Notes
     -----
     Delayed clock resets are identified by large negative time differences
@@ -377,11 +377,11 @@ def delayedClockReset(metaDat, config):
 def makeCaptureTimeEven(datF, config, dim="capture_time"):
     """
     Make capture time even for M1280 follower devices.
-    
+
     For M1280 follower devices, significant drift can occur causing clocks to
     drift more than 1 frame apart within 10 minutes. This function creates
     a new time vector with even spacing based on a trusted capture_id.
-    
+
     Parameters
     ----------
     datF : xarray.Dataset
@@ -390,12 +390,12 @@ def makeCaptureTimeEven(datF, config, dim="capture_time"):
         Configuration object containing fps parameter for frame rate
     dim : str, optional
         Dimension name for operations, default is "capture_time"
-        
+
     Returns
     -------
     xarray.Dataset
         Dataset with new evenly spaced capture_time_even variable
-        
+
     Notes
     -----
     This function is specifically designed for capture_id offset estimation

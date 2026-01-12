@@ -73,7 +73,7 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
     return
 
 
-def statusText(fig, fnames, config, addLogo=True):
+def _statusText(fig, fnames, config, addLogo=True):
     from PIL import Image, ImageDraw, ImageFont
 
     if not isinstance(fnames, (list, tuple)):
@@ -110,7 +110,7 @@ def statusText(fig, fnames, config, addLogo=True):
     return fig
 
 
-def plotVar(
+def _plotVar(
     pVar,
     capture_time,
     ax,
@@ -172,7 +172,7 @@ def plotVar(
     return ax, pVar
 
 
-def plot2dhist(
+def _plot2dhist(
     pVar,
     capture_time,
     ax,
@@ -225,7 +225,7 @@ def plot2dhist(
     return ax, pVar
 
 
-def crop(image):
+def _crop(image):
     """
     crop black image parts
     """
@@ -617,7 +617,7 @@ def createLevel1detectQuicklook(
                         255,
                         1,
                     )
-                    text = crop(text)
+                    text = _crop(text)
 
                     y1, x1 = im.shape
                     y2, x2 = text.shape
@@ -1332,7 +1332,7 @@ def metaFramesQuicklook(
 
     ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
 
-    statusText(fig, ff.listFiles("metaFrames"), config)
+    _statusText(fig, ff.listFiles("metaFrames"), config)
 
     tools.savefig(fig, config, fOut)
 
@@ -1409,7 +1409,7 @@ def createLevel1matchQuicklook(
         fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
         axcax.axis("off")
         axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
-        statusText(fig, [], config)
+        _statusText(fig, [], config)
         tools.savefig(fig, config, fOut)
         return fOut, fig
 
@@ -1446,7 +1446,7 @@ def createLevel1matchQuicklook(
         axcax.set_title(
             f"VISSS level1match {config.name} {case} \n No precipitation (2)"
         )
-        statusText(fig, [], config)
+        _statusText(fig, [], config)
         tools.savefig(fig, config, fOut)
         return fOut, fig
 
@@ -1473,7 +1473,7 @@ def createLevel1matchQuicklook(
     cax = axcax[:, 1]
 
     Dmax = datM.Dmax.mean("camera").values
-    _, rs = plotVar(
+    _, rs = _plotVar(
         Dmax,
         datM.capture_time,
         ax[0],
@@ -1483,7 +1483,7 @@ def createLevel1matchQuicklook(
         color="C1",
         resample=resample,
     )
-    _, rs1 = plotVar(
+    _, rs1 = _plotVar(
         datDL.Dmax,
         datDL.capture_time,
         ax[0],
@@ -1494,7 +1494,7 @@ def createLevel1matchQuicklook(
         ratiovar=rs,
         resample=resample,
     )
-    _, rs1 = plotVar(
+    _, rs1 = _plotVar(
         datDF.Dmax,
         datDF.capture_time,
         ax[0],
@@ -1510,13 +1510,13 @@ def createLevel1matchQuicklook(
     ax[0].legend()
 
     bins = np.logspace(0, 2.5, 21)
-    _, _ = plot2dhist(
+    _, _ = _plot2dhist(
         Dmax, datM.capture_time, ax[1], cax[1], bins, ylabel="Dmax [px]", cbarlabel="%"
     )
 
     matchScore = datMfull.matchScore.values
     bins = np.logspace(-10, 0, 41)
-    _, _ = plot2dhist(
+    _, _ = _plot2dhist(
         matchScore,
         datMfull.capture_time,
         ax[2],
@@ -1532,7 +1532,7 @@ def createLevel1matchQuicklook(
         .diff("dim3D")
         .values.squeeze()
     )
-    _, rs = plotVar(
+    _, rs = _plotVar(
         zDiff,
         datM.capture_time,
         ax[3],
@@ -1543,7 +1543,7 @@ def createLevel1matchQuicklook(
     cax[3].axis("off")
 
     hDiff = datM.Droi.sel(dim2D="y").diff("camera").values.squeeze()
-    _, _ = plotVar(
+    _, _ = _plotVar(
         hDiff,
         datM.capture_time,
         ax[4],
@@ -1554,7 +1554,7 @@ def createLevel1matchQuicklook(
     cax[4].axis("off")
 
     tDiff = datM.capture_time.diff("camera").values.squeeze().astype(int) * 1e-9
-    _, _ = plotVar(
+    _, _ = _plotVar(
         tDiff,
         datM.capture_time,
         ax[5],
@@ -1569,7 +1569,7 @@ def createLevel1matchQuicklook(
     )
 
     theta = datM.camera_theta.sel(camera_rotation="mean").values.squeeze()
-    _, _ = plotVar(
+    _, _ = _plotVar(
         theta,
         datM.capture_time.isel(camera=0),
         ax[6],
@@ -1578,7 +1578,7 @@ def createLevel1matchQuicklook(
         resample=resample,
     )
     phi = datM.camera_phi.sel(camera_rotation="mean").values.squeeze()
-    _, _ = plotVar(
+    _, _ = _plotVar(
         phi,
         datM.capture_time.isel(camera=0),
         ax[7],
@@ -1587,7 +1587,7 @@ def createLevel1matchQuicklook(
         resample=resample,
     )
     Ofz = datM.camera_Ofz.sel(camera_rotation="mean").values.squeeze()
-    _, _ = plotVar(
+    _, _ = _plotVar(
         Ofz,
         datM.capture_time.isel(camera=0),
         ax[8],
@@ -1729,7 +1729,7 @@ def createLevel1matchQuicklook(
     fig.tight_layout(w_pad=0.05, h_pad=0.005)
 
     print("DONE", fOut)
-    statusText(fig, fnames1M, config)
+    _statusText(fig, fnames1M, config)
     tools.savefig(fig, config, fOut)
 
     if returnFig:
@@ -1890,7 +1890,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     ax3.grid()
     ax3.set_xlabel("time")
 
-    statusText(fig, rotFiles, config)
+    _statusText(fig, rotFiles, config)
 
     tools.savefig(fig, config, fOut)
     rotDat.close()
@@ -2190,7 +2190,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ax1.legend(fontsize=15)
     ax3.legend(fontsize=15)
 
-    statusText(fig, ff.listFiles("metaRotation"), config)
+    _statusText(fig, ff.listFiles("metaRotation"), config)
 
     tools.savefig(fig, config, fOut)
     rotDat.close()
@@ -2416,7 +2416,7 @@ def createLevel2detectQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level2detect"), config)
+    _statusText(fig, ff.listFiles("level2detect"), config)
     tools.savefig(fig, config, fOut)
 
     if returnFig:
@@ -2650,7 +2650,7 @@ def createLevel2matchQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level2match"), config)
+    _statusText(fig, ff.listFiles("level2match"), config)
     tools.savefig(fig, config, fOut)
 
     if returnFig:
@@ -2923,7 +2923,7 @@ def createLevel2trackQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level2track"), config)
+    _statusText(fig, ff.listFiles("level2track"), config)
     tools.savefig(fig, config, fOut)
 
     if returnFig:
@@ -3266,7 +3266,7 @@ def createLevel1matchParticlesQuicklook(
                         255,
                         1,
                     )
-                    text = crop(text)
+                    text = _crop(text)
 
                     y1, x1 = im.shape
                     y2, x2 = text.shape
@@ -3635,7 +3635,7 @@ def createLevel3RimingQuicklook(
         dat2.close()
         dat3.close()
     fig.tight_layout()
-    statusText(fig, ff.listFiles("level3combinedRiming"), config)
+    _statusText(fig, ff.listFiles("level3combinedRiming"), config)
     tools.savefig(fig, config, fOut)
 
     return fig

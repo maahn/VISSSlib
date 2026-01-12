@@ -20,11 +20,11 @@ logDebug = log.isEnabledFor(logging.DEBUG)
 def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
     """
     Perform optimal estimation retrieval for riming mass parameter.
-    
+
     This function uses the pyOptimalEstimation library to retrieve the riming
     mass parameter M from radar reflectivity observations and particle size
     distribution data.
-    
+
     Parameters
     ----------
     y_obs : array-like
@@ -41,7 +41,7 @@ def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
         Radar frequency in GHz
     config : object
         Configuration object containing retrieval settings
-        
+
     Returns
     -------
     tuple
@@ -49,7 +49,7 @@ def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
         - M_oe: Optimally estimated riming mass parameter
         - M_err: Error in the estimated riming mass
         - Ze_combinedRetrieval: Combined radar reflectivity retrieval
-        
+
     Notes
     -----
     This function implements a Bayesian optimal estimation approach to retrieve
@@ -112,28 +112,28 @@ def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):
 def ssrga_parameter(M, elevation):
     """
     Calculate SSRGA parameters for given riming mass and elevation.
-    
+
     This function computes the SSRGA (Self-Similar Rayleigh-Gans Approximation)
     parameters for snowflake scattering based on riming mass and radar elevation.
-    
+
     Parameters
     ----------
     M : float or array-like
         Riming mass parameter
     elevation : float
         Radar elevation angle in degrees
-        
+
     Returns
     -------
     tuple
         A tuple containing (kappa, beta, gamma, zeta1, alpha_eff) parameters
         for SSRGA scattering calculations
-        
+
     Raises
     ------
     ValueError
         If elevation is not 90 or around 50 degrees
-        
+
     Notes
     -----
     The SSRGA parameters are used in the scattering calculations for snowflakes
@@ -165,11 +165,11 @@ def reflec_logM(
 ):  # ice
     """
     Forward model for radar reflectivity based on riming mass.
-    
+
     This function calculates the radar reflectivity using a forward model
     that incorporates riming mass, particle size distribution, and atmospheric
     conditions.
-    
+
     Parameters
     ----------
     X : float
@@ -192,12 +192,12 @@ def reflec_logM(
         Radar frequency in GHz
     elevation : float
         Radar elevation angle in degrees
-        
+
     Returns
     -------
     float
         Calculated radar reflectivity (Ze)
-        
+
     Notes
     -----
     This function implements a forward model using pyPamtra to simulate
@@ -320,20 +320,20 @@ def reflec_logM(
 def mass_size(M):
     """
     Interpolate mass-size relationship for riming parameter.
-    
+
     This function interpolates the mass-size relationship parameters (a and b)
     as a function of the riming mass parameter M using cubic spline interpolation.
-    
+
     Parameters
     ----------
     M : float or array-like
         Riming mass parameter
-        
+
     Returns
     -------
     tuple
         A tuple containing (a_m, b_m) mass-size relationship parameters
-        
+
     Notes
     -----
     This function implements a cubic spline interpolation based on lookup tables
@@ -382,20 +382,20 @@ def mass_size(M):
 def dynamic_viscosity_air(temperature):
     """
     Calculate dynamic viscosity of dry air using Sutherland's law.
-    
+
     This function computes the dynamic viscosity of dry air at a given
     temperature using the Sutherland's law formula.
-    
+
     Parameters
     ----------
     temperature : float
         Temperature in Kelvin
-        
+
     Returns
     -------
     float
         Dynamic viscosity of dry air in Pascal-seconds (Pa·s)
-        
+
     Notes
     -----
     The calculation uses coefficients from F. M. White, Viscous Fluid Flow,
@@ -413,22 +413,22 @@ def dynamic_viscosity_air(temperature):
 def dry_density_air(temperature, press):
     """
     Calculate dry air density using ideal gas law.
-    
+
     This function computes the density of dry air at given temperature
     and pressure using the ideal gas law.
-    
+
     Parameters
     ----------
     temperature : float
         Temperature in Kelvin
     press : float
         Atmospheric pressure in Pascals
-        
+
     Returns
     -------
     float
         Dry air density in kg/m³
-        
+
     Notes
     -----
     Uses the specific gas constant for dry air (R_s = 287.0500676 J/kg·K).
@@ -442,11 +442,11 @@ def dry_density_air(temperature, press):
 def heymsfield10_particles_M(Dmax, M, temperature, press, shape):
     """
     Calculate fall velocity for snowflakes using Heymsfield et al. (2010) parameterization.
-    
+
     This function computes the fall velocity of snowflakes using the Heymsfield et al.
     (2010) parameterization that depends on riming mass, particle size, and atmospheric
     conditions.
-    
+
     Parameters
     ----------
     Dmax : float or array-like
@@ -459,12 +459,12 @@ def heymsfield10_particles_M(Dmax, M, temperature, press, shape):
         Atmospheric pressure in Pascals
     shape : str
         Snowflake habit shape
-        
+
     Returns
     -------
     float or array-like
         Fall velocity in m/s
-        
+
     Notes
     -----
     This implementation follows the Heymsfield et al. (2010) approach for calculating
@@ -517,12 +517,12 @@ def retrieveCombinedRiming(
     case, config, skipExisting=True, writeNc=True, doQuicklook=True
 ):
     """
-    Apply combined riming retrieval for snow microphysics.
-    
+    Apply combined riming retrieval to VISSS data.
+
     This function performs a combined riming retrieval following the methodology
     described in Maherndl et al. (2023) to determine riming mass and related
     microphysical parameters from radar and meteorological data.
-    
+
     Parameters
     ----------
     case : str
@@ -535,14 +535,14 @@ def retrieveCombinedRiming(
         Write NetCDF output file, default is True
     doQuicklook : bool, optional
         Generate quicklook plots, default is True
-        
+
     Returns
     -------
     tuple
         A tuple containing (lv3Dat, lv3File) where:
         - lv3Dat: Processed level 3 dataset
         - lv3File: Output file path
-        
+
     Notes
     -----
     This function implements the combined riming retrieval algorithm that:
@@ -550,7 +550,7 @@ def retrieveCombinedRiming(
     2. Derives microphysical parameters from the retrieved mass
     3. Calculates ice water content and snowfall rates
     4. Generates NetCDF output and quicklook plots
-    
+
     References
     ----------
     Maherndl, N., M. Maahn, F. Tridon, J. Leinonen, D. Ori, and S. Kneifel, 2023:

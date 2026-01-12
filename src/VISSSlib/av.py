@@ -18,6 +18,19 @@ __all__ = ["VideoReader", "VideoReaderMeta"]
 
 
 def create_VideoReader():
+    """
+    Create a VideoReader class that extends cv2.VideoCapture.
+    
+    This function creates a specialized video reader class that adds caching
+    functionality for frame retrieval, allowing efficient access to specific
+    frames without re-reading the entire video stream.
+    
+    Returns
+    -------
+    class
+        A VideoReader class that inherits from cv2.VideoCapture with additional
+        frame caching capabilities.
+    """
     import cv2
 
     class VideoReader(cv2.VideoCapture):
@@ -36,8 +49,25 @@ def create_VideoReader():
         @functools.lru_cache(maxsize=100, typed=False)
         def getFrameByIndex(self, ii, safeMode=False):
             """
-            like read, but for a specific index
-            output is cached.
+            Retrieve a specific frame by index with caching.
+            
+            This method retrieves a frame at a specific index from the video,
+            caching the result for efficiency. It supports safe mode which
+            prevents backward seeking.
+            
+            Parameters
+            ----------
+            ii : int
+                Frame index to retrieve
+            safeMode : bool, optional
+                If True, prevents seeking backwards in the video, default is False
+                
+            Returns
+            -------
+            tuple
+                A tuple containing (success_flag, frame_data) where success_flag
+                indicates if the operation was successful and frame_data is the
+                retrieved frame or None if unsuccessful.
             """
             if int(self.get(cv2.CAP_PROP_POS_FRAMES)) != ii:
                 if safeMode:
@@ -56,10 +86,26 @@ def create_VideoReader():
 
         @property
         def position(self):
+            """
+            Get the current frame position in the video.
+            
+            Returns
+            -------
+            int
+                Current frame position in the video stream.
+            """
             return int(self.get(cv2.CAP_PROP_POS_FRAMES))
 
         @property
         def total_frames(self):
+            """
+            Get the total number of frames in the video.
+            
+            Returns
+            -------
+            int
+                Total number of frames in the video file.
+            """
             return int(self.get(cv2.CAP_PROP_FRAME_COUNT))
 
     return VideoReader
@@ -69,6 +115,51 @@ def create_VideoReader():
 
 
 class VideoReaderMeta(object):
+    """
+    Metadata manager for video readers with associated data.
+    
+    This class manages video reading operations along with associated metadata
+    and detection data for stereo camera systems. It handles multiple threads
+    and provides methods for frame retrieval with particle annotations.
+    
+    Attributes
+    ----------
+    metaFrames : xarray.Dataset
+        Metadata about frames including capture times and thread information
+    lv1detect : xarray.Dataset or None
+        Level 1 detection data
+    lv1match : xarray.Dataset or None
+        Level 1 matching data
+    tarFile : object or None
+        Archive file handle for particle images
+    safeMode : bool
+        Whether to enable safe mode for frame seeking
+    config : object or None
+        Configuration object
+    skipNonMatched : bool
+        Whether to skip non-matched particles
+    movFilePattern : str
+        Pattern for video file names
+    threads : array
+        Unique thread identifiers
+    video : dict
+        Dictionary mapping thread IDs to video readers
+    position : int
+        Current frame position
+    positions : dict
+        Dictionary mapping thread IDs to their current positions
+    currentThread : int or None
+        Currently active thread ID
+    currentFrame : array or None
+        Current frame data
+    currentMetaFrames : xarray.Dataset or None
+        Current metadata frames
+    currentlv1detect : xarray.Dataset or None
+        Current level 1 detection data
+    currentPids : array or None
+        Current particle IDs
+    """
+    
     def __init__(
         self,
         movFilePattern,
@@ -80,6 +171,33 @@ class VideoReaderMeta(object):
         config=None,
         skipNonMatched=False,
     ):
+        """
+        Initialize VideoReaderMeta with video and metadata.
+        
+        Parameters
+        ----------
+        movFilePattern : str
+            Pattern for video file names
+        metaFrames : str or xarray.Dataset
+            Metadata frames file path or dataset
+        lv1detect : str or xarray.Dataset, optional
+            Level 1 detection data file path or dataset
+        lv1match : str or xarray.Dataset, optional
+            Level 1 matching data file path or dataset
+        imagesL1detect : str, optional
+            Path to particle image archive file
+        safeMode : bool, optional
+            Enable safe mode for frame seeking, default is False
+        config : object, optional
+            Configuration object
+        skipNonMatched : bool, optional
+            Skip non-matched particles, default is False
+            
+        Raises
+        ------
+        ValueError
+            If lv1match is not provided as a Dataset
+        """
         if type(metaFrames) is xr.Dataset:
             self.metaFrames = metaFrames
         else:
@@ -91,7 +209,7 @@ class VideoReaderMeta(object):
         if (lv1match is None) or (type(lv1match) is xr.Dataset):
             self.lv1match = lv1match
         else:
-            raise ValurError(
+            raise ValueError(
                 "provide level1match as Dataset with data selected for corresponding camera"
             )
 
@@ -134,6 +252,17 @@ class VideoReaderMeta(object):
         self._openVideo()
 
     def _openVideo(self):
+        """
+        Open video files for all threads.
+        
+        This internal method initializes video readers for each thread
+        and sets up the video position tracking.
+        
+        Raises
+        ------
+        AssertionError
+            If video file does not exist or no videos were opened
+        """
         VideoReader = create_VideoReader()  # constructor for lazy loading
         for tt in self.threads:
             fname = self.movFilePattern.format(thread=tt)
@@ -143,11 +272,30 @@ class VideoReaderMeta(object):
         assert len(self.video) > 0
 
     def resetVideo(self):
+        """
+        Reset video readers by releasing and reopening them.
+        
+        This method releases all current video readers and reopens them,
+        useful when video files need to be reloaded or reset.
+        """
         for tt in self.threads:
             self.video[tt].release()
         self._openVideo()
 
     def getNextFrame(self, markParticles=False):
+        """
+        Get the next frame from the video sequence.
+        
+        Parameters
+        ----------
+        markParticles : bool, optional
+            Whether to mark particles on the frame, default is False
+            
+        Returns
+        -------
+        tuple
+            Frame data depending on markParticles parameter
+        """
         ii = self.position + 1
         if self.lv1detect:
             return self.getFrameByIndexWithParticles(ii, markParticles=markParticles)
@@ -155,6 +303,19 @@ class VideoReaderMeta(object):
             return self.getFrameByIndex(ii)
 
     def getPrevFrame(self, markParticles=False):
+        """
+        Get the previous frame from the video sequence.
+        
+        Parameters
+        ----------
+        markParticles : bool, optional
+            Whether to mark particles on the frame, default is False
+            
+        Returns
+        -------
+        tuple
+            Frame data depending on markParticles parameter
+        """
         ii = self.position - 1
         if self.lv1detect:
             return self.getFrameByIndexWithParticles(ii, markParticles=markParticles)
@@ -162,6 +323,24 @@ class VideoReaderMeta(object):
             return self.getFrameByIndex(ii)
 
     def getFrameByIndex(self, ii, increaseContrast=False):
+        """
+        Retrieve frame by index with associated metadata.
+        
+        Parameters
+        ----------
+        ii : int
+            Frame index to retrieve
+        increaseContrast : bool, optional
+            Whether to increase image contrast, default is False
+            
+        Returns
+        -------
+        tuple
+            A tuple containing (success_flag, frame_data, metadata) where
+            success_flag indicates if the operation was successful, frame_data
+            is the retrieved frame or None, and metadata is the associated
+            metadata or None.
+        """
         """
         like read, but with meta data and appropriate thread
         """
@@ -179,6 +358,24 @@ class VideoReaderMeta(object):
 
     @functools.lru_cache(maxsize=100, typed=False)
     def getFrameByCaptureTime(self, captureTime, increaseContrast=False):
+        """
+        Retrieve frame by capture time with associated metadata.
+        
+        Parameters
+        ----------
+        captureTime : datetime64
+            Capture time to retrieve frame for
+        increaseContrast : bool, optional
+            Whether to increase image contrast, default is False
+            
+        Returns
+        -------
+        tuple
+            A tuple containing (success_flag, frame_data, metadata) where
+            success_flag indicates if the operation was successful, frame_data
+            is the retrieved frame or None, and metadata is the associated
+            metadata or None.
+        """
         """
         like read, but with capturetime, meta data and appropriate thread
         """
@@ -212,6 +409,36 @@ class VideoReaderMeta(object):
         increaseContrast=False,
         showTracks=False,
     ):
+        """
+        Retrieve frame by capture time with particle annotations.
+        
+        Parameters
+        ----------
+        captureTime : datetime64
+            Capture time to retrieve frame for
+        pad : int, optional
+            Padding around particle bounding boxes, default is 4
+        markParticles : bool, optional
+            Whether to mark particles on the frame, default is False
+        highlightPid : int or str, optional
+            Particle ID to highlight, default is None
+        increaseContrast : bool, optional
+            Whether to increase image contrast, default is False
+        showTracks : bool, optional
+            Whether to show particle tracks, default is False
+            
+        Returns
+        -------
+        tuple
+            A tuple containing (success_flag, annotated_frame, metadata,
+            detection_data, matched_data, particles) where:
+            - success_flag indicates if the operation was successful
+            - annotated_frame is the frame with annotations or None
+            - metadata is the associated metadata or None
+            - detection_data is the detection data or None
+            - matched_data is the matched data or None
+            - particles is a dictionary of particle images or None
+        """
         import cv2
 
         assert self.lv1detect is not None
@@ -220,7 +447,7 @@ class VideoReaderMeta(object):
             captureTime, increaseContrast=increaseContrast
         )
         if (res is None) or (res == False):
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         self.curentFrameC = cv2.cvtColor(self.curentFrame, cv2.COLOR_GRAY2BGR)
 
@@ -408,6 +635,32 @@ class VideoReaderMeta(object):
         self, ii, markParticles=False, highlightPid=None, increaseContrast=False
     ):
         """
+        Retrieve frame by index with particle annotations.
+        
+        Parameters
+        ----------
+        ii : int
+            Frame index to retrieve
+        markParticles : bool, optional
+            Whether to mark particles on the frame, default is False
+        highlightPid : int or str, optional
+            Particle ID to highlight, default is None
+        increaseContrast : bool, optional
+            Whether to increase image contrast, default is False
+            
+        Returns
+        -------
+        tuple
+            A tuple containing (success_flag, annotated_frame, metadata,
+            detection_data, matched_data, particles) where:
+            - success_flag indicates if the operation was successful
+            - annotated_frame is the frame with annotations or None
+            - metadata is the associated metadata or None
+            - detection_data is the detection data or None
+            - matched_data is the matched data or None
+            - particles is a dictionary of particle images or None
+        """
+        """
         like read, but with even more meta data and appropriate thread
         """
 
@@ -428,6 +681,14 @@ class VideoReaderMeta(object):
 
     @property
     def currentCaptureTime(self):
+        """
+        Get the current capture time.
+        
+        Returns
+        -------
+        datetime64 or None
+            Current capture time or None if no metadata is available.
+        """
         if self.currentMetaFrames is None:
             return None
         else:
@@ -435,18 +696,47 @@ class VideoReaderMeta(object):
 
     @property
     def total_frames(self):
+        """
+        Get the total number of frames across all videos.
+        
+        Returns
+        -------
+        int
+            Total number of frames in all video streams.
+        """
         nFrames = 0
         for tt in self.threads:
             nFrames += self.video[tt].total_frames
         return nFrames
 
     def release(self):
+        """
+        Release all video resources.
+        
+        This method releases all video readers and closes archive files
+        to free up system resources.
+        """
         for tt in self.threads:
             self.video[tt].release()
         if self.tarFile is not None:
             self.tarFile.close()
 
     def getParticle(self, pid, heightOffset=64):
+        """
+        Retrieve a specific particle image.
+        
+        Parameters
+        ----------
+        pid : int
+            Particle ID to retrieve
+        heightOffset : int, optional
+            Height offset for particle cropping, default is 64
+            
+        Returns
+        -------
+        tuple
+            A tuple containing (cropped_particle_image, full_frame_image)
+        """
         particle = self.lv1detect.sel(pid=pid)
         kk = int(particle.record_id.values)
         _, frame1, _ = self.getFrameByIndex(kk)
@@ -459,12 +749,31 @@ class VideoReaderMeta(object):
 
 def doubleDynamicRange(frame, offset="estimate", factor=2):
     """
-    dynamic range can be typically doubled which helps with feature detection
-    the factor of 2 makes sure all gradients scale with the same factor even for integers
-
-    the offset is chosen such that the brightest point is max. 255 after multiplication of 2
-    if this means the darkest point becomes negative, the offset is adjusted accordingly
-
+    Double the dynamic range of an image to improve feature detection.
+    
+    This function increases the dynamic range of an image by multiplying
+    pixel values by a factor and adjusting for brightness. The offset ensures
+    that the brightest pixels don't overflow while maintaining contrast.
+    
+    Parameters
+    ----------
+    frame : array
+        Input image frame
+    offset : str or int, optional
+        Offset calculation method ('estimate' or numeric value), default is 'estimate'
+    factor : int, optional
+        Multiplication factor for increasing dynamic range, default is 2
+        
+    Returns
+    -------
+    array
+        Image with doubled dynamic range
+        
+    Notes
+    -----
+    The factor of 2 ensures all gradients scale with the same factor even for integers.
+    The offset is chosen so that the brightest point is max. 255 after multiplication.
+    If this means the darkest point becomes negative, the offset is adjusted accordingly.
     """
     import cv2
 
@@ -486,6 +795,20 @@ def doubleDynamicRange(frame, offset="estimate", factor=2):
 
 
 def main():
+    """
+    Main function for command-line usage.
+    
+    This function provides command-line interface for creating double-image
+    visualizations of particles from two different videos.
+    
+    Usage:
+        python -m VISSSlib.av doubleImage fname1 index1 pid1 fname2 index2 pid2 confFile version  outfile
+    
+    Raises
+    ------
+    SystemExit
+        If arguments are incorrect or processing fails
+    """
     import matplotlib as mpl
 
     mpl.use("Agg")
@@ -549,11 +872,40 @@ def main():
 
 
 def cvtColor(frame):
+    """
+    Convert BGR to grayscale using direct indexing.
+    
+    This is a faster alternative to cv2.cvtColor for grayscale conversion
+    when working with single-channel images.
+    
+    Parameters
+    ----------
+    frame : array
+        Input BGR frame
+        
+    Returns
+    -------
+    array
+        Grayscale frame
+    """
     # faster than cv2.cvtColor but works only for gray images
     return frame[:, :, 0]
 
 
 def cvtGray(frame):
+    """
+    Convert grayscale to BGR format.
+    
+    Parameters
+    ----------
+    frame : array
+        Input grayscale frame
+        
+    Returns
+    -------
+    array
+        BGR formatted frame
+    """
     import cv2
 
     return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)

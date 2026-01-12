@@ -53,8 +53,40 @@ def getMetaData(
     idOffset=0,
     fixIteration=3,
 ):
-    # includeHeader = False since v20220518
-
+    """
+    Get metadata from video files for a given camera.
+    
+    This function processes metadata files from video recordings and extracts
+    timing and capture information for each frame. It handles various issues
+    such as timestamp jumps, ghost frames, and capture_id overflows.
+    
+    Parameters
+    ----------
+    fnames : str or list
+        Filename or list of filenames for metadata files
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary containing processing parameters
+    stopAfter : int, optional
+        Stop processing after specified number of frames, default is -1 (all)
+    testMovieFile : bool, optional
+        Whether to test movie files for integrity, default is False
+    includeHeader : bool, optional
+        Whether to include header information, default is False
+    idOffset : int, optional
+        Offset for capture IDs, default is 0
+    fixIteration : int, optional
+        Iteration count for fixing issues, default is 3
+        
+    Returns
+    -------
+    tuple
+        Tuple containing (metaDat, droppedFrames, beyondRepair) where:
+        - metaDat: xarray Dataset with metadata or None if no data
+        - droppedFrames: number of frames dropped due to issues
+        - beyondRepair: boolean indicating if data is beyond repair
+    """
     if type(fnames) is str:
         fnames = [fnames]
 
@@ -151,6 +183,39 @@ def getMetaData(
 
 
 def readHeaderData(fname, returnLasttime=False):
+    """
+    Read header information from metadata file.
+    
+    This function parses the header section of a metadata file to extract
+    configuration and timing information.
+    
+    Parameters
+    ----------
+    fname : str
+        Path to the metadata file
+    returnLasttime : bool, optional
+        Whether to return last timestamp information, default is False
+        
+    Returns
+    -------
+    tuple
+        Tuple containing header information:
+        - record_starttime: datetime of record start
+        - asciiVersion: ASCII file version
+        - gitTag: Git tag
+        - gitBranch: Git branch
+        - capture_starttime: datetime of capture start
+        - capture_firsttime: datetime of first capture
+        - capture_lasttime: datetime of last capture (if returnLasttime=True)
+        - last_id: last capture ID (if returnLasttime=True)
+        - serialnumber: camera serial number
+        - configuration: camera configuration
+        - hostname: host machine name
+        - cameraTemperature: camera temperature
+        - transferQueueCurrentBlockCount: current block count in transfer queue
+        - transferMaxBlockSize: maximum block size in transfer queue
+        - ptpStatus: PTP status
+    """
     log = logging.getLogger()
 
     try:
@@ -300,6 +365,36 @@ def _getMetaData1(
     includeHeader=True,
     version=__version__,
 ):
+    """
+    Get metadata from a single metadata file.
+    
+    This internal function processes a single metadata file and extracts
+    frame-level information including timing, capture IDs, and motion statistics.
+    
+    Parameters
+    ----------
+    metaFname : str
+        Path to the metadata file
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary containing processing parameters
+    stopAfter : int, optional
+        Stop processing after specified number of frames, default is -1 (all)
+    testMovieFile : bool, optional
+        Whether to test movie files for integrity, default is True
+    goodFile : str, optional
+        Good file reference for repair, default is None
+    includeHeader : bool, optional
+        Whether to include header information, default is True
+    version : str, optional
+        Version string, default is __version__
+        
+    Returns
+    -------
+    xarray.Dataset or None
+        Dataset with metadata or None if no valid data
+    """
     import cv2
     import pandas as pd
 
@@ -690,6 +785,28 @@ def _getMetaData1(
 
 @tools.loopify_with_camera
 def createMetaFrames(case, camera, config, skipExisting=True):
+    """
+    Create metadata frames for a given case and camera.
+    
+    This function processes all metadata files for a given case and camera
+    to generate consolidated metadata frames for further processing.
+    
+    Parameters
+    ----------
+    case : str
+        Case identifier
+    camera : str
+        Camera identifier
+    config : dict or str
+        Configuration dictionary or path to configuration file
+    skipExisting : bool, optional
+        Whether to skip existing files, default is True
+        
+    Returns
+    -------
+    xarray.Dataset or None
+        Dataset with metadata or None if no data
+    """
     if config["nThreads"] is None:
         nThreads = 1
     else:
@@ -749,7 +866,24 @@ def createMetaFrames(case, camera, config, skipExisting=True):
 
 def getEvents(fnames0, config, fname0status=None):
     """
-    get events meta data for certain case
+    Get event metadata for a given set of files.
+    
+    This function processes metadata files to extract event information
+    including file start times, capture times, and camera status.
+    
+    Parameters
+    ----------
+    fnames0 : list
+        List of metadata file names
+    config : dict
+        Configuration dictionary
+    fname0status : str, optional
+        Status file name, default is None
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset containing event metadata
     """
     import matplotlib.pyplot as plt
     import pandas as pd
@@ -1109,6 +1243,32 @@ def getEvents(fnames0, config, fname0status=None):
 def createEvent(
     case, camera, config, skipExisting=True, quiet=False, version=__version__
 ):
+    """
+    Create event file for a given case and camera.
+    
+    This function generates event metadata files that summarize the status
+    and timing information for all video files in a given case.
+    
+    Parameters
+    ----------
+    case : str
+        Case identifier
+    camera : str
+        Camera identifier
+    config : dict or str
+        Configuration dictionary or path to configuration file
+    skipExisting : bool, optional
+        Whether to skip existing files, default is True
+    quiet : bool, optional
+        Whether to suppress logging output, default is False
+    version : str, optional
+        Version string, default is __version__
+        
+    Returns
+    -------
+    xarray.Dataset or None
+        Dataset with event metadata or None if skipped
+    """
     # case is always daily for events!
     case = case.split("-")[0]
     if type(config) is str:

@@ -545,7 +545,7 @@ class DataProduct(object):
 
     @cached_property
     def allComplete(self):
-        return self.isCompleteand and self.youngerThanParents and self.parentsComplete
+        return self.isComplete and self.youngerThanParents and self.parentsComplete
 
     @cached_property
     def nFiles(self):

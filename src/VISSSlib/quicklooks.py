@@ -21,6 +21,34 @@ log = logging.getLogger(__name__)
 
 
 def loop(level, nDays, settings, version=__version__, skipExisting=True):
+    """
+    Generate quicklooks for a specified level over a range of days.
+
+    Parameters
+    ----------
+    level : str
+        The data level for which to generate quicklooks. Options include:
+        'level0', 'level1detect', 'metaFrames', 'level2detect', 'level1match',
+        'level2match', 'level2track', 'level3combinedRiming'
+    nDays : int
+        Number of days to process, starting from today
+    settings : str
+        Path to the configuration settings file
+    version : str, optional
+        Version identifier for the processing, by default __version__
+    skipExisting : bool, optional
+        Whether to skip generation if output already exists, by default True
+
+    Returns
+    -------
+    None
+        Function processes files but doesn't return anything directly
+
+    Raises
+    ------
+    ValueError
+        If the specified level is not recognized
+    """
     config = tools.readSettings(settings)
     days = tools.getDateRange(nDays, config, endYesterday=False)
 
@@ -74,6 +102,25 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
 
 
 def _statusText(fig, fnames, config, addLogo=True):
+    """
+    Add status text to a matplotlib figure.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to add status text to
+    fnames : str or list of str
+        File names used to determine creation date
+    config : dict
+        Configuration dictionary containing metadata
+    addLogo : bool, optional
+        Whether to add logo to the figure, by default True
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The figure with added status text
+    """
     from PIL import Image, ImageDraw, ImageFont
 
     if not isinstance(fnames, (list, tuple)):
@@ -123,6 +170,40 @@ def _plotVar(
     label=None,
     ratiovar=None,
 ):
+    """
+    Plot variable data with error bars or statistics.
+
+    Parameters
+    ----------
+    pVar : array-like
+        Variable data to plot
+    capture_time : xarray.DataArray
+        Time coordinates for the data
+    ax : matplotlib.axes.Axes
+        Axes object to plot on
+    ylabel : str, optional
+        Label for y-axis, by default None
+    axhline : float, optional
+        Horizontal line to draw, by default None
+    xlabel : str, optional
+        Label for x-axis, by default None
+    resample : str, optional
+        Resampling frequency, by default "5min"
+    func : str, optional
+        Function to apply for aggregation ('mean', 'count', 'first', 'ratio'),
+        by default "mean"
+    color : str, optional
+        Color for the plot, by default "C1"
+    label : str, optional
+        Label for legend, by default None
+    ratiovar : xarray.DataArray, optional
+        Variable for ratio calculation, by default None
+
+    Returns
+    -------
+    tuple
+        (axes, resampled_data)
+    """
     if axhline is not None:
         ax.axhline(axhline, color="magenta", lw=0.5)
 
@@ -183,6 +264,35 @@ def _plot2dhist(
     resample="5min",
     cbarlabel=None,
 ):
+    """
+    Plot 2D histogram data.
+
+    Parameters
+    ----------
+    pVar : array-like
+        Variable data to plot
+    capture_time : xarray.DataArray
+        Time coordinates for the data
+    ax : matplotlib.axes.Axes
+        Axes object to plot on
+    cax : matplotlib.axes.Axes
+        Axes object for colorbar
+    bins : array-like
+        Bin edges for histogram
+    ylabel : str, optional
+        Label for y-axis, by default None
+    logScale : bool, optional
+        Whether to use logarithmic scale, by default True
+    resample : str, optional
+        Resampling frequency, by default "5min"
+    cbarlabel : str, optional
+        Label for colorbar, by default None
+
+    Returns
+    -------
+    tuple
+        (axes, resampled_data)
+    """
     import matplotlib.pyplot as plt
 
     pVar = xr.DataArray(
@@ -227,7 +337,17 @@ def _plot2dhist(
 
 def _crop(image):
     """
-    crop black image parts
+    Crop black image parts from an image.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        Input image array
+
+    Returns
+    -------
+    numpy.ndarray
+        Cropped image array
     """
     y_nonzero, x_nonzero = np.nonzero(image)
     return image[
@@ -258,7 +378,51 @@ def createLevel1detectQuicklookHourly(
     timedelta=np.timedelta64(1, "h"),
 ):
     """
-    Create hourly version of particle quicklook. See createLevel1detectQuicklook for details
+    Create hourly version of particle quicklook.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary
+    hours : range, optional
+        Hours to process, by default range(1, 24)
+    version : str, optional
+        Version identifier, by default __version__
+    container_width : int, optional
+        Width of each tile container, by default 200
+    container_height_max : int, optional
+        Maximum height of each tile container, by default 600
+    nTiles : int, optional
+        Number of tiles per row, by default 120
+    nRows : int, optional
+        Number of rows in output, by default 4
+    extra : int, optional
+        Extra spacing between tiles, by default 1
+    readParticlesFromFiles : bool, optional
+        Whether to read particles from files, by default True
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    ffOut : str, optional
+        Output file path, by default "default"
+    timeStep : str, optional
+        Time step method ('fixed' or 'variable'), by default "fixed"
+    minBlur : float or str, optional
+        Minimum blur threshold, by default "config"
+    minSize : int or str, optional
+        Minimum particle size, by default 8
+    omitLabel4small : bool or str, optional
+        Whether to omit labels for small particles, by default "config"
+    timedelta : numpy.timedelta64, optional
+        Time window for data selection, by default np.timedelta64(1, "h")
+
+    Returns
+    -------
+    None
+        Function processes files but doesn't return anything directly
     """
     import matplotlib.pyplot as plt
 
@@ -310,6 +474,53 @@ def createLevel1detectQuicklook(
     timedelta=np.timedelta64(1, "D"),
     returnFig=True,
 ):
+    """
+    Create level1detect quicklook for a given timestamp.
+
+    Parameters
+    ----------
+    timestamp : str
+        Timestamp string in format YYYYMMDDHH or YYYYMMDD
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    container_width : int, optional
+        Width of each tile container, by default 200
+    container_height_max : int, optional
+        Maximum height of each tile container, by default 300
+    nTiles : int, optional
+        Number of tiles per row, by default 60
+    nRows : int, optional
+        Number of rows in output, by default 4
+    extra : int, optional
+        Extra spacing between tiles, by default 1
+    readParticlesFromFiles : bool, optional
+        Whether to read particles from files, by default True
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    ffOut : str, optional
+        Output file path, by default "default"
+    timeStep : str, optional
+        Time step method ('fixed' or 'variable'), by default "variable"
+    minBlur : float or str, optional
+        Minimum blur threshold, by default "config"
+    minSize : int or str, optional
+        Minimum particle size, by default "config"
+    omitLabel4small : bool or str, optional
+        Whether to omit labels for small particles, by default "config"
+    timedelta : numpy.timedelta64, optional
+        Time window for data selection, by default np.timedelta64(1, "D")
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, figure) if returnFig=True, otherwise just output_file_path
+    """
     import cv2
     import matplotlib as mpl
     import matplotlib.pyplot as plt
@@ -764,8 +975,19 @@ def createLevel1detectQuicklook(
 
 class Packer_patched(packer.Packer):
     """
-    patched image_packer routine that works without files
-    https://pypi.org/project/image-packer/
+    Patched image_packer routine that works without files.
+
+    This class patches the image_packer library to work with in-memory images
+    rather than requiring temporary files.
+
+    Attributes
+    ----------
+    _uid_to_filepath : dict
+        Mapping of unique identifiers to image objects
+    _pieces : list
+        List of image pieces to pack
+    _has_alpha : bool
+        Flag indicating whether images have alpha channels
     """
 
     def __init__(self, images):
@@ -793,9 +1015,20 @@ class Packer_patched(packer.Packer):
 
     def pack(self, container_width, options=None, container_height_max=100):
         """Packs multiple images of different sizes or formats into one image.
-        Args:
-            container_width (int):
-            options (dict):
+
+        Parameters
+        ----------
+        container_width : int
+            Width of the container image
+        options : dict, optional
+            Packing options, by default None
+        container_height_max : int, optional
+            Maximum height of the container, by default 100
+
+        Returns
+        -------
+        PIL.Image.Image
+            Packed image
         """
         if options is None:
             options = self._DEFAULT_OPTIONS
@@ -872,125 +1105,29 @@ class Packer_patched(packer.Packer):
         return blank_image
 
 
-# def createMetaCoefQuicklook(case, config, version=__version__, skipExisting=True):
-#     '''
-#     Quicklooks of the coefficients obtained for matching in level3
-#     '''
-
-#     version = deepcopy(version)
-#     versionOld = version[:8]
-
-#     if type(config) is str:
-#         config = tools.readSettings(config)
-
-#     leader = config["leader"]
-#     follower = config["follower"]
-
-#     fn = files.FindFiles(case, leader, config, version)
-#     ff = files.FindFiles(case, follower, config, version)
-#     fnOld = files.FindFiles(case, leader, config, versionOld)
-#     ffOld = files.FindFiles(case, follower, config, versionOld)
-
-#     outFile = fn.quicklook.matchCoefficients
-
-#     if os.path.isfile(outFile) and skipExisting:
-#         print(f"skip {case} ")
-#         return None, None
-
-#     coefFiles = fn.listFiles("metaMatchCoefficients")
-#     if len(coefFiles) == 0:
-#         print(f"no data {case} {fn.fnamesPattern.metaMatchCoefficients}")
-#         return None, None
-
-#     print(f"running {case}")
-
-#     dat3 = xr.open_mfdataset(coefFiles, concat_dim="file_starttime")
-#     print("VERSION HACK")
-
-#     fig, (bx1, bx2, bx3, bx4) = plt.subplots(
-#         figsize=(10, 10), nrows=4, sharex=True)
-
-#     dat3Stats = dat3.isel(iteration=1)
-
-#     bx1.plot(dat3Stats.file_firsttime,
-#              dat3Stats.usedSamples, marker=".", ls="None")
-#     bx1.set_yscale("log")
-#     bx1.set_ylabel("Used matches  [#]")
-
-#     bx2.fill_between(dat3Stats.file_firsttime, (dat3Stats.muH + dat3Stats.sigmaH),
-#                      (dat3Stats.muH - dat3Stats.sigmaH), facecolor='C1', alpha=0.4)
-#     bx2.plot(dat3Stats.file_firsttime, dat3Stats.muH,
-#              marker=".", ls="None", color="C1")
-#     bx2.set_ylabel("Height difference [px]")
-#     bx2.axhline(0, color="gray")
-
-#     bx3.fill_between(dat3Stats.file_firsttime, (dat3Stats.muY + dat3Stats.sigmaY),
-#                      (dat3Stats.muY - dat3Stats.sigmaY), facecolor='C2', alpha=0.4)
-#     bx3.plot(dat3Stats.file_firsttime, dat3Stats.muY,
-#              marker=".", ls="None", color="C2")
-#     bx3.set_ylabel("Y position difference [px]")
-
-#     bx4.fill_between(dat3Stats.file_firsttime, (dat3Stats.muT + dat3Stats.sigmaT)
-#                      * 1000, (dat3Stats.muT - dat3Stats.sigmaT)*1000, facecolor='C3', alpha=0.4)
-#     bx4.plot(dat3Stats.file_firsttime, dat3Stats.muT *
-#              1000, marker=".", ls="None", color="C3")
-#     bx4.set_ylabel("Time difference [ms]")
-#     # bx4.axhline(1/config["fps"], color= "gray")
-#     # bx4.axhline(-1/config["fps"], color= "gray")
-#     bx4.axhline(0, color="gray")
-
-
-#     tStart = dat3Stats.file_firsttime.to_pandas().index[0].replace(hour=0, minute=0, second=0)
-#     tEnd = dat3Stats.file_firsttime.to_pandas().index[-1].replace(hour=23, minute=59, second=59)
-
-#     eventDatL = xr.open_dataset(fnOld.listFiles("metaEvents")[0])
-#     for event in eventDatL.event:
-#         if str(event.values).startswith("start") or str(event.values).startswith("launch"):
-#             for bx in [bx1,bx2,bx3,bx4]:
-#                 bx.axvline(event.file_starttime.values, color="r")
-#     lBlocked = (eventDatL.blocking.sel(blockingThreshold=50) > 0.1)
-#     lBlocked = lBlocked.file_starttime.where(lBlocked).values
-#     for bx in [bx1,bx2,bx3,bx4]:
-#         ylim = bx.get_ylim()
-#         bx.fill_between(lBlocked, [ylim[0]]*len(lBlocked), [ylim[1]]*len(lBlocked), color="red", alpha=0.25, label="Leader")
-#         bx.set_ylim(ylim)
-
-#     eventDatF = xr.open_dataset(ffOld.listFiles("metaEvents")[0])
-#     for event in eventDatF.event:
-#         if str(event.values).startswith("start") or str(event.values).startswith("launch"):
-#             for bx in [bx1,bx2,bx3,bx4]:
-#                 bx.axvline(event.file_starttime.values, color="blue")
-#     fBlocked = (eventDatF.blocking.sel(blockingThreshold=50) > 0.1)
-#     fBlocked = fBlocked.file_starttime.where(fBlocked).values
-#     for bx in [bx1,bx2,bx3,bx4]:
-#         ylim = bx.get_ylim()
-#         bx.fill_between(fBlocked, [ylim[0]]*len(fBlocked), [ylim[1]]*len(fBlocked), color="blue", alpha=0.25, label="Follower")
-#         bx.set_ylim(ylim)
-
-#     bx1.legend()
-#     bx1.grid(True)
-#     bx2.grid(True)
-#     bx3.grid(True)
-#     bx4.grid(True)
-
-
-#     bx4.set_xlim(
-#         tStart,
-#         tEnd,
-#     )
-
-#     fig.suptitle(f"{fn.year}-{fn.month}-{fn.day}")
-#     fig.tight_layout()
-
-
-#     print(outFile)
-#     tools.createParentDir(outFile)
-#        fig.savefig(outFile)
-#     return outFile, fig
-
-
 @tools.loopify_with_camera
 def level0Quicklook(case, camera, config, version=__version__, skipExisting=True):
+    """
+    Create level0 quicklook for a given case and camera.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, None) if successful, (None, None) otherwise
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 
@@ -1048,8 +1185,27 @@ def metaFramesQuicklook(
     case, camera, config, version=__version__, skipExisting=True, plotCompleteOnly=True
 ):
     """
-    Anja Stallmach 2022
+    Create metaFrames quicklook for a given case and camera.
 
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    plotCompleteOnly : bool, optional
+        Whether to only plot if data is complete, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure) if successful, (None, None) otherwise
     """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
@@ -1358,6 +1514,30 @@ def createLevel1matchQuicklook(
     plotCompleteOnly=True,
     returnFig=True,
 ):
+    """
+    Create level1match quicklook for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    config : dict
+        Configuration dictionary
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    version : str, optional
+        Version identifier, by default __version__
+    plotCompleteOnly : bool, optional
+        Whether to only plot if data is complete, by default True
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure) if returnFig=True,
+        otherwise (output_file_path, None)
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import pandas as pd
@@ -1739,6 +1919,25 @@ def createLevel1matchQuicklook(
 
 
 def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=True):
+    """
+    Create yearly meta rotation quicklook for a given year.
+
+    Parameters
+    ----------
+    year : str
+        Year string in format YYYY
+    config : dict or str
+        Configuration dictionary or path to config file
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure)
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 
@@ -1906,6 +2105,25 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
 @tools.loopify_with_camera
 def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
+    """
+    Create meta rotation quicklook for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure)
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import pandas as pd
@@ -2203,6 +2421,30 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 def createLevel2detectQuicklook(
     case, camera, config, version=__version__, skipExisting=True, returnFig=True
 ):
+    """
+    Create level2detect quicklook for a given case and camera.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    camera : str
+        Camera identifier
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure) if returnFig=True,
+        otherwise (output_file_path, None)
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 
@@ -2249,7 +2491,7 @@ def createLevel2detectQuicklook(
     )
     mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
     fig.suptitle(
-        f"VISSS level2detect {camera.split("_")[0]}\n"
+        f"VISSS level2detect {camera.split('_')[0]}\n"
         + f"{ff.year}-{ff.month}-{ff.day}"
         + ", "
         + config["name"]
@@ -2429,6 +2671,28 @@ def createLevel2detectQuicklook(
 def createLevel2matchQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
+    """
+    Create level2match quicklook for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure) if returnFig=True,
+        otherwise (output_file_path, None)
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 
@@ -2663,6 +2927,28 @@ def createLevel2matchQuicklook(
 def createLevel2trackQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
+    """
+    Create level2track quicklook for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure) if returnFig=True,
+        otherwise (output_file_path, None)
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 
@@ -2953,6 +3239,54 @@ def createLevel1matchParticlesQuicklook(
     returnFig=True,
     doLevel1matchQuicklook=True,
 ):
+    """
+    Create level1match particles quicklook for a given timestamp.
+
+    Parameters
+    ----------
+    timestamp : str
+        Timestamp string in format YYYYMMDDHH or YYYYMMDD
+    config : dict
+        Configuration dictionary
+    version : str, optional
+        Version identifier, by default __version__
+    container_width : int, optional
+        Width of each tile container, by default 200
+    container_height_max : int, optional
+        Maximum height of each tile container, by default 300
+    nTiles : int, optional
+        Number of tiles per row, by default 60
+    nRows : int, optional
+        Number of rows in output, by default 4
+    extra : int, optional
+        Extra spacing between tiles, by default 1
+    readParticlesFromFiles : bool, optional
+        Whether to read particles from files, by default True
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    ffOut : str, optional
+        Output file path, by default "default"
+    timeStep : str, optional
+        Time step method ('fixed' or 'variable'), by default "variable"
+    minBlur : float or str, optional
+        Minimum blur threshold, by default "config"
+    minSize : int or str, optional
+        Minimum particle size, by default "config"
+    omitLabel4small : bool or str, optional
+        Whether to omit labels for small particles, by default "config"
+    timedelta : numpy.timedelta64, optional
+        Time window for data selection, by default np.timedelta64(1, "D")
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+    doLevel1matchQuicklook : bool, optional
+        Whether to also run level1match quicklook, by default True
+
+    Returns
+    -------
+    tuple
+        (output_file_path, matplotlib.figure.Figure) if returnFig=True,
+        otherwise (output_file_path, None)
+    """
     import cv2
     import matplotlib as mpl
     import matplotlib.pyplot as plt
@@ -3405,6 +3739,27 @@ def createLevel3RimingQuicklook(
     version=__version__,
     returnFig=True,
 ):
+    """
+    Create level3 combined rime quicklook for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Date string in format YYYYMMDD
+    config : dict
+        Configuration dictionary
+    skipExisting : bool, optional
+        Whether to skip if output exists, by default True
+    version : str, optional
+        Version identifier, by default __version__
+    returnFig : bool, optional
+        Whether to return the figure, by default True
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The generated figure
+    """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
 

@@ -38,6 +38,53 @@ minCntSize = 3
 
 
 class detectedParticles(object):
+    """
+    Class for detecting and managing particles in video sequences.
+
+    This class handles the detection of particles in video frames using
+    background subtraction and contour analysis. It manages particle
+    properties and maintains state between frames.
+
+    Attributes
+    ----------
+    config : object
+        Configuration object containing detection parameters
+    verbosity : int
+        Verbosity level for logging
+    testing : list
+        Testing modes to enable during processing
+    maxNParticle : int
+        Maximum number of particles allowed per frame
+    all : dict
+        Dictionary storing all detected particles by frame index
+    lastFrame : dict
+        Dictionary storing particles from the last processed frame
+    pp : int
+        Particle ID counter
+    fgMask : array
+        Foreground mask from background subtraction
+    nMovingPix : int
+        Number of moving pixels in current frame
+    nMovingPix2 : int
+        Number of moving pixels after processing
+    blur : int
+        Blur estimation for current frame
+    capture_id : int
+        Capture ID for current frame
+    record_id : int
+        Record ID for current frame
+    capture_time : datetime64
+        Capture time for current frame
+    record_time : datetime64
+        Record time for current frame
+    nThread : int
+        Thread identifier for current frame
+    nParticle : int
+        Number of particles detected in current frame
+    backSub : object
+        Background subtractor instance
+    """
+
     def __init__(
         self,
         config,
@@ -45,6 +92,20 @@ class detectedParticles(object):
         verbosity=0,
         testing=[],
     ):
+        """
+        Initialize the detectedParticles class.
+
+        Parameters
+        ----------
+        config : object
+            Configuration object containing detection parameters
+        pidOffset : int, optional
+            Starting particle ID offset, default is 0
+        verbosity : int, optional
+            Verbosity level for logging, default is 0
+        testing : list, optional
+            Testing modes to enable during processing, default is []
+        """
         import cv2
 
         self._cv2 = cv2
@@ -94,6 +155,37 @@ class detectedParticles(object):
         training=False,
         blockingThresh=None,
     ):
+        """
+        Update particle detection for a new frame.
+
+        Parameters
+        ----------
+        frame : array
+            Input frame to process
+        pp : int
+            Frame index
+        capture_id : int
+            Capture ID for the frame
+        record_id : int
+            Record ID for the frame
+        capture_time : datetime64
+            Capture time for the frame
+        record_time : datetime64
+            Record time for the frame
+        nThread : int
+            Thread identifier for the frame
+        training : bool, optional
+            Whether to run in training mode, default is False
+        blockingThresh : int, optional
+            Threshold for blocking frames, default is None
+
+        Returns
+        -------
+        tuple
+            A tuple containing (success_flag, number_of_particles) where
+            success_flag indicates if processing was successful and
+            number_of_particles is the count of detected particles or error code
+        """
         import cv2
 
         self.capture_id = capture_id
@@ -261,6 +353,25 @@ class detectedParticles(object):
         return True, self.nParticle
 
     def applyCannyFilter(self, frame, fgMask, threshold1=0, threshold2=25):
+        """
+        Apply Canny edge detection filter to enhance particle detection.
+
+        Parameters
+        ----------
+        frame : array
+            Input frame to process
+        fgMask : array
+            Foreground mask
+        threshold1 : int, optional
+            Lower threshold for Canny edge detection, default is 0
+        threshold2 : int, optional
+            Upper threshold for Canny edge detection, default is 25
+
+        Returns
+        -------
+        array
+            Filtered foreground mask
+        """
         import cv2
 
         if logDebug:
@@ -344,6 +455,25 @@ class detectedParticles(object):
         return fgMaskCanny
 
     def add(self, frame1, fgMask, cnt, **kwargs):
+        """
+        Add a new particle to the detection results.
+
+        Parameters
+        ----------
+        frame1 : array
+            Input frame
+        fgMask : array
+            Foreground mask
+        cnt : array
+            Contour coordinates
+        **kwargs : dict
+            Additional keyword arguments
+
+        Returns
+        -------
+        bool
+            True if particle was successfully added, False otherwise
+        """
         added = False
         # check whether it touches border
         roi = tuple(int(b) for b in self._cv2.boundingRect(cnt))
@@ -603,6 +733,19 @@ class detectedParticles(object):
         return added
 
     def collectResults(self, includeCnts=False):
+        """
+        Collect and organize detection results into an xarray Dataset.
+
+        Parameters
+        ----------
+        includeCnts : bool, optional
+            Whether to include contour data, default is False
+
+        Returns
+        -------
+        xarray.Dataset
+            Dataset containing all particle properties
+        """
         fitMethod = ["cv2.fitEllipseDirect", "cv2.fitEllipse", "cv2.minAreaRect"]
         dim2D = ["x", "y"]
         dim3D = ["x", "y", "z"]
@@ -750,14 +893,162 @@ class detectedParticles(object):
 
     @property
     def N(self):
+        """
+        Get the number of detected particles.
+
+        Returns
+        -------
+        int
+            Number of detected particles
+        """
         return len(self.all)
 
     @property
     def pids(self):
+        """
+        Get the list of particle IDs.
+
+        Returns
+        -------
+        list
+            List of particle IDs
+        """
         return list(self.all.keys())
 
 
 class singleParticle(object):
+    """
+    Class representing a single detected particle.
+
+    This class stores all properties and characteristics of a detected particle
+    including geometric features, intensity statistics, and contour information.
+
+    Attributes
+    ----------
+    pid : int
+        Particle ID
+    record_id : int
+        Record ID for the frame
+    capture_id : int
+        Capture ID for the frame
+    capture_time : datetime64
+        Capture time for the frame
+    record_time : datetime64
+        Record time for the frame
+    nThread : int
+        Thread identifier for the frame
+    cnt : array
+        Contour coordinates
+    cntChild : list
+        Child contour coordinates
+    version : str
+        Version string
+    testing : list
+        Testing modes enabled
+    xOffset : int
+        X offset for ROI
+    yOffset : int
+        Y offset for ROI
+    roi : array
+        Region of interest coordinates
+    particleBoxMask : array
+        Particle mask
+    particleBox : array
+        Particle image data
+    particleBoxAlpha : array
+        Particle image with alpha channel
+    particleBoxCropped : array
+        Cropped particle image
+    pixMin : float
+        Minimum pixel value
+    pixMax : float
+        Maximum pixel value
+    pixMean : float
+        Mean pixel value
+    pixPercentiles : array
+        Pixel value percentiles
+    pixStd : float
+        Standard deviation of pixel values
+    pixSkew : float
+        Skewness of pixel values
+    pixKurtosis : float
+        Kurtosis of pixel values
+    particleContrast : float
+        Contrast of particle relative to background
+    perimeterEroded : float
+        Perimeter after erosion
+    position_upperLeft : tuple
+        Upper left position of bounding box
+    Droi : tuple
+        Dimensions of bounding box
+    position_circle : tuple
+        Center position of minimum enclosing circle
+    Dmax : float
+        Diameter of minimum enclosing circle
+    pixCenter : int
+        Pixel value at center
+    position_rect : tuple
+        Position of minimum area rectangle
+    Dfit_rect : tuple
+        Dimensions of minimum area rectangle
+    angle_rect : float
+        Angle of minimum area rectangle
+    ellipseDirect : tuple
+        Direct ellipse fit parameters
+    ellipse : tuple
+        Ellipse fit parameters
+    position_ellipse : tuple
+        Position of fitted ellipse
+    position_ellipseDirect : tuple
+        Position of direct ellipse fit
+    Dfit_ellipse : tuple
+        Dimensions of fitted ellipse
+    Dfit_ellipseDirect : tuple
+        Dimensions of direct ellipse fit
+    angle_ellipse : float
+        Angle of fitted ellipse
+    angle_ellipseDirect : float
+        Angle of direct ellipse fit
+    position_fit : list
+        Positions of different fits
+    Dfit : list
+        Dimensions of different fits
+    angle : list
+        Angles of different fits
+    aspectRatio : tuple
+        Aspect ratios from different fits
+    area : float
+        Area of particle
+    perimeter : float
+        Perimeter of particle
+    areaConsideringHoles : float
+        Area considering internal holes
+    perimeterConsideringHoles : float
+        Perimeter considering internal holes
+    position_centroid : tuple
+        Centroid position
+    blur : float
+        Blur estimation
+    contourFFTsum : float
+        Sum of FFT coefficients
+    contourFFTstd : float
+        Standard deviation of FFT coefficients
+    contourFFT : array
+        FFT coefficients
+    FFTfreqs : array
+        FFT frequencies
+    solidity : float
+        Solidity measure
+    solidityConsideringHoles : float
+        Solidity considering holes
+    extent : float
+        Extent measure
+    extentConsideringHoles : float
+        Extent considering holes
+    success : bool
+        Whether particle detection was successful
+    """
+
     def __init__(
         self,
         parent,
@@ -777,6 +1068,44 @@ class singleParticle(object):
         testing,
         verbosity=0,
     ):
+        """
+        Initialize a singleParticle instance.
+
+        Parameters
+        ----------
+        parent : object
+            Parent detectedParticles instance
+        config : object
+            Configuration object
+        capture_id : int
+            Capture ID for the frame
+        record_id : int
+            Record ID for the frame
+        capture_time : datetime64
+            Capture time for the frame
+        record_time : datetime64
+            Record time for the frame
+        nThread : int
+            Thread identifier for the frame
+        pp1 : int
+            Particle ID
+        frame1 : array
+            Input frame
+        mask1 : array
+            Mask for the particle
+        cnt : array
+            Contour coordinates
+        cntChild : list
+            Child contour coordinates
+        xOffset : int
+            X offset for ROI
+        yOffset : int
+            Y offset for ROI
+        testing : list
+            Testing modes enabled
+        verbosity : int, optional
+            Verbosity level, default is 0
+        """
         import cv2
         import scipy.stats
 
@@ -1060,7 +1389,7 @@ class singleParticle(object):
 
     def dropImages(self):
         """
-        Save memory
+        Free memory by dropping image references.
         """
         self.particleBox = None
         self.particleBoxCropped = None
@@ -1070,6 +1399,14 @@ class singleParticle(object):
         self.frameMask = None
 
     def __repr__(self):
+        """
+        String representation of the particle properties.
+
+        Returns
+        -------
+        str
+            Formatted string with particle properties
+        """
         props = "#" * 30
         props += "\n"
         props += "PID: %i\n" % (self.pid)
@@ -1113,6 +1450,19 @@ class singleParticle(object):
         return props
 
     def drawContour(self, frame):
+        """
+        Draw particle contours on a frame.
+
+        Parameters
+        ----------
+        frame : array
+            Input frame to draw contours on
+
+        Returns
+        -------
+        array
+            Frame with contours drawn
+        """
         (x, y, w, h) = self.roi
         self._cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255.0, 0), 1)
 
@@ -1151,6 +1501,23 @@ class singleParticle(object):
         return frame
 
     def annotate(self, frame, color=(0, 255, 0), extra=""):
+        """
+        Annotate a frame with particle information.
+
+        Parameters
+        ----------
+        frame : array
+            Input frame to annotate
+        color : tuple, optional
+            Annotation color, default is (0, 255, 0)
+        extra : str, optional
+            Extra annotation text, default is ""
+
+        Returns
+        -------
+        array
+            Annotated frame
+        """
         (x, y, w, h) = self.roi
         self._cv2.putText(
             frame,
@@ -1164,6 +1531,21 @@ class singleParticle(object):
         return frame
 
     def getAnnotatedParticle(self, frame, extra=20):
+        """
+        Get an annotated particle image.
+
+        Parameters
+        ----------
+        frame : array
+            Input frame
+        extra : int, optional
+            Extra padding around particle, default is 20
+
+        Returns
+        -------
+        array
+            Annotated particle image
+        """
         if frame.shape[-1] != 3:
             annotatedParticle = av.cvtGray(frame)
         else:
@@ -1177,6 +1559,23 @@ class singleParticle(object):
 
 
 def extractRoi(roi, frame, extra=0):
+    """
+    Extract region of interest from frame.
+
+    Parameters
+    ----------
+    roi : tuple
+        Region of interest coordinates (x, y, w, h)
+    frame : array
+        Input frame
+    extra : int, optional
+        Extra padding, default is 0
+
+    Returns
+    -------
+    tuple
+        Extracted ROI, x offset, y offset, new ROI
+    """
     if extra == 0:
         x, y, w, h = roi
         newRoi = (0, 0, w, h)
@@ -1213,7 +1612,21 @@ def extractRoi(roi, frame, extra=0):
 
 def checkMotion(subFrame, oldFrame, threshs):
     """
-    Check whether something is moving - identical to VISSS C code
+    Check whether something is moving - identical to VISSS C code.
+
+    Parameters
+    ----------
+    subFrame : array
+        Subtracted frame
+    oldFrame : array
+        Previous frame
+    threshs : array
+        Threshold values for motion detection
+
+    Returns
+    -------
+    array
+        Number of changed pixels for each threshold
     """
     import cv2
 
@@ -1232,6 +1645,23 @@ def checkMotion(subFrame, oldFrame, threshs):
 
 # get trainign data"
 def _getTrainingFrames(fnamesV, trainingSize, config):
+    """
+    Get training frames from video files.
+
+    Parameters
+    ----------
+    fnamesV : dict
+        Dictionary of video file names
+    trainingSize : int
+        Number of training frames to retrieve
+    config : object
+        Configuration object
+
+    Returns
+    -------
+    list
+        List of training frames
+    """
     import cv2
 
     inVidTraining = {}
@@ -1268,26 +1698,32 @@ def detectParticles(
     verbosity=0,
 ):
     """
-    detect particles
+    Detect particles in a video file.
 
     Parameters
     ----------
     fname : str
-        filename
+        Filename of the video file to process
     config : dict
-        VISSS config
+        VISSS configuration dictionary
     testing : list, optional
-        [description] (the default is [])
+        Testing modes to enable, default is []
     writeNc : bool, optional
-        [description] (the default is True)
-    stopAfter : [type], optional
-        [description] (the default is None)
-    version : [type], optional
-        [description] (the default is __version__)
-    verbosity : [type], optional
-        avoid expensive debugging module (the default is 0)
-    """
+        Whether to write NetCDF output, default is True
+    stopAfter : tuple or int, optional
+        Stop processing after specified frame, default is None
+    version : str, optional
+        Version string, default is __version__
+    skipExisting : bool, optional
+        Whether to skip existing files, default is True
+    verbosity : int, optional
+        Verbosity level, default is 0
 
+    Returns
+    -------
+    xarray.Dataset or None
+        Detected particle data or None if no data
+    """
     # logging.config.dictConfig(tools.get_logging_config('detection_run.log'))
     # log = logging.getLogger("detection")
 
@@ -1762,6 +2198,19 @@ import numba
 
 @numba.njit
 def joinEdges(mask):
+    """
+    Join edges in a binary mask to close gaps.
+
+    Parameters
+    ----------
+    mask : array
+        Binary mask to process
+
+    Returns
+    -------
+    array
+        Processed mask with joined edges
+    """
     mask = np.copy(mask)
     height, width = mask.shape
     dx = np.array([1, 1, 0, -1, -1, -1, 0, +1, 1])
@@ -1887,10 +2336,23 @@ def joinEdges(mask):
     return mask
 
 
+# numba acceleration tested: it is slower!
 def splitUpConours(cntsTmp, hierarchy):
     """
-    reorder contours based on hierarchy
-    numba acceleration tested: it is slower!
+    Reorder contours based on hierarchy.
+
+    Parameters
+    ----------
+    cntsTmp : list
+        List of contour arrays
+    hierarchy : array
+        Contour hierarchy information
+
+    Returns
+    -------
+    tuple
+        Tuple containing (cnts, cntChildren) where cnts are the reordered contours
+        and cntChildren are the child contours grouped by parent
     """
     parentIndex = hierarchy[0][:, 3]
     # list where children are replaced by None (otehrwise indices are messed up)

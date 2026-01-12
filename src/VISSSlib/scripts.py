@@ -567,7 +567,7 @@ def loopCreateLevel2detect(
     config = tools.readSettings(settings)
 
     if len(nDays.split("_")) > 1:
-        nDays, camera = day.split("_")
+        nDays, camera = nDays.split("_")
         cameras = [camera]
     else:
         if cameras == "auto":
@@ -578,6 +578,7 @@ def loopCreateLevel2detect(
     if useWorker and len(days) > 1:
         if nCPU is None:
             nCPU = os.cpu_count()
+        daysStr = []
         for camera in cameras:
             daysStr += [
                 f'{str(day).split(" ")[0].replace("-", "")}_{camera}' for day in days

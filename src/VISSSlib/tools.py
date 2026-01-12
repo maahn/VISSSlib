@@ -2148,7 +2148,7 @@ def create_TaskQueuePatched():
 
             # if there are jobs, check for killwitch file
             if os.path.isfile("VISSS_KILLSWITCH"):
-                print(f"{ii}, found file VISSS_KILLSWITCH, stopping", flush=True)
+                print(f"found file VISSS_KILLSWITCH, stopping", flush=True)
                 return True
             print("no VISSS_KILLSWITCH")
 

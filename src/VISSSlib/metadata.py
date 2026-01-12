@@ -114,7 +114,7 @@ def getMetaData(
                         "time index going backwards, they must be in a group"
                     )
                 for s1 in ss:
-                    print(fname, "TIME JUMPED, DROPPING FRAMES around %i " % (s1))
+                    print(fnames, "TIME JUMPED, DROPPING FRAMES around %i " % (s1))
                     droppedIndices.append(s1 - 1)
                     droppedIndices.append(s1)
                     droppedIndices.append(s1 + 1)
@@ -589,8 +589,7 @@ def _getMetaData1(
 
                 except IndexError:
                     log.warning(
-                        "%s WARNING number of frames do not match %i %i  \n"
-                        % (fname, ii, tt)
+                        "%s WARNING number of frames do not match %i  \n" % (fname, ii)
                     )
 
                 oldFrame = deepcopy(subFrame)
@@ -734,7 +733,7 @@ def createMetaFrames(case, camera, config, skipExisting=True):
 
         if beyondRepair:
             print(
-                f"{os.path.basename(fname0)}, broken beyond repair, {droppedFrames}, frames dropped, {idOffset}, offset\n"
+                f"{os.path.basename(fname0)}, broken beyond repair, {droppedFrames}, frames dropped\n"
             )
 
         if metaDat is not None:

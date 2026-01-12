@@ -1547,7 +1547,7 @@ class Filenames(object):
         More robust than nextFile when the reference file does not exist yet.
         Uses timestamp comparisons to avoid issues with missing files.
         """
-        allOffsets = _getOffsets(self, level, maxOffset, +1)
+        allOffsets = self._getOffsets(self, level, maxOffset, +1)
 
         if len(allOffsets) == 0:
             return None

@@ -546,8 +546,6 @@ class detectedParticles(object):
                                     "particles.add",
                                     "PID",
                                     "%i" % self.lastParticle.pid,
-                                    "flat",
-                                    str(particleFrame.shape),
                                 ]
                             )
                         )
@@ -1673,6 +1671,8 @@ def detectParticles(
 
         if not res:
             if "skipped" in testing:
+                import matplotlib.pyplot as plt
+
                 plt.figure(figsize=(10, 10))
                 plt.imshow(snowParticles.frame4drawing, cmap="gray", vmin=0, vmax=255)
                 plt.title("SKIPPED %s %i %s" % (camera, pp, timestamp))

@@ -405,7 +405,7 @@ def getRadarDataCloudnetFMCW94(case, config, fn):
 
     if config.aux.radar.downloadData and (len(fnames) == 0):
         fnames = getCloudnet(
-            date,
+            case,
             config,
             config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day),
             "instrument",
@@ -496,16 +496,16 @@ def getRadarDataARMarsclkazr1kollias(case, config, fn):
     return dat1, frq
 
 
-def downloadPangaea1(doi, path, site, type):
+def downloadPangaea1(config, path, type):
     from pangaeapy.pandataset import PanDataSet
 
-    doipart = doi.split("/")[-1]
-    fnamePart = f"{path}/*_{type}_{site}_{doipart}.nc"
+    doipart = config.aux.meteo.doi.split("/")[-1]
+    fnamePart = f"{path}/*_{type}_{config.site}_{doipart}.nc"
     if len(glob.glob(fnamePart)) > 0:
         print(f"{fnamePart} exists")
         return fnamePart
 
-    ds1 = PanDataSet(doi)
+    ds1 = PanDataSet(config.aux.meteo.doi)
     ds1.data = ds1.data.rename(columns={"Date/Time": "time", "TIME": "time"})
     dat = xr.Dataset(ds1.data.set_index("time"))
 
@@ -529,18 +529,18 @@ def downloadPangaea1(doi, path, site, type):
             dat[k].encoding["zlib"] = True
             dat[k].encoding["complevel"] = 5
     yearmonth = "".join(str(dat.time[0].values).split("T")[0].split("-")[:2])
-    fname = f"{path}/{yearmonth}_{type}_{site}_{doipart}.nc"
+    fname = f"{path}/{yearmonth}_{type}_{config.site}_{doipart}.nc"
 
     tools.to_netcdf2(dat, config, fname)
     return fname
 
 
-def downloadPangaea(doi, path, site, type):
+def downloadPangaea(config, path, type):
     from pangaeapy.pandataset import PanDataSet
 
-    ds = PanDataSet(doi)
+    ds = PanDataSet(config.aux.meteo.doi)
     for doi in ds.collection_members:
-        fname = downloadPangaea1(doi, path, site, type)
+        fname = downloadPangaea1(config, path, type)
     return
 
 
@@ -557,7 +557,7 @@ def getMeteoDataPangaea(case, config):
     if config.aux.meteo.downloadData and (len(fnames) == 0):
         # for pangaea, we do not know the doi of the monthly dataset
         # therefore download everything which is available
-        downloadPangaea(config.aux.meteo.doi, path, config.site, "weatherstation")
+        downloadPangaea(config, path, "weatherstation")
         fnames = glob.glob(fStr)
 
     if len(fnames) == 0:

@@ -17,6 +17,32 @@ logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def getCloudnet(date, config, path, kind, item):
+    """
+    Download data from Cloudnet API for a specific date and item.
+
+    Parameters
+    ----------
+    date : str
+        Date in YYYY-MM-DD format.
+    config : object
+        Configuration object containing auxiliary data settings.
+    path : str
+        Local path where the downloaded file will be saved.
+    kind : str
+        Type of data to download (e.g., 'instrument', 'product').
+    item : str
+        Specific item identifier (e.g., 'weather-station').
+
+    Returns
+    -------
+    list
+        List of downloaded filenames.
+
+    Raises
+    ------
+    Exception
+        If no data is found or download fails.
+    """
     import requests
 
     print(f"downloading {item} for {date}")
@@ -44,6 +70,32 @@ def getCloudnet(date, config, path, kind, item):
 
 
 def getARM(date, config, path, product, user):
+    """
+    Download data from ARM API for a specific date and product.
+
+    Parameters
+    ----------
+    date : str
+        Date in YYYY-MM-DD format.
+    config : object
+        Configuration object containing auxiliary data settings.
+    path : str
+        Local path where the downloaded files will be saved.
+    product : str
+        Product identifier (e.g., 'met').
+    user : str
+        User identifier for ARM API access.
+
+    Returns
+    -------
+    list
+        List of downloaded filenames.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no data is found or download fails.
+    """
     import requests
 
     print(f"downloading {product} for {date}")
@@ -77,6 +129,26 @@ def getARM(date, config, path, product, user):
 
 
 def getMeteoData(case, config):
+    """
+    Retrieve meteorological data for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object or str
+        Configuration object or path to configuration file.
+
+    Returns
+    -------
+    xarray.Dataset
+        Meteorological data for the specified case.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no meteorological data is found.
+    """
     if type(config) is str:
         config = tools.readSettings(config)
 
@@ -103,6 +175,26 @@ def getMeteoData(case, config):
 
 
 def _getMeteoData1(case, config):
+    """
+    Internal helper function to retrieve meteorological data based on source.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+
+    Returns
+    -------
+    xarray.Dataset
+        Meteorological data for the specified case.
+
+    Raises
+    ------
+    ValueError
+        If the meteorological data source is not recognized.
+    """
     if config.aux.meteo.source == "cloudnetMeteo":
         return getMeteoDataCloudnet(case, config)
     elif config.aux.meteo.source == "ARMmet":
@@ -118,6 +210,26 @@ def _getMeteoData1(case, config):
 
 
 def getMeteoDataCloudnet(case, config):
+    """
+    Retrieve meteorological data from Cloudnet for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+
+    Returns
+    -------
+    xarray.Dataset
+        Meteorological data for the specified case.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no Cloudnet data is found.
+    """
     fn = files.FindFiles(case, config.leader, config)
     date = f"{fn.year}-{fn.month}-{fn.day}"
 
@@ -154,6 +266,26 @@ def getMeteoDataCloudnet(case, config):
 
 
 def getMeteoDataARM(case, config):
+    """
+    Retrieve meteorological data from ARM for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+
+    Returns
+    -------
+    xarray.Dataset
+        Meteorological data for the specified case.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no ARM data is found.
+    """
     fn = files.FindFiles(case, config.leader, config)
     date = f"{fn.year}-{fn.month}-{fn.day}"
     product = "met"
@@ -205,6 +337,26 @@ def getMeteoDataARM(case, config):
 
 
 def getMeteoDataRPG(case, config):
+    """
+    Retrieve meteorological data from RPG radar for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+
+    Returns
+    -------
+    xarray.Dataset
+        Meteorological data for the specified case.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no RPG data is found.
+    """
     import netCDF4
 
     fn = files.FindFiles(case, config.leader, config)
@@ -257,6 +409,27 @@ def getRadarData(
     case,
     config,
 ):
+    """
+    Retrieve radar data for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object or str
+        Configuration object or path to configuration file.
+
+    Returns
+    -------
+    tuple
+        Tuple containing (xarray.Dataset, float) where the dataset contains
+        radar data and the float is the radar frequency.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no radar data is found.
+    """
     if type(config) is str:
         config = tools.readSettings(config)
 
@@ -283,6 +456,29 @@ def getRadarData(
 
 
 def _getRadarData1(case, config, fn):
+    """
+    Internal helper function to retrieve radar data based on source.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+    fn : object
+        FindFiles object for the current case.
+
+    Returns
+    -------
+    tuple
+        Tuple containing (xarray.Dataset, float) where the dataset contains
+        radar data and the float is the radar frequency.
+
+    Raises
+    ------
+    ValueError
+        If the radar data source is not recognized.
+    """
     if config.aux.radar.source == "cloudnetCategorize":
         dat, frequency = getRadarDataCloudnetCategorize(case, config, fn)
 
@@ -350,6 +546,29 @@ def _getRadarData1(case, config, fn):
 
 
 def getRadarDataCloudnetCategorize(case, config, fn):
+    """
+    Retrieve radar data from Cloudnet categorize product for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+    fn : object
+        FindFiles object for the current case.
+
+    Returns
+    -------
+    tuple
+        Tuple containing (xarray.Dataset, float) where the dataset contains
+        radar data and the float is the radar frequency.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no Cloudnet categorize data is found.
+    """
     date = f"{fn.year}-{fn.month}-{fn.day}"
 
     fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{case}_{config.aux.cloudnet.site}_categorize*.nc"
@@ -400,6 +619,29 @@ def getRadarDataCloudnetCategorize(case, config, fn):
 
 
 def getRadarDataCloudnetFMCW94(case, config, fn):
+    """
+    Retrieve radar data from Cloudnet FMCW94 instrument for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+    fn : object
+        FindFiles object for the current case.
+
+    Returns
+    -------
+    tuple
+        Tuple containing (xarray.Dataset, float) where the dataset contains
+        radar data and the float is the radar frequency.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no Cloudnet FMCW94 data is found.
+    """
     fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{case}_{config.aux.cloudnet.site}_rpg-fmcw-94*.nc"
     fnames = glob.glob(fStr)
 
@@ -431,6 +673,29 @@ def getRadarDataCloudnetFMCW94(case, config, fn):
 
 
 def getRadarDataARMwcloudradarcel(case, config, fn):
+    """
+    Retrieve radar data from ARM wcloudradarcel product for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+    fn : object
+        FindFiles object for the current case.
+
+    Returns
+    -------
+    tuple
+        Tuple containing (xarray.Dataset, float) where the dataset contains
+        radar data and the float is the radar frequency.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no ARM wcloudradarcel data is found.
+    """
     fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{config.aux.ARM.site}wcloudradarcel*{case}*.nc"
     fnames = glob.glob(fStr)
 
@@ -456,6 +721,29 @@ def getRadarDataARMwcloudradarcel(case, config, fn):
 
 
 def getRadarDataARMarsclkazr1kollias(case, config, fn):
+    """
+    Retrieve radar data from ARM arsclkazr1kollias product for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+    fn : object
+        FindFiles object for the current case.
+
+    Returns
+    -------
+    tuple
+        Tuple containing (xarray.Dataset, float) where the dataset contains
+        radar data and the float is the radar frequency.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no ARM arsclkazr1kollias data is found.
+    """
     date = f"{fn.year}-{fn.month}-{fn.day}"
 
     fStr = f"{config.aux.radar.path.format(year=fn.year, month=fn.month, day=fn.day)}/{config.aux.ARM.site}arsclkazr1kollias*{case}*.nc"
@@ -497,6 +785,23 @@ def getRadarDataARMarsclkazr1kollias(case, config, fn):
 
 
 def downloadPangaea1(config, path, type):
+    """
+    Download data from Pangaea for a specific type and save it locally.
+
+    Parameters
+    ----------
+    config : object
+        Configuration object.
+    path : str
+        Local path where the downloaded file will be saved.
+    type : str
+        Type of data to download (e.g., 'weatherstation').
+
+    Returns
+    -------
+    str
+        Path to the downloaded file.
+    """
     from pangaeapy.pandataset import PanDataSet
 
     doipart = config.aux.meteo.doi.split("/")[-1]
@@ -536,6 +841,18 @@ def downloadPangaea1(config, path, type):
 
 
 def downloadPangaea(config, path, type):
+    """
+    Download all available data from Pangaea for a specific type.
+
+    Parameters
+    ----------
+    config : object
+        Configuration object.
+    path : str
+        Local path where the downloaded files will be saved.
+    type : str
+        Type of data to download (e.g., 'weatherstation').
+    """
     from pangaeapy.pandataset import PanDataSet
 
     ds = PanDataSet(config.aux.meteo.doi)
@@ -545,6 +862,26 @@ def downloadPangaea(config, path, type):
 
 
 def getMeteoDataPangaea(case, config):
+    """
+    Retrieve meteorological data from Pangaea for a given case.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : object
+        Configuration object.
+
+    Returns
+    -------
+    xarray.Dataset
+        Meteorological data for the specified case.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no Pangaea data is found.
+    """
     fn = files.FindFiles(case, config.leader, config)
     date = f"{fn.year}-{fn.month}-{fn.day}"
     product = "met"

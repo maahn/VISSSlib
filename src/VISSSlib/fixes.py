@@ -19,11 +19,29 @@ log = logging.getLogger(__name__)
 
 def fixMosaicTimeL1(dat1, config):
     """
-    attempt to fix drift of capture time with record_time
-
-    quite poor attempt, not used any more!
+    Attempt to fix drift of capture time with record_time.
+    
+    This function attempts to correct timing drift between capture_time and
+    record_time by estimating and interpolating drift patterns over time.
+    
+    Parameters
+    ----------
+    dat1 : xarray.Dataset
+        Input dataset containing capture_time and record_time variables
+    config : object
+        Configuration object containing fps parameter for frame rate
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with corrected capture_time values
+        
+    Notes
+    -----
+    This is a poor attempt at fixing drift and is not used anymore.
+    The function groups data into time chunks and estimates drift patterns
+    to interpolate and correct the timing issues.
     """
-
     datS = dat1[["capture_time", "record_time"]]
     datS = datS.isel(capture_time=slice(None, None, config["fps"]))
     diff = datS.capture_time - datS.record_time
@@ -97,8 +115,34 @@ def fixMosaicTimeL1(dat1, config):
 
 def captureIdOverflows(dat, config, storeOrig=True, idOffset=0, dim="pid"):
     """
-    For M1280, capture_id is 16 bit integer and does overflow every few minutes
-    fixed in raw data in version 0.3  06/2022
+    Fix capture_id overflows for M1280 devices.
+    
+    For M1280 devices, capture_id is a 16-bit integer that overflows every few minutes.
+    This function detects and fixes overflow conditions by applying appropriate offsets.
+    
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Input dataset containing capture_id and capture_time variables
+    config : object
+        Configuration object containing fps parameter for frame rate
+    storeOrig : bool, optional
+        Whether to store original capture_id values, default is True
+    idOffset : int, optional
+        Constant offset to add to capture_id, default is 0
+    dim : str, optional
+        Dimension name for diff operations, default is "pid"
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with fixed capture_id values
+        
+    Notes
+    -----
+    This function handles the specific case where capture_id overflows due to
+    being a 16-bit integer. It detects overflow points and applies corrections
+    to maintain proper sequential numbering.
     """
     log.info("fixing captureIdOverflows")
     maxInt = 65535
@@ -153,6 +197,27 @@ def captureIdOverflows(dat, config, storeOrig=True, idOffset=0, dim="pid"):
 
 
 def revertIdOverflowFix(dat):
+    """
+    Revert capture_id overflow fix by restoring original values.
+    
+    This function restores the original capture_id values by renaming
+    the fixed and original variables back to their original names.
+    
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Input dataset with fixed capture_id and capture_id_orig variables
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with original capture_id restored
+        
+    Notes
+    -----
+    This function is used to undo the effects of captureIdOverflows when
+    needed for data recovery or analysis consistency.
+    """
     log.info("reverting revertIdOverflowFix")
     dat = dat.rename({"capture_id": "capture_id_fixed"})
     dat = dat.rename({"capture_id_orig": "capture_id"})
@@ -161,17 +226,40 @@ def revertIdOverflowFix(dat):
 
 def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteration=3):
     """
-    For MOSAiC, follower adds once in a while additional ghost frames to the data set.
-    They can be recognized because they are less than 1/fps apart. Typically, a group
-    of 6 frames has reduced 1/fps
-
-    we do this several times because sometime multiple ghost frames are in data gaps so
-    that only the shiftes index tells that there was a problem
-
-    if fixIteration iterations do not change it, give up and cut file at first
-    suspicous position
+    Remove ghost frames from MOSAiC follower data.
+    
+    For MOSAiC follower devices, additional ghost frames are occasionally added
+    to the dataset. These can be identified by their spacing being less than
+    1/fps apart. This function identifies and removes such frames.
+    
+    Parameters
+    ----------
+    metaDat : xarray.Dataset
+        Input dataset containing capture_time and capture_id variables
+    config : object
+        Configuration object containing fps parameter for frame rate
+    intOverflow : bool, optional
+        Whether to handle integer overflows, default is True
+    idOffset : int, optional
+        Offset to add to capture_id, default is 0
+    fixIteration : int, optional
+        Number of iterations to attempt ghost frame removal, default is 3
+        
+    Returns
+    -------
+    tuple
+        A tuple containing (fixed_dataset, dropped_frames, beyond_repair_flag)
+        where:
+        - fixed_dataset is the dataset with ghost frames removed
+        - dropped_frames is the count of removed frames
+        - beyond_repair_flag indicates if data is beyond repair
+        
+    Notes
+    -----
+    Ghost frames are typically identified by their spacing being significantly
+    different from the expected 1/fps interval. The function performs multiple
+    iterations to handle complex cases where ghost frames might be in data gaps.
     """
-
     log.info("fixing removeGhostFrames")
 
     beyondRepair = False
@@ -235,8 +323,29 @@ def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteratio
 
 def delayedClockReset(metaDat, config):
     """
-    check for delayed clock reset and truncate data if needed. jump needs to
-    be at least 10s to make sure we look at the right problem
+    Check for and fix delayed clock reset issues.
+    
+    This function detects delayed clock resets in the data and attempts to
+    correct them by adjusting timestamps accordingly.
+    
+    Parameters
+    ----------
+    metaDat : xarray.Dataset
+        Input dataset containing capture_time and capture_id variables
+    config : object
+        Configuration object containing fps parameter for frame rate
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with corrected timestamps if reset was detected
+        
+    Notes
+    -----
+    Delayed clock resets are identified by large negative time differences
+    (>10 seconds). The function handles both cases where integer overflows
+    and timestamp issues coexist, and attempts to fix the timing problems
+    by recalculating timestamps based on known good values.
     """
     if (metaDat.capture_time.diff() <= -10e6).any():
         log.info("fixing detected delayedClockReset")
@@ -267,13 +376,32 @@ def delayedClockReset(metaDat, config):
 
 def makeCaptureTimeEven(datF, config, dim="capture_time"):
     """
-    for the M1280 follower, the drift can be quite large so
-    that clocks drifts more than 1 frame apart within 10 mins.
-    Therefore, lets build a new time vector (based on a capture_id
-    that we trust) with even spacing.
-
-    we care about this only for the capture id offset estimation, so make
-    special variable
+    Make capture time even for M1280 follower devices.
+    
+    For M1280 follower devices, significant drift can occur causing clocks to
+    drift more than 1 frame apart within 10 minutes. This function creates
+    a new time vector with even spacing based on a trusted capture_id.
+    
+    Parameters
+    ----------
+    datF : xarray.Dataset
+        Input dataset containing capture_time and capture_id variables
+    config : object
+        Configuration object containing fps parameter for frame rate
+    dim : str, optional
+        Dimension name for operations, default is "capture_time"
+        
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with new evenly spaced capture_time_even variable
+        
+    Notes
+    -----
+    This function is specifically designed for capture_id offset estimation
+    and creates a new time vector that maintains even spacing regardless
+    of timing drift issues. It validates that the calculated slopes are
+    within acceptable ranges.
     """
     log.info("making follower times even")
 

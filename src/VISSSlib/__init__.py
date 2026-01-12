@@ -78,6 +78,19 @@ LOGGING_CONFIG = {
 
 
 def get_logging_config(fname):
+    """
+    Get logging configuration dictionary with specified log file name.
+    
+    Parameters
+    ----------
+    fname : str
+        Name of the log file to be used for logging.
+        
+    Returns
+    -------
+    dict
+        Dictionary containing the logging configuration.
+    """
     lc = deepcopy(LOGGING_CONFIG)
     # lc['handlers']['file']['filename'] = fname
     return lc

@@ -29,6 +29,34 @@ log = logging.getLogger(__name__)
 
 
 class _stereoViewMatch(object):
+    """Stereo view matcher for VISSS data analysis.
+
+    This class handles viewing and matching stereo camera data for VISSS analysis.
+    It manages video reading, particle detection, and data synchronization between
+    two cameras.
+
+    Attributes
+    ----------
+    case : str
+        Case identifier for the data
+    config : object
+        Configuration object containing camera parameters
+    version : str
+        Version string for the analysis
+    markParticles : bool
+        Whether to mark particles in the displayed frames
+    increaseContrast : bool
+        Whether to increase image contrast
+    showTracks : bool
+        Whether to show tracking information
+    cameras : list
+        List of camera identifiers
+    skipNonMatched : bool
+        Whether to skip non-matched frames
+    lv1match : object
+        Level 1 match data
+    """
+
     def __init__(
         self,
         case,
@@ -40,6 +68,27 @@ class _stereoViewMatch(object):
         skipNonMatched=False,
         lv1match=None,
     ):
+        """Initialize the stereo view matcher.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier for the data
+        config : object
+            Configuration object containing camera parameters
+        version : str, optional
+            Version string for the analysis (default: __version__)
+        markParticles : bool, optional
+            Whether to mark particles in the displayed frames (default: True)
+        increaseContrast : bool, optional
+            Whether to increase image contrast (default: True)
+        showTracks : bool, optional
+            Whether to show tracking information (default: False)
+        skipNonMatched : bool, optional
+            Whether to skip non-matched frames (default: False)
+        lv1match : object, optional
+            Level 1 match data (default: None)
+        """
         self.case = case
         self.config = config
         self.version = version
@@ -54,6 +103,7 @@ class _stereoViewMatch(object):
         self.rr = 0
 
     def open(self):
+        """Open and initialize all required data files and video readers."""
         fL = files.FindFiles(self.case, self.config.leader, self.config, self.version)
         assert (
             len(fL.listFiles("level0")) == 1
@@ -181,6 +231,18 @@ class _stereoViewMatch(object):
             )
 
     def get(self, rr):
+        """Get frame and associated data for a specific record index.
+
+        Parameters
+        ----------
+        rr : int
+            Record index to retrieve
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         self.rr = rr
         thisID = self.uniqueCaptureIds[rr].values
 
@@ -295,6 +357,13 @@ class _stereoViewMatch(object):
         return frame, metaFrames, lv1detects, lv1matches, particles
 
     def next(self):
+        """Get the next record in sequence.
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         newrr = self.rr + 1
         if newrr >= len(self.uniqueCaptureIds):
             print("end of movie file")
@@ -302,6 +371,13 @@ class _stereoViewMatch(object):
         return self.get(newrr)
 
     def previous(self):
+        """Get the previous record in sequence.
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         newrr = self.rr - 1
         if newrr < 0:
             print("beginning of movie file")
@@ -309,6 +385,13 @@ class _stereoViewMatch(object):
         return self.get(newrr)
 
     def nextCommon(self):
+        """Get the next record where both cameras have data.
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         while True:
             frame, metaFrames, lv1detects, lv1match, particles = self.next()
             if np.sum([m is None for m in metaFrames]) == 1:
@@ -319,6 +402,13 @@ class _stereoViewMatch(object):
         return frame, metaFrames, lv1detects, lv1match, particles
 
     def previousCommon(self):
+        """Get the previous record where both cameras have data.
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         while True:
             frame, metaFrames, lv1detects, lv1match, particles = self.previous()
             if np.sum([m is None for m in metaFrames]) == 1:
@@ -328,6 +418,13 @@ class _stereoViewMatch(object):
         return frame, metaFrames, lv1detects, lv1match, particles
 
     def nextMatch(self):
+        """Get the next record that has a match in the leader camera.
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         rr = self.rr
         rrs = range(rr + 1, len(self.uniqueCaptureIds))
         if len(rrs) == 0:
@@ -340,6 +437,13 @@ class _stereoViewMatch(object):
         return self.get(newrr)
 
     def previousMatch(self):
+        """Get the previous record that has a match in the leader camera.
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects, level 1 matches, particles
+        """
         rr = self.rr
         rrs = range(rr - 1, -1, -1)
         if len(rrs) == 0:
@@ -351,9 +455,8 @@ class _stereoViewMatch(object):
                 break
         return self.get(newrr)
 
-    def close(
-        self,
-    ):
+    def close(self):
+        """Close all opened data files and video readers."""
         for camera in self.cameras:
             self.meta[camera].close()
             self.lv1detect[camera].close()
@@ -361,6 +464,23 @@ class _stereoViewMatch(object):
 
 
 class matchGUI:
+    """GUI for stereo view matching visualization.
+
+    Provides interactive GUI controls for navigating and visualizing stereo camera
+    matching data.
+
+    Attributes
+    ----------
+    sv : _stereoViewMatch
+        Stereo view matcher instance
+    showVars : list
+        Variables to display in the GUI
+    showParticles : bool
+        Whether to show particle details
+    scale : float
+        Scaling factor for displayed images
+    """
+
     def __init__(
         self,
         case,
@@ -374,6 +494,31 @@ class matchGUI:
         showParticles=False,
         scale=0.5,
     ):
+        """Initialize the match GUI.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier for the data
+        config : object
+            Configuration object containing camera parameters
+        markParticles : bool, optional
+            Whether to mark particles in the displayed frames (default: True)
+        increaseContrast : bool, optional
+            Whether to increase image contrast (default: False)
+        showTracks : bool, optional
+            Whether to show tracking information (default: False)
+        skipNonMatched : bool, optional
+            Whether to skip non-matched frames (default: False)
+        showVars : list, optional
+            Variables to display in the GUI (default: ["Dmax"])
+        lv1match : object, optional
+            Level 1 match data (default: None)
+        showParticles : bool, optional
+            Whether to show particle details (default: False)
+        scale : float, optional
+            Scaling factor for displayed images (default: 0.5)
+        """
         self.sv = _stereoViewMatch(
             case,
             config,
@@ -390,9 +535,36 @@ class matchGUI:
         return
 
     def updateHandlesId(self, fid):
+        """Update GUI handles for a specific frame ID.
+
+        Parameters
+        ----------
+        fid : int
+            Frame ID to update
+
+        Returns
+        -------
+        tuple
+            Updated frame, meta frames, level 1 detects, level 1 matches, particles
+        """
         return self.updateHandles(*self.sv.get(fid))
 
     def updateHandles(self, frame, metaFrames, lv1detects, lv1matches, particles):
+        """Update GUI handles with new data.
+
+        Parameters
+        ----------
+        frame : array
+            Frame data to display
+        metaFrames : list
+            Meta frames data
+        lv1detects : list
+            Level 1 detect data
+        lv1matches : list
+            Level 1 match data
+        particles : dict
+            Particle data
+        """
         import cv2
         import skimage
         from IPython.display import Image, display
@@ -504,13 +676,36 @@ class matchGUI:
                     )
 
     def getNN(self):
+        """Get current frame number from GUI input.
+
+        Returns
+        -------
+        int
+            Current frame number
+        """
         nn = int(self.texts[0].get_interact_value())
         return nn
 
     def setNN(self, nn):
+        """Set current frame number in GUI.
+
+        Parameters
+        ----------
+        nn : int
+            Frame number to set
+        """
         self.texts[0].value = str(nn)
 
     def createGUI(self, pid=0, startId=0):
+        """Create the GUI interface.
+
+        Parameters
+        ----------
+        pid : int, optional
+            Starting PID (default: 0)
+        startId : int, optional
+            Starting ID (default: 0)
+        """
         import ipywidgets as widgets
         from IPython.display import Image, display
 
@@ -573,7 +768,42 @@ class matchGUI:
 
 
 class _stereoViewDetect(object):
+    """Stereo view detector for VISSS data analysis.
+
+    This class handles viewing stereo camera data for detection purposes.
+
+    Attributes
+    ----------
+    case : str
+        Case identifier for the data
+    config : object
+        Configuration object containing camera parameters
+    version : str
+        Version string for the analysis
+    cameras : list
+        List of camera identifiers
+    markParticles : bool
+        Whether to mark particles in the displayed frames
+    this_capture_time : dict
+        Capture times for each camera
+    this_record_time : dict
+        Record times for each camera
+    """
+
     def __init__(self, case, config, version=__version__, markParticles=True):
+        """Initialize the stereo view detector.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier for the data
+        config : object
+            Configuration object containing camera parameters
+        version : str, optional
+            Version string for the analysis (default: __version__)
+        markParticles : bool, optional
+            Whether to mark particles in the displayed frames (default: True)
+        """
         self.case = case
         self.config = config
         self.version = version
@@ -587,6 +817,7 @@ class _stereoViewDetect(object):
         self.open()
 
     def open(self):
+        """Open and initialize all required data files and video readers."""
         fL = files.FindFiles(self.case, self.config.leader, self.config, self.version)
         assert (
             len(fL.listFiles("level0")) == 1
@@ -653,6 +884,18 @@ class _stereoViewDetect(object):
         return
 
     def get(self, rrs):
+        """Get frame and associated data for specific record indices.
+
+        Parameters
+        ----------
+        rrs : dict
+            Dictionary mapping camera names to record indices
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects
+        """
         self.rrs = rrs
 
         frame = list()
@@ -712,6 +955,18 @@ class _stereoViewDetect(object):
         return frame, metaFrames, lv1detects
 
     def next(self, camera):
+        """Get the next record for specified camera(s).
+
+        Parameters
+        ----------
+        camera : str
+            Camera name or 'all' for both cameras
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects
+        """
         if camera == "all":
             cameras = self.cameras
         else:
@@ -726,6 +981,18 @@ class _stereoViewDetect(object):
         return self.get(newrr)
 
     def previous(self, camera):
+        """Get the previous record for specified camera(s).
+
+        Parameters
+        ----------
+        camera : str
+            Camera name or 'all' for both cameras
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects
+        """
         if camera == "all":
             cameras = self.cameras
         else:
@@ -740,6 +1007,20 @@ class _stereoViewDetect(object):
         return self.get(newrr)
 
     def matchTime(self, time1, camera):
+        """Match time between cameras.
+
+        Parameters
+        ----------
+        time1 : str
+            Time variable to match ('capture_time' or 'record_time')
+        camera : str
+            Camera to match against
+
+        Returns
+        -------
+        tuple
+            Frame array, meta frames, level 1 detects
+        """
         refCam = tools.otherCamera(self.config, camera)
         nn = self.rrs
         tDiff = np.abs(
@@ -751,9 +1032,8 @@ class _stereoViewDetect(object):
 
         return self.get(nn)
 
-    def close(
-        self,
-    ):
+    def close(self):
+        """Close all opened data files and video readers."""
         for camera in self.cameras:
             self.meta[camera].close()
             self.lv1detect[camera].close()
@@ -761,11 +1041,43 @@ class _stereoViewDetect(object):
 
 
 class manualMatchGUI:
+    """Manual matching GUI for stereo view analysis.
+
+    Provides interactive GUI controls for manual stereo camera matching.
+
+    Attributes
+    ----------
+    sv : _stereoViewDetect
+        Stereo view detector instance
+    """
+
     def __init__(self, case, config, markParticles=True):
+        """Initialize the manual match GUI.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier for the data
+        config : object
+            Configuration object containing camera parameters
+        markParticles : bool, optional
+            Whether to mark particles in the displayed frames (default: True)
+        """
         self.sv = _stereoViewDetect(case, config, markParticles=markParticles)
         return
 
     def updateHandles(self, frame, metaFrames, lv1detects):
+        """Update GUI handles with new data.
+
+        Parameters
+        ----------
+        frame : array
+            Frame data to display
+        metaFrames : list
+            Meta frames data
+        lv1detects : list
+            Level 1 detect data
+        """
         import cv2
         from IPython.display import Image, display
 
@@ -823,16 +1135,31 @@ class manualMatchGUI:
         return
 
     def getNN(self):
+        """Get current frame numbers from GUI inputs.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping camera names to frame numbers
+        """
         nn = {}
         for ii, camera in enumerate(self.sv.config.instruments):
             nn[camera] = int(self.texts[ii].get_interact_value())
         return nn
 
     def setNN(self, nn):
+        """Set current frame numbers in GUI.
+
+        Parameters
+        ----------
+        nn : dict
+            Dictionary mapping camera names to frame numbers
+        """
         for ii, camera in enumerate(self.sv.config.instruments):
             self.texts[ii].value = str(nn[camera])
 
     def createGUI(self):
+        """Create the manual matching GUI interface."""
         import ipywidgets as widgets
         from IPython.display import Image, display
 

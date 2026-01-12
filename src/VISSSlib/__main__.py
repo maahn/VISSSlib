@@ -28,7 +28,27 @@ log = logging.getLogger(__name__)
 
 
 def main():
-    # we dont wan't verbosity here
+    """
+    Main entry point for the VISSS processing pipeline.
+
+    This function serves as the command-line interface for running various
+    VISSS processing tasks. It parses command-line arguments and dispatches
+    to the appropriate processing functions based on the specified command.
+
+    The function supports numerous commands for different stages of the
+    VISSS data processing pipeline including event creation, metadata
+    generation, particle detection, matching, tracking, and quicklook
+    generation.
+
+    Returns
+    -------
+    int
+        Exit code (0 for success, 1 for error).
+
+    Examples
+    --------
+    >>> python -m VISSSlib metadata.createEvent settings.yaml leader+20251201
+    """
 
     print(
         "%s %s %i %s" % (sys.executable, sys.version, os.getpid(), socket.gethostname())

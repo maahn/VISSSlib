@@ -31,10 +31,8 @@ log = logging.getLogger(__name__)
 
 # settings that stay mostly constant
 DEFAULT_SETTINGS = {
-    "correctForSmallOnes": False,
-    "height_offset": 64,
-    "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
-    "threshs": [20, 30, 40, 60, 80, 100, 120],
+    "dataFixes": [],
+    "newFileInt": 600,
     "goodFiles": ["None", "None"],
     "level1detectQuicklook": {
         "minBlur": 500,
@@ -45,6 +43,8 @@ DEFAULT_SETTINGS = {
     "fileMode": 0o664,  # 436
     "dirMode": 0o775,  # 509
     "level1detect": {
+        "threshs": [20, 30, 40, 60, 80, 100, 120],
+        "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
         "maxMovingObjects": 1000,  # 60 until 18.9.24
         "minAspectRatio": None,  # testing only
         "minBlur4picturewrite": 250,
@@ -78,6 +78,7 @@ DEFAULT_SETTINGS = {
         "writeImg": True,
     },
     "level1match": {
+        "processL1match": True,
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
     "level1track": {
@@ -85,7 +86,9 @@ DEFAULT_SETTINGS = {
     },
     "level1shape": {},
     "level2": {
+        "correctForSmallOnes": False,
         "freq": "1min",
+        "processL2detect": True,
     },
     "quality": {
         "obsRatioThreshold": 0.7,
@@ -95,8 +98,6 @@ DEFAULT_SETTINGS = {
         "minSize4insituM": 10,
         "trackLengthThreshold": 2,
     },
-    "matchData": True,
-    "processL2detect": True,
     "aux": {
         "meteo": {
             # "source": "cloudnetMeteo",
@@ -266,6 +267,7 @@ def readSettings(fname):
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))
         config["filename"] = fname
+        config["instruments"] = [config.leader, config.follower]
         return config
     else:  # is already config
         return fname

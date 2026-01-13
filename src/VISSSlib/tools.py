@@ -263,6 +263,15 @@ def readSettings(fname):
         config = flatten_dict.flatten(DEFAULT_SETTINGS)
         with open(fname, "r") as stream:
             loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
+            # Check for keys in loadedSettings that are not in DEFAULT_SETTINGS
+            default_keys = set(flatten_dict.flatten(DEFAULT_SETTINGS).keys())
+            exception_top = {'path', 'pathOut', 'pathTmp', 'pathQuicklooks'}
+            for key in loadedSettings.keys():
+                if key not in default_keys:
+                    # Skip keys in exception_top (top-level) and any key under 'rotate'
+                    if (len(key) == 1 and key[0] in exception_top) or (len(key) > 0 and key[0] == 'rotate'):
+                        continue
+                    log.warning(f"Key {key} in settings file is not in the default settings and might be unused.")
             config.update(loadedSettings)
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))

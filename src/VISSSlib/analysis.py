@@ -188,7 +188,7 @@ class _stereoViewMatch(object):
         self.idDiffs[self.config.leader] = 0
 
         # remove non moving data
-        minMovingPixels = np.array(self.config["minMovingPixels"])
+        minMovingPixels = np.array(self.config.level1detect.minMovingPixels)
         for camera in self.cameras:
             nChangedPixel = self.meta[camera].nMovingPixel.values
             passesThreshold = nChangedPixel >= minMovingPixels
@@ -281,7 +281,7 @@ class _stereoViewMatch(object):
                     # for fpid in meta2.fpid.values:
                     # thisMeta2 = meta2.sel(fpid=fpid)
                     # cnt = thisMeta2.cnt.values[thisMeta2.cnt.values[...,0]>=0]
-                    # thisFrame = self.frame1[self.config.height_offset:,:,0]
+                    # thisFrame = self.frame1[self.config.level1detect.height_offset:,:,0]
                     # particleBoxMask, xOffset, yOffset = detection.extractRoi(thisMeta2.roi.values, cv2.fillPoly(np.zeros_like(thisFrame), pts =np.array([cnt], dtype=np.int32), color=255))
                     # particleBox, xOffset, yOffset = detection.extractRoi(thisMeta2.roi.values, thisFrame)
                     # particleBoxCropped = deepcopy(particleBox)
@@ -315,7 +315,8 @@ class _stereoViewMatch(object):
                     frame.append(
                         np.zeros(
                             (
-                                self.config.frame_height + self.config.height_offset,
+                                self.config.frame_height
+                                + self.config.level1detect.height_offset,
                                 self.config.frame_width,
                                 3,
                             ),
@@ -329,7 +330,8 @@ class _stereoViewMatch(object):
                 frame.append(
                     np.zeros(
                         (
-                            self.config.frame_height + self.config.height_offset,
+                            self.config.frame_height
+                            + self.config.level1detect.height_offset,
                             self.config.frame_width,
                             3,
                         ),
@@ -339,7 +341,12 @@ class _stereoViewMatch(object):
                 meta1 = meta2 = meta3 = None
 
             frameBorder = np.zeros(
-                (self.config.frame_height + self.config.height_offset, 10, 3), dtype=int
+                (
+                    self.config.frame_height + self.config.level1detect.height_offset,
+                    10,
+                    3,
+                ),
+                dtype=int,
             )
 
             frame.append(frameBorder)
@@ -917,7 +924,8 @@ class _stereoViewDetect(object):
                     frame.append(
                         np.zeros(
                             (
-                                self.config.frame_height + self.config.height_offset,
+                                self.config.frame_height
+                                + self.config.level1detect.height_offset,
                                 self.config.frame_width,
                                 3,
                             ),
@@ -932,7 +940,8 @@ class _stereoViewDetect(object):
                 frame.append(
                     np.zeros(
                         (
-                            self.config.frame_height + self.config.height_offset,
+                            self.config.frame_height
+                            + self.config.level1detect.height_offset,
                             self.config.frame_width,
                             3,
                         ),
@@ -944,7 +953,12 @@ class _stereoViewDetect(object):
                 self.this_record_time[camera] = None
             frame.append(
                 np.zeros(
-                    (self.config.frame_height + self.config.height_offset, 10, 3),
+                    (
+                        self.config.frame_height
+                        + self.config.level1detect.height_offset,
+                        10,
+                        3,
+                    ),
                     dtype=int,
                 )
             )

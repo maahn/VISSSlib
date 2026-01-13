@@ -165,7 +165,7 @@ def loopMetaRotationQuicklooks(
         number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 
@@ -260,7 +260,7 @@ def loopLevel1matchQuicklooks(
         plot only days that are completely processed (the default is True)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
     days = tools.getDateRange(nDays, config, endYesterday=False)
@@ -350,7 +350,7 @@ def loopLevel1matchParticlesQuicklooks(
         Skip existing files? (the default is True)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 
@@ -647,7 +647,7 @@ def loopCreateLevel2match(
     """
     config = tools.readSettings(settings)
 
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 
@@ -718,7 +718,7 @@ def loopCreateLevel2track(
         do quicklooks? (the default is True)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 
@@ -888,7 +888,7 @@ def loopCreateMetaRotation(
         stop when metaRotation fails? (the default is False)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 
@@ -1237,7 +1237,7 @@ def loopCreateLevel1match(settings, skipExisting=True, nDays=0, nCPU=None):
         number of workers to use (the default is None, which corresponds to the number of cores)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 
@@ -1302,7 +1302,7 @@ def loopCreateLevel1track(settings, skipExisting=True, nDays=0, nCPU=None):
         number of workers to use (the default is None, which corresponds to the number of cores)
     """
     config = tools.readSettings(settings)
-    if not config.matchData:
+    if not config.level1match.processL1match:
         print("camera matching disabled in config file")
         return
 

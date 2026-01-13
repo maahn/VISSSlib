@@ -146,7 +146,7 @@ def _statusText(fig, fnames, config, addLogo=True):
         horizontalalignment="left",
     )
 
-    if addLogo and ("logo" in config.keys()):
+    if addLogo and (config.logo is not None):
         try:
             im = Image.open(config.logo)
         except FileNotFoundError:
@@ -787,7 +787,10 @@ def createLevel1detectQuicklook(
                         if len(frame1.shape) == 3:
                             frame1 = frame1[:, :, 0]
                         im = frame1[
-                            y + config.height_offset : y + config.height_offset + h,
+                            y
+                            + config.level1detect.height_offset : y
+                            + config.level1detect.height_offset
+                            + h,
                             x : x + w,
                         ]
                     else:

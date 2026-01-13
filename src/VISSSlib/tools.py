@@ -29,35 +29,64 @@ from . import __version__, __versionFull__, files, fixes
 log = logging.getLogger(__name__)
 
 
-# settings that stay mostly constant
 DEFAULT_SETTINGS = {
-    "dataFixes": [],
-    "newFileInt": 600,
-    "goodFiles": ["None", "None"],
-    "level1detectQuicklook": {
-        "minBlur": 500,
-        "minSize": 10,
-        "omitLabel4small": True,
+    # settings that must be provided in YAML file
+    "computers": None,
+    "fps": None,
+    "resolution": None,
+    "frame_height": None,
+    "frame_width": None,
+    "leader": None,
+    "follower": None,
+    "nThreads": None,
+    "path": None,
+    "pathOut": None,
+    "pathTmp": None,
+    "pathQuicklooks": None,
+    "visssGen": None,
+    "site": None,
+    "start": None,
+    "end": None,
+    "name": None,
+    "model": None,
+    # mostly default settings
+    "aux": {
+        "arm": {},
+        "cloudnet": {
+            "site": None,
+        },
+        "meteo": {
+            "downloadData": True,
+            "source": None,
+            "path": None,
+            "doi": None,
+        },
+        "pangaea": {},
+        "radar": {
+            # "source": "cloudnetCategorize",
+            "calibrationOffset": {
+                "2000-01-01": 0,  # values that need to be added to radar Z. always previos value is used
+            },
+            "downloadData": True,
+            "elevation": 90,
+            "heightRange": (120, 360),
+            "minHeightBins": 4,
+            "path": None,
+            "source": None,
+            "timeOffset": 120,
+        },
     },
-    "rotate": {},
-    "fileMode": 0o664,  # 436
+    "calibration": {
+        "slope": None,
+        "slope_err": None,
+    },
+    "dataFixes": [],
     "dirMode": 0o775,  # 509
+    "fileMode": 0o664,  # 436
+    "goodFiles": ["None", "None"],
     "level1detect": {
-        "threshs": [20, 30, 40, 60, 80, 100, 120],
-        "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
-        "maxMovingObjects": 1000,  # 60 until 18.9.24
-        "minAspectRatio": None,  # testing only
-        "minBlur4picturewrite": 250,
-        "minSize4picturewrite": 8,
-        "trainingSize": 100,
-        "minContrast": 20,
-        "minDmax": 0,
-        "minBlur": 10,
-        "minArea": 0,
-        "erosionTestThreshold": 0.06,
-        "height_offset": 64,
-        "maskCorners": None,
-        "cropImage": None,  # (offsetX, offsetY)
+        "applyCanny2Particle": True,  # canny filter gets edges better
+        "backSub": "cv2.createBackgroundSubtractorKNN",
         "backSubKW": {
             "dist2Threshold": 400,
             "detectShadows": False,
@@ -65,70 +94,71 @@ DEFAULT_SETTINGS = {
         },  #       dist2Threshold of 100 was extensively tested, but this makes small particles larger even though it helps with wings etc.
         #  this is compensated by the canny filter, but not for holes in the particles (the default is {"dist2Threshold": 400,
         #                               "detectShadows": False, "history": 100})
-        "backSub": "cv2.createBackgroundSubtractorKNN",
-        "applyCanny2Particle": True,  # canny filter gets edges better
-        "dilateIterations": 1,  # to close gaps in canny edges (the default is 1 whic is sufficient)
         "blurSigma": 1,
-        "minAspectRatio": None,
-        "dilateErodeFgMask": False,  # turns out to be not so smart because it makes holes insides particles smaller
         "check4childCntLength": True,  # discard short child contours instead of dilate/erose
-        "doubleDynamicRange": True,
+        "cropImage": None,  # (offsetX, offsetY)
+        "dilateErodeFgMask": False,  # turns out to be not so smart because it makes holes insides particles smaller
         "dilateFgMask4Contours": True,
+        "dilateIterations": 1,  # to close gaps in canny edges (the default is 1 whic is sufficient)
+        "doubleDynamicRange": True,
+        "erosionTestThreshold": 0.06,
+        "height_offset": 64,
+        "maskCorners": None,
+        "maxMovingObjects": 1000,  # 60 until 18.9.24
+        "minArea": 0,
+        "minAspectRatio": None,  # testing only
+        "minBlur": 10,
+        "minBlur4picturewrite": 250,
+        "minContrast": 20,
+        "minDmax": 0,
+        "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],
+        "minSize4picturewrite": 8,
         "testMovieFile": True,
+        "threshs": [20, 30, 40, 60, 80, 100, 120],
+        "trainingSize": 100,
         "writeImg": True,
     },
-    "level1match": {
-        "processL1match": True,
-        "maxMovingObjects": 300,  # 60 until 18.9.24
+    "level1detectQuicklook": {
+        "minBlur": 500,
+        "minSize": 10,
+        "omitLabel4small": True,
     },
+    "level1match": {
+        "maxMovingObjects": 300,  # 60 until 18.9.24
+        "processL1match": True,
+    },
+    "level1shape": {},
     "level1track": {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
-    "level1shape": {},
     "level2": {
         "correctForSmallOnes": False,
         "freq": "1min",
         "processL2detect": True,
     },
+    "level3": {
+        "combinedRiming": {
+            "extraFileStr": "",
+            "habit": "mean",  # SSRG particle habit
+            "maxTemp": 275.15,  # +2°C
+            "minNParticles": 100,
+            "minZe": -10,
+            "processRetrieval": False,
+            "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
+        }
+    },
+    "logo": None,
+    "movieExtension": "mkv",
+    "newFileInt": 600,
     "quality": {
-        "obsRatioThreshold": 0.7,
         "blowingSnowFrameThresh": 0.05,
         "blockedPixThresh": 0.1,
         "minMatchScore": 1e-3,
         "minSize4insituM": 10,
+        "obsRatioThreshold": 0.7,
         "trackLengthThreshold": 2,
     },
-    "aux": {
-        "meteo": {
-            # "source": "cloudnetMeteo",
-            "downloadData": True,
-        },
-        "radar": {
-            # "source": "cloudnetCategorize",
-            "elevation": 90,
-            "downloadData": True,
-            "heightRange": (120, 360),
-            "minHeightBins": 4,
-            "timeOffset": 120,
-            "calibrationOffset": {
-                "2000-01-01": 0,  # values that need to be added to radar Z. always previos value is used
-            },
-        },
-        "cloudnet": {},
-        "arm": {},
-        "pangaea": {},
-    },
-    "level3": {
-        "combinedRiming": {
-            "processRetrieval": False,
-            "habit": "mean",  # SSRG particle habit
-            "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
-            "maxTemp": 275.15,  # +2°C
-            "minZe": -10,
-            "minNParticles": 100,
-            "extraFileStr": "",
-        }
-    },
+    "rotate": {},
 }
 
 
@@ -265,13 +295,17 @@ def readSettings(fname):
             loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
             # Check for keys in loadedSettings that are not in DEFAULT_SETTINGS
             default_keys = set(flatten_dict.flatten(DEFAULT_SETTINGS).keys())
-            exception_top = {'path', 'pathOut', 'pathTmp', 'pathQuicklooks'}
+            exception_top = {}
             for key in loadedSettings.keys():
                 if key not in default_keys:
                     # Skip keys in exception_top (top-level) and any key under 'rotate'
-                    if (len(key) == 1 and key[0] in exception_top) or (len(key) > 0 and key[0] == 'rotate'):
+                    if (len(key) == 1 and key[0] in exception_top) or (
+                        len(key) > 0 and key[0] in ["rotate"]
+                    ):
                         continue
-                    log.warning(f"Key {key} in settings file is not in the default settings and might be unused.")
+                    log.warning(
+                        f"Key {key} in settings file is not in the default settings and might be unused."
+                    )
             config.update(loadedSettings)
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))

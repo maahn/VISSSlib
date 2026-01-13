@@ -197,7 +197,7 @@ class detectedParticles(object):
         if self.verbosity > 20:
             print("particles.update", "FRAME", pp, "Start %s" % "update")
 
-        self.frame = frame[self.config.height_offset :]
+        self.frame = frame[self.config.level1detect.height_offset :]
 
         # convert to gray scale if required
         if len(self.frame.shape) == 3:
@@ -221,8 +221,8 @@ class detectedParticles(object):
                 -self.config.level1detect.maskCorners :,
             ] = 0
 
-        if self.config.cropImage is not None:
-            offsetX, offsetY = self.config.cropImage
+        if self.config.level1detect.cropImage is not None:
+            offsetX, offsetY = self.config.level1detect.cropImage
             self.frame = self.frame[offsetY:-offsetY, offsetX:-offsetX]
 
         if (not training) and ("input" in self.testing):
@@ -1735,16 +1735,16 @@ def detectParticles(
 
     path = config["path"]
     pathTmp = config["pathTmp"]
-    threshs = np.array(config["threshs"])
+    threshs = np.array(config.level1detect.threshs)
     instruments = config["instruments"]
     computers = config["computers"]
     visssGen = config["visssGen"]
     movieExtension = config["movieExtension"]
     frame_width = config["frame_width"]
     frame_height = config["frame_height"]
-    height_offset = config["height_offset"]
+    height_offset = config.level1detect.height_offset
     fps = config["fps"]
-    minMovingPixels = np.array(config["minMovingPixels"])
+    minMovingPixels = np.array(config.level1detect.minMovingPixels)
     nThreads = config["nThreads"]
     site = config["site"]
     goodFiles = config["goodFiles"]
@@ -2072,7 +2072,7 @@ def detectParticles(
                 )
 
         if not motionChecked:
-            nChangedPixel = checkMotion(frame, oldFrame, config.threshs)
+            nChangedPixel = checkMotion(frame, oldFrame, config.level1detect.threshs)
             passesThreshold = nChangedPixel >= minMovingPixels
             if not passesThreshold.any():
                 log.debug("%s NOT moving %i" % (str(metaData1.capture_time.values), pp))

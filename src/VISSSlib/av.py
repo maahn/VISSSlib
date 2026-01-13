@@ -456,20 +456,27 @@ class VideoReaderMeta(object):
 
         self.curentFrameC = cv2.cvtColor(self.curentFrame, cv2.COLOR_GRAY2BGR)
 
-        if self.config.cropImage is not None:
+        if self.config.level1detect.cropImage is not None:
             color = (255, 255, 255)
             cv2.rectangle(
                 self.curentFrameC,
                 (
-                    self.config["cropImage"][0],
-                    self.config["cropImage"][1] + self.config["height_offset"],
+                    self.config.level1detect.cropImage[0],
+                    self.config.level1detect.cropImage[1]
+                    + self.config.level1detect.height_offset,
                 ),
                 (
-                    self.config["cropImage"][0]
-                    + (self.config.frame_width - 2 * self.config["cropImage"][0]),
-                    self.config["cropImage"][1]
-                    + self.config["height_offset"]
-                    + (self.config.frame_height - 2 * self.config["cropImage"][1]),
+                    self.config.level1detect.cropImage[0]
+                    + (
+                        self.config.frame_width
+                        - 2 * self.config.level1detect.cropImage[0]
+                    ),
+                    self.config.level1detect.cropImage[1]
+                    + self.config.level1detect.height_offset
+                    + (
+                        self.config.frame_height
+                        - 2 * self.config.level1detect.cropImage[1]
+                    ),
                 ),
                 color,
                 2,
@@ -513,11 +520,11 @@ class VideoReaderMeta(object):
 
                 (x, y) = partic1.position_upperLeft.values.astype(int)
                 (w, h) = partic1.Droi.values.astype(int)
-                y = y + self.config["height_offset"]
+                y = y + self.config.level1detect.height_offset
 
-                if self.config.cropImage is not None:
-                    y = y + self.config["cropImage"][1]
-                    x = x + self.config["cropImage"][0]
+                if self.config.level1detect.cropImage is not None:
+                    y = y + self.config.level1detect.cropImage[1]
+                    x = x + self.config.level1detect.cropImage[0]
                 if (
                     (self.lv1match is not None)
                     and (highlightPid == "meta")
@@ -538,7 +545,7 @@ class VideoReaderMeta(object):
                         trackDat = self.lv1match.position_centroid.isel(
                             fpair_id=(self.lv1match.track_id == track_id)
                         )
-                        trackDat[:, 1] += self.config["height_offset"]
+                        trackDat[:, 1] += self.config.level1detect.height_offset
                         np.random.seed(int(100000 + track_id))
                         colorT = (
                             np.random.randint(0, 170),
@@ -590,12 +597,14 @@ class VideoReaderMeta(object):
                 extra1 = str(partic1.capture_time.values)[:-6].split("T")[-1]
 
                 posY = int(
-                    partic1.position_upperLeft[1] + self.config["height_offset"] - 10
+                    partic1.position_upperLeft[1]
+                    + self.config.level1detect.height_offset
+                    - 10
                 )
                 posX = int(partic1.position_upperLeft[0])
-                if self.config.cropImage is not None:
-                    posY = posY + self.config["cropImage"][1]
-                    posX = posX + self.config["cropImage"][0]
+                if self.config.level1detect.cropImage is not None:
+                    posY = posY + self.config.level1detect.cropImage[1]
+                    posX = posX + self.config.level1detect.cropImage[0]
 
                 cv2.putText(
                     self.curentFrameC,

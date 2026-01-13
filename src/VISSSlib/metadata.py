@@ -91,7 +91,7 @@ def getMetaData(
         fnames = [fnames]
 
     nThreads = config["nThreads"]
-    threshs = np.array(config["threshs"])
+    threshs = np.array(config.level1detect.threshs)
     goodFiles = config["goodFiles"]
 
     computers = config["computers"]
@@ -399,7 +399,7 @@ def _getMetaData1(
     import pandas as pd
 
     nThreads = config["nThreads"]
-    threshs = np.array(config["threshs"])
+    threshs = np.array(config.level1detect.threshs)
 
     log = logging.getLogger()
 
@@ -674,7 +674,7 @@ def _getMetaData1(
                 ret, frame = inVid.read()
 
                 try:
-                    subFrame = frame[config.height_offset :, :, 0]
+                    subFrame = frame[config.level1detect.height_offset :, :, 0]
                 except TypeError:  # frame is None at the end of the file
                     break
                 try:
@@ -1051,7 +1051,7 @@ def getEvents(fnames0, config, fname0status=None):
             )
         # estimate Blocking
         # using results of background estiamtor would be nice, but we don't have that inforation yet!
-        img = plt.imread(fname0Img)[config.height_offset :]
+        img = plt.imread(fname0Img)[config.level1detect.height_offset :]
         nPixel = np.prod(img.shape)
         hist, _ = np.histogram(img.ravel(), bins=bins)
         hist = hist.cumsum() / nPixel

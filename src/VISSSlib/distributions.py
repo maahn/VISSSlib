@@ -1332,7 +1332,7 @@ def _createLevel2part(
         log.warning("no data remains after farEnoughFromBorder filtering %s" % lv2File)
         return None
 
-    if config.correctForSmallOnes and "maxSharpness" in config.keys():
+    if config.level2.correctForSmallOnes and "maxSharpness" in config.keys():
         # remove small particles that are not in the very sharpest region
         # IN DEVELOPMENT
         assert sublevel != "detect"
@@ -2279,7 +2279,7 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
     list
         List of estimated observation volumes for each bin.
     """
-    if config.correctForSmallOnes:
+    if config.level2.correctForSmallOnes:
         log.info("adjust observation volujme for smallest particles")
 
         assert np.all(
@@ -2335,7 +2335,7 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
             Ds, volume = _estimateVolumes(
                 config.frame_width,
                 config.frame_height,
-                config.correctForSmallOnes,
+                config.level2.correctForSmallOnes,
                 float(rotDat1.camera_phi.values),
                 float(rotDat1.camera_theta.values),
                 float(rotDat1.camera_Ofz.values),
@@ -2350,7 +2350,7 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
         Ds, volume = _estimateVolumes(
             config.frame_width,
             config.frame_height,
-            config.correctForSmallOnes,
+            config.level2.correctForSmallOnes,
             0.0,
             0.0,
             0.0,

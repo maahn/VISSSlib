@@ -160,12 +160,12 @@ class DataProduct(object):
                 f"leader_metaEvents",
                 f"follower_metaEvents",
             ]
-            if self.config.matchData:
+            if self.config.level1match.processL1match:
                 self.parentNames += [
                     "leader_level2track",
                     "leader_level2match",
                 ]
-            if self.config.processL2detect:
+            if self.config.level2.processL2detect:
                 self.parentNames += [
                     "leader_level2detect",
                     "follower_level2detect",

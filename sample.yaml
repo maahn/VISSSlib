@@ -10,7 +10,6 @@ follower: follower_S1143155
 nThreads: 1
 path: /path/to/raw/visss/{level}
 pathOut: /path/to/products/visss_{version}/{level}
-pathTmp: /path/to/products/visss_{version}/{level}
 pathQuicklooks: /path/to/quicklooks/visss/{level}
 visssGen: visss
 site: test

@@ -2106,7 +2106,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     return fOut, fig
 
 
-@tools.loopify_with_camera
+@tools.loopify
 def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     """
     Create meta rotation quicklook for a given case.

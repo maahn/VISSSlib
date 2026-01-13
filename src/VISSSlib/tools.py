@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import importlib
 import io
 import json
 import logging
@@ -41,7 +42,6 @@ DEFAULT_SETTINGS = {
     "nThreads": None,
     "path": None,
     "pathOut": None,
-    "pathTmp": None,
     "pathQuicklooks": None,
     "visssGen": None,
     "site": None,
@@ -311,6 +311,11 @@ def readSettings(fname):
         config = DictNoDefault(flatten_dict.unflatten(config))
         config["filename"] = fname
         config["instruments"] = [config.leader, config.follower]
+        # check for relative paths (with respect to the yaml file and make them absolute
+        for key in ["path", "pathOut", "pathQuicklooks"]:
+            if not config[key].startswith("/"):
+                config[key] = f"{os.path.dirname(fname)}/{config[key]}"
+            config[key] = config[key].replace("$HOSTNAME", socket.gethostname())
         return config
     else:  # is already config
         return fname

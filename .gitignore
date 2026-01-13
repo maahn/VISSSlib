@@ -11,3 +11,4 @@ docs/build
 notebooks/.ipynb_checkpoints
 *.tmp
 .aider*
+tests/data

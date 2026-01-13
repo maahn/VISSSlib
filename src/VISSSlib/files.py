@@ -254,9 +254,6 @@ class FindFiles(object):
             + f'/{self.computer}_{config["visssGen"]}_{self.camera}/{self.year}/{self.month}/{self.day}'
         )
 
-        # for iL in imageLevels:
-        #     self.outpath[iL] = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
-
         self.fnamesPattern = DictNoDefault({})
         for dL in fileLevels:
             self.fnamesPattern[dL] = "%s/%s_V%s*%s*%s*.nc" % (
@@ -1064,11 +1061,6 @@ class Filenames(object):
             "level3combinedRiming",
             f"level3combinedRiming{config.level3.combinedRiming.extraFileStr}",
         )
-
-        # self.outpathImg = "%s/%s/%s/%s" % (config["pathTmp"], self.year, self.month, self.day)
-        # self.imagepath = DictNoDefault({})
-        # for iL in imageLevels:
-        #     self.imagepath[iL] = "%s/%s/{ppid}"%(self.outpathImg.format(site=config["site"], level=iL),self.fname.level1detect.split("/")[-1])
 
         outpathQuicklooks = "%s/%s/%s/%s" % (
             config["pathQuicklooks"],

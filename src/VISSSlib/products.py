@@ -68,7 +68,6 @@ class DataProduct(object):
         # pdb.set_trace()
         self.level = level
         self.config = tools.readSettings(settings)
-        self.settings = settings
         if relatives is not None:
             self.relatives = f"{relatives}.{level}"
         else:
@@ -94,7 +93,6 @@ class DataProduct(object):
             self.fileQueue = self.tq.path.path
 
         self.commands = []
-        self.allCommands = []
 
         self.fn = files.FindFiles(str(self.case), self.cameraFull, self.config)
         self.path = self.fn.fnamesPatternExt[self.level]
@@ -190,8 +188,8 @@ class DataProduct(object):
             String representation of the object
         """
         reprstr = (
-            f"<VISSSlib.products.DataProduct object {self.level} for "
-            f"{self.settings} using {self.camera} on {self.case}>"
+            f"<VISSSlib.products.DataProduct object {self.level} "
+            f"using {self.camera} on {self.case}>"
         )
         return reprstr
 
@@ -213,7 +211,7 @@ class DataProduct(object):
             self.parents[parentCam] = DataProduct(
                 parent,
                 self.case,
-                self.settings,
+                self.config,
                 self.tq,
                 camera,
                 relatives=f"{self.relatives}",
@@ -473,9 +471,7 @@ class DataProduct(object):
                     os.remove(ex)
                     log.warning(f"too many files, removed {ex}")
 
-            command = (
-                f"{bin} -m VISSSlib {call}  {pName} {self.settings} {skipExisitingInt}"
-            )
+            command = f"{bin} -m VISSSlib {call}  {pName} {self.config.filename} {skipExisitingInt}"
             if nCPU is not None:
                 command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
             commands.append((command, outFile))
@@ -522,7 +518,9 @@ class DataProduct(object):
             log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
             return []
 
-        command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
+        command = (
+            f"{bin} -m VISSSlib {call} {self.config.filename} {case} {skipExisitingInt}"
+        )
         if nCPU is not None:
             command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
         return [(command, outFile)]
@@ -580,7 +578,7 @@ class DataProduct(object):
 
         return
 
-    def runWorkers(self, nJobs=os.cpu_count()):
+    def runWorkers(self, nJobs=os.cpu_count(), waitTime=1):
         """
         Run worker processes.
 
@@ -589,7 +587,7 @@ class DataProduct(object):
         nJobs : int, default os.cpu_count()
             Number of jobs to run
         """
-        tools.workers(self.fileQueue, nJobs=nJobs)
+        tools.workers(self.fileQueue, nJobs=nJobs, waitTime=waitTime)
 
     def deleteQueue(self):
         """
@@ -1248,7 +1246,7 @@ class DataProductRange(object):
             isComplete = isComplete and self.dailies[dd].isComplete
         return isComplete
 
-    def runWorkers(self, nJobs=os.cpu_count()):
+    def runWorkers(self, nJobs=os.cpu_count(), waitTime=1):
         """
         Run worker processes for the range.
 
@@ -1257,7 +1255,7 @@ class DataProductRange(object):
         nJobs : int, default os.cpu_count()
             Number of jobs to run
         """
-        tools.workers(self.fileQueue, nJobs=nJobs)
+        tools.workers(self.fileQueue, nJobs=nJobs, waitTime=waitTime)
 
     def deleteQueue(self):
         """

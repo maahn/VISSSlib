@@ -1734,7 +1734,6 @@ def detectParticles(
     config = tools.readSettings(config)
 
     path = config["path"]
-    pathTmp = config["pathTmp"]
     threshs = np.array(config.level1detect.threshs)
     instruments = config["instruments"]
     computers = config["computers"]

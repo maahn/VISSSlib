@@ -1619,14 +1619,14 @@ class Filenames(object):
         """
 
         eventFile = self.fname.metaEvents
-        # just in case it is missing
-        metadata.createEvent(
-            self.case,
-            self.camera,
-            self.config,
-            skipExisting=skipExisting,
-            quiet=True,
-        )
+        # # just in case it is missing
+        # metadata.createEvent(
+        #     self.case,
+        #     self.camera,
+        #     self.config,
+        #     skipExisting=skipExisting,
+        #     quiet=True,
+        # )
         eventDat = xr.open_dataset(eventFile).load()
         # opening it several times can cause segfaults
         eventDat.close()

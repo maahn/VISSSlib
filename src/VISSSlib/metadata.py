@@ -1270,6 +1270,7 @@ def createEvent(
         Dataset with event metadata or None if skipped
     """
     # case is always daily for events!
+    print("createevent", case, camera)
     case = case.split("-")[0]
     if type(config) is str:
         config = tools.readSettings(config)

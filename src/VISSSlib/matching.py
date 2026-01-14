@@ -1205,7 +1205,7 @@ def matchParticles(
         # check whether output exists
         if skipExisting and tools.checkForExisting(
             fname1Match,
-            parents=[fnameLv1Detect, fnames1F],
+            parents=[fnameLv1Detect] + fnames1F,
         ):
             print("SKIPPING", fname1Match)
             return None, None
@@ -1302,14 +1302,14 @@ def matchParticles(
 
     fClass = [files.FilenamesFromLevel(f, config) for f in fnames1F]
     fCases = np.unique([f.case.split("-")[0] for f in fClass])
-    # just in case
-    metadata.createEvent(
-        ffl1.case, config.leader, config, quiet=True, skipExisting=True
-    )
-    for fCase in fCases:
-        metadata.createEvent(
-            fCase, config.follower, config, quiet=True, skipExisting=True
-        )
+    # # just in case
+    # metadata.createEvent(
+    #     ffl1.case, config.leader, config, quiet=True, skipExisting=True
+    # )
+    # for fCase in fCases:
+    #     metadata.createEvent(
+    #         fCase, config.follower, config, quiet=True, skipExisting=True
+    #     )
 
     lEvents = ffl1.fname.metaEvents
     lEvents = xr.open_dataset(lEvents)

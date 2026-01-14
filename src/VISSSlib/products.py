@@ -117,7 +117,7 @@ class DataProduct(object):
             self.parentNames = [
                 f"leader_level1detect",
                 f"follower_level1detect",
-                f"leader_metaEvents",  # metaEvents are aded to all the L2 products to force regenration when event file is updated (ie more data is transferred)
+                f"leader_metaEvents",  # metaEvents are added to all the L2 products to force regenration when event file is updated (ie more data is transferred)
                 f"follower_metaEvents",
             ]
         elif level == "level1match":

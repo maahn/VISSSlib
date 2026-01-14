@@ -9,6 +9,7 @@ import warnings
 import zipfile
 from copy import deepcopy
 
+import numba
 import numpy as np
 import xarray as xr
 
@@ -2187,9 +2188,6 @@ def detectParticles(
             f.write("no data")
         log.info("no data %s" % fn.fname.level1detect)
         return None
-
-
-import numba
 
 
 @numba.njit

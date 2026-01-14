@@ -945,7 +945,6 @@ def trackParticles(
     reduced_q_var=1,
     doMatchIfRequired=False,
     writeNc=True,
-    showFits=False,
     skipExisting=True,
     verbosity=0,
 ):

@@ -58,7 +58,7 @@ Description of the products
 ``VISSSlib.scripts`` API
 ------------------------
 
-Various products at different levels need to be processed, tzypically by running a covenience function to ``VISSSlib.scripts``. See the ``scripts`` folder
+Various products at different levels need to be processed, typically by running a covenience function to ``VISSSlib.scripts``. See the ``scripts`` folder
 for sample shell scripts. 
 
 .. automodule:: VISSSlib.scripts

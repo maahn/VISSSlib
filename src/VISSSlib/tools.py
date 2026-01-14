@@ -380,11 +380,11 @@ def getDateRange(nDays, config, endYesterday=True):
 
     config = readSettings(config)
     if config["end"] == "today":
-        end = datetime.datetime.utcnow()
+        end = datetime.datetime.now(datetime.UTC)
         if endYesterday:
-            end2 = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+            end2 = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)
         else:
-            end2 = datetime.datetime.utcnow() - datetime.timedelta(hours=1)
+            end2 = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
     else:
         end = end2 = config["end"]
 
@@ -451,7 +451,7 @@ def getDateRange(nDays, config, endYesterday=True):
         days = days[days >= pd.Timestamp(config.start)]
 
     if config.end == "today":
-        end = datetime.datetime.utcnow()
+        end = datetime.datetime.now(datetime.UTC)
     else:
         end = config.end
 
@@ -1600,7 +1600,7 @@ def ncAttrs(site, visssGen, extra={}):
     attrs = {
         "title": f"Video In Situ Snowfall Sensor (VISSS) observations at {site}",
         "source": f"{visssGen} observations at {site}",
-        "history": f"{str(datetime.datetime.utcnow())}: created with VISSSlib {__versionFull__} and OpenCV {cv2.__version__} on {socket.getfqdn()}{user}",
+        "history": f"{str(datetime.datetime.now(datetime.UTC))}: created with VISSSlib {__versionFull__} and OpenCV {cv2.__version__} on {socket.getfqdn()}{user}",
         "command": myCommand,
         "references": "Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introducing the Video In Situ Snowfall Sensor (VISSS). Atmospheric Measurement Techniques, 17, 899–919, https://doi.org/10.5194/amt-17-899-2024.",
     }

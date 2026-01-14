@@ -267,8 +267,8 @@ def readHeaderData(fname, returnLasttime=False):
             gitBranch = "-"
         capture_starttime = f.readline()
         capture_starttime = capture_starttime.split(":")[1].lstrip().rstrip()
-        capture_starttime = datetime.datetime.utcfromtimestamp(
-            int(capture_starttime) * 1e-6
+        capture_starttime = datetime.datetime.fromtimestamp(
+            int(capture_starttime) * 1e-6, datetime.UTC
         )
 
         serialnumber = f.readline().split(":")[1].lstrip().rstrip()
@@ -296,9 +296,10 @@ def readHeaderData(fname, returnLasttime=False):
         capture_firsttime = f.readline()
         capture_firsttime = capture_firsttime.split(",")[0].lstrip().rstrip()
         try:
-            capture_firsttime = datetime.datetime.utcfromtimestamp(
-                int(capture_firsttime) * 1e-6
+            capture_firsttime = datetime.datetime.fromtimestamp(
+                int(capture_firsttime) * 1e-6, datetime.UTC
             )
+
         except ValueError:
             capture_firsttime = None
 
@@ -315,22 +316,22 @@ def readHeaderData(fname, returnLasttime=False):
         elif lastLine.startswith("# Last capture time"):
             # meta data version 0.4 and later
             capture_lasttime = int(lastLine.split(":")[1])
-            capture_lasttime = datetime.datetime.utcfromtimestamp(
-                int(capture_lasttime) * 1e-6
+            capture_lasttime = datetime.datetime.fromtimestamp(
+                int(capture_lasttime) * 1e-6, datetime.UTC
             )
             last_id = None
         else:
             try:
                 capture_lasttime = lastLine.split(",")[0].lstrip().rstrip()
-                capture_lasttime = datetime.datetime.utcfromtimestamp(
-                    int(capture_lasttime) * 1e-6
+                capture_lasttime = datetime.datetime.fromtimestamp(
+                    int(capture_lasttime) * 1e-6, datetime.UTC
                 )
                 last_id = lastLine.split(",")[2].lstrip().rstrip()
             except (IndexError, ValueError):
                 print("last line incomplete, using second but last line", fname)
                 capture_lasttime = secondButLastLine.split(",")[0].lstrip().rstrip()
-                capture_lasttime = datetime.datetime.utcfromtimestamp(
-                    int(capture_lasttime) * 1e-6
+                capture_lasttime = datetime.datetime.fromtimestamp(
+                    int(capture_lasttime) * 1e-6, datetime.UTC
                 )
                 last_id = secondButLastLine.split(",")[2].lstrip().rstrip()
     else:
@@ -512,14 +513,14 @@ def _getMetaData1(
 
     metaDat["capture_time"] = xr.DataArray(
         [
-            datetime.datetime.utcfromtimestamp(t1 * 1e-6)
+            datetime.datetime.fromtimestamp(t1 * 1e-6, datetime.UTC)
             for t1 in metaDat["capture_time"].values
         ],
         coords=metaDat["capture_time"].coords,
     )
     metaDat["record_time"] = xr.DataArray(
         [
-            datetime.datetime.utcfromtimestamp(t1 * 1e-6)
+            datetime.datetime.fromtimestamp(t1 * 1e-6, datetime.UTC)
             for t1 in metaDat["record_time"].values.astype(int)
         ],
         coords=metaDat["record_time"].coords,
@@ -1140,7 +1141,9 @@ def getEvents(fnames0, config, fname0status=None):
         statusDat = xr.Dataset({"event": xr.DataArray(statusDat)})
         statusDat = statusDat.rename(dim_0="file_starttime")
         try:
-            metaDats = xr.merge((metaDats, statusDat))
+            metaDats = xr.merge(
+                (metaDats, statusDat), join="outer", compat="no_conflicts"
+            )
 
         except TypeError:
             metaDats = statusDat

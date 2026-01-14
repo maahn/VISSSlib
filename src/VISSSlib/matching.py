@@ -1208,7 +1208,7 @@ def matchParticles(
             parents=[fnameLv1Detect] + fnames1F,
         ):
             print("SKIPPING", fname1Match)
-            return None, None
+            return fname1Match, None, None, None, None, None, None, errors
 
         # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
@@ -2024,6 +2024,7 @@ def createMetaRotation(
     writeNc=True,
     stopOnFailure=False,
     maxAgeDaysPrevFile=1,
+    doPlots=True,
 ):
     """
     Create meta rotation data for camera alignment.
@@ -2335,6 +2336,7 @@ def createMetaRotation(
         tools.to_netcdf2(metaRotation, config, fnameMetaRotation)
     print("DONE", fnameMetaRotation)
 
-    quicklooks.metaRotationQuicklook(case, config, skipExisting=skipExisting)
+    if doPlots:
+        quicklooks.metaRotationQuicklook(case, config, skipExisting=skipExisting)
 
     return metaRotation, fnameMetaRotation

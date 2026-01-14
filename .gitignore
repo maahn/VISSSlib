@@ -14,3 +14,4 @@ notebooks/.ipynb_checkpoints
 tests/data
 tests/data.zip
 *processing.txt
+*broken.txt

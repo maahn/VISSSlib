@@ -59,12 +59,3 @@ class TestProducts:
     def test_products(self):
         case = "20260110"
         processCase(case, self.config)
-
-
-# -m VISSSlib metadata.createEvent /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml leader+20260110 1
-# -m VISSSlib metadata.createEvent /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml follower+20260110 1
-# -m VISSSlib detection.detectParticles  /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/rawdata/level0/visss11gb_visss_follower_S1143155/2026/01/10/visss11gb_visss_follower_S1143155_20260110-083000_0.txt /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml 1
-# -m VISSSlib detection.detectParticles  /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/rawdata/level0/visss11gb_visss_leader_S1145792/2026/01/10/visss11gb_visss_leader_S1145792_20260110-083000_0.txt /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml 1
-# -m VISSSlib matching.createMetaRotation /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml 20260110 1
-# -m VISSSlib matching.matchParticles  /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/tmp_Mac.fritz.box/products/level1detect/2026/01/10/level1detect_V1.2_test_visss11gb_visss_leader_S1145792_20260110-083000.nc /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml
-# -m VISSSlib matching.matchParticles  /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/tmp_Mac.fritz.box/products/level1detect/2026/01/10/level1detect_V1.2_test_visss11gb_visss_leader_S1145792_20260110-083000.nc /Users/mmaahn/projectsSrv/VISSSlib/tests/data/test_0.6/test_0.6.yaml 1

@@ -65,40 +65,40 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
         print(case)
         for camera in cameras:
             if level == "level0":
-                level0Quicklook(
+                res = level0Quicklook(
                     case, camera, config, version=version, skipExisting=skipExisting
                 )
             elif level == "metaFrames":
-                metaFramesQuicklook(
-                    case, config, version=version, skipExisting=skipExisting
+                res = metaFramesQuicklook(
+                    case, camera, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level1detect":
-                createLevel1detectQuicklook(
+                res = createLevel1detectQuicklook(
                     case, camera, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level1match":
-                createLevel1matchParticlesQuicklook(
+                res = createLevel1matchParticlesQuicklook(
                     case, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level2detect":
-                createLevel2detectQuicklook(
+                res = createLevel2detectQuicklook(
                     case, camera, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level2match":
-                createLevel2matchQuicklook(
+                res = createLevel2matchQuicklook(
                     case, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level2track":
-                createLevel2matchQuicklook(
+                res = createLevel2matchQuicklook(
                     case, config, version=version, skipExisting=skipExisting
                 )
             elif level == "level3combinedRiming":
-                createLevel3RimingQuicklook(
+                res = createLevel3RimingQuicklook(
                     case, config, version=version, skipExisting=skipExisting
                 )
             else:
                 raise ValueError(f"Do not know level {level}")
-    return
+    return res
 
 
 def _statusText(fig, fnames, config, addLogo=True):
@@ -3734,7 +3734,7 @@ def createLevel1matchParticlesQuicklook(
         return ffOut
 
 
-@tools.loopify_with_camera
+@tools.loopify
 def createLevel3RimingQuicklook(
     case,
     config,

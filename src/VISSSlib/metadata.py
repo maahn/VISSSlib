@@ -513,14 +513,14 @@ def _getMetaData1(
 
     metaDat["capture_time"] = xr.DataArray(
         [
-            datetime.datetime.fromtimestamp(t1 * 1e-6, datetime.UTC)
+            datetime.datetime.utcfromtimestamp(t1 * 1e-6)
             for t1 in metaDat["capture_time"].values
         ],
         coords=metaDat["capture_time"].coords,
     )
     metaDat["record_time"] = xr.DataArray(
         [
-            datetime.datetime.fromtimestamp(t1 * 1e-6, datetime.UTC)
+            datetime.datetime.utcfromtimestamp(t1 * 1e-6)
             for t1 in metaDat["record_time"].values.astype(int)
         ],
         coords=metaDat["record_time"].coords,
@@ -785,7 +785,7 @@ def _getMetaData1(
 
 
 @tools.loopify_with_camera
-def createMetaFrames(case, camera, config, skipExisting=True):
+def createMetaFrames(case, camera, config, skipExisting=True, writeNc=True):
     """
     Create metadata frames for a given case and camera.
 
@@ -856,7 +856,8 @@ def createMetaFrames(case, camera, config, skipExisting=True):
 
         if metaDat is not None:
             metaDat = tools.finishNc(metaDat, config.site, config.visssGen)
-            tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
+            if writeNc:
+                tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
             print("%s written" % fn.fname.metaFrames)
         else:
             with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
@@ -1244,7 +1245,13 @@ def getEvents(fnames0, config, fname0status=None):
 
 @tools.loopify_with_camera
 def createEvent(
-    case, camera, config, skipExisting=True, quiet=False, version=__version__
+    case,
+    camera,
+    config,
+    skipExisting=True,
+    quiet=False,
+    writeNc=True,
+    version=__version__,
 ):
     """
     Create event file for a given case and camera.
@@ -1339,7 +1346,8 @@ def createEvent(
         nFiles = sum(metaDats.event == "newfile") + sum(metaDats.event == "brokenfile")
         nFiles = int(nFiles.values)
         metaDats.attrs["noLevel0Files"] = nFiles
-        tools.to_netcdf2(metaDats, config, eventFile)
+        if writeNc:
+            tools.to_netcdf2(metaDats, config, eventFile)
 
     except (ValueError, AssertionError):
         print("NO DATA", case, eventFile)

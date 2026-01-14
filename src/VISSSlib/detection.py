@@ -2150,45 +2150,42 @@ def detectParticles(
     for nThread in inVid.keys():
         inVid[nThread].release()
 
-    if writeNc:
-        foundParticles = xr.DataArray(
-            foundParticles,
-            coords=[metaData.capture_time, xr.DataArray(Dbins, dims=["Dmax"])],
+    foundParticles = xr.DataArray(
+        foundParticles,
+        coords=[metaData.capture_time, xr.DataArray(Dbins, dims=["Dmax"])],
+    )
+    movingObjects = xr.DataArray(movingObjects, coords=[metaData.capture_time])
+
+    metaData["foundParticles"] = foundParticles
+    metaData["movingObjects"] = movingObjects
+
+    metaData["foundParticles"] = metaData["foundParticles"].astype(np.int32)
+    metaData["movingObjects"] = metaData["movingObjects"].astype(np.int32)
+
+    # remove extra in 1.1
+    metaData = tools.finishNc(
+        metaData, config.site, config.visssGen, extra={"blowingSnowFixed": "True"}
+    )
+    tools.to_netcdf2(metaData, config, fn.fname.metaDetection)
+    metaData.close()
+
+    if hasData:
+        snowParticlesXR = snowParticles.collectResults()
+        snowParticlesXR = tools.finishNc(
+            snowParticlesXR,
+            config.site,
+            config.visssGen,
+            extra={"maxMovingObjects": config.level1detect.maxMovingObjects},
         )
-        movingObjects = xr.DataArray(movingObjects, coords=[metaData.capture_time])
-
-        metaData["foundParticles"] = foundParticles
-        metaData["movingObjects"] = movingObjects
-
-        metaData["foundParticles"] = metaData["foundParticles"].astype(np.int32)
-        metaData["movingObjects"] = metaData["movingObjects"].astype(np.int32)
-
-        # remove extra in 1.1
-        metaData = tools.finishNc(
-            metaData, config.site, config.visssGen, extra={"blowingSnowFixed": "True"}
-        )
-        tools.to_netcdf2(metaData, config, fn.fname.metaDetection)
-        metaData.close()
-
-        if hasData:
-            snowParticlesXR = snowParticles.collectResults()
-            snowParticlesXR = tools.finishNc(
-                snowParticlesXR,
-                config.site,
-                config.visssGen,
-                extra={"maxMovingObjects": config.level1detect.maxMovingObjects},
-            )
+        if writeNc:
             tools.to_netcdf2(snowParticlesXR, config, fn.fname.level1detect)
-
             log.info("written %s" % fn.fname.level1detect)
             snowParticlesXR.close()
-            return snowParticlesXR
-        else:
-            with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-                f.write("no data")
-            log.info("no data %s" % fn.fname.level1detect)
-            return None
+        return snowParticlesXR
     else:
+        with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
+            f.write("no data")
+        log.info("no data %s" % fn.fname.level1detect)
         return None
 
 

@@ -51,7 +51,27 @@ _reference_intercepts = {
 
 def myKF(FirstPos3D, velocityGuess=[0, 0, 50], R_std=2, q_var=1):
     """
-    define KalmannFilter
+    Initialize a Kalman Filter for 3D particle tracking.
+
+    Parameters
+    ----------
+    FirstPos3D : array_like
+        Initial 3D position [x, y, z] of the particle.
+    velocityGuess : array_like, optional
+        Initial velocity guess [vx, vy, vz], default [0, 0, 50].
+    R_std : float, optional
+        Standard deviation for measurement noise, default 2.
+    q_var : float, optional
+        Variance for process noise, default 1.
+
+    Returns
+    -------
+    kf : filterpy.kalman.KalmanFilter
+        Configured Kalman Filter instance.
+
+    Notes
+    -----
+    The filter uses a constant velocity model with state vector [x, vx, y, vy, z, vz].
     """
     from filterpy.common import Q_discrete_white_noise
     from filterpy.kalman import KalmanFilter
@@ -109,9 +129,8 @@ def myKF(FirstPos3D, velocityGuess=[0, 0, 50], R_std=2, q_var=1):
 
 
 class Track(object):
-    """Track class for every object to be tracked
-    Attributes:
-        None
+    """
+    Track class for every object to be tracked
     """
 
     def __init__(
@@ -126,12 +145,33 @@ class Track(object):
         q_var=1,
         reduced_q_var=0.5,
     ):
-        """Initialize variables used by Track class
-        Args:
-            prediction: predicted centroids of object to be tracked
-            trackIdCount: identification of each track object
-        Return:
-            None
+        """
+        Initialize a particle track.
+
+        Parameters
+        ----------
+        position : array_like
+            Initial 3D position [x, y, z] of the particle.
+        feature : array_like
+            Feature vector for the particle.
+        size : float
+            Particle size (e.g., area or pixel sum).
+        trackIdCount : int
+            Unique ID for the track.
+        startTime : datetime64
+            Initial detection time.
+        velocityGuess : array_like, optional
+            Initial velocity guess [vx, vy, vz], default [0, 0, 50].
+        R_std : float, optional
+            Measurement noise standard deviation, default 2.
+        q_var : float, optional
+            Process noise variance, default 1.
+        reduced_q_var : float, optional
+            Reduced process noise variance after first step, default 0.5.
+
+        Notes
+        -----
+        Maintains particle position, velocity, and feature history.
         """
         import vg
         from filterpy.common import Q_discrete_white_noise
@@ -170,6 +210,15 @@ class Track(object):
 
     @property
     def lastAngle(self):
+        """
+        Calculate the angle of the last movement vector relative to vertical.
+
+        Returns
+        -------
+        float
+            Angle in radians between the last movement vector and vertical axis.
+            Returns np.nan if there's not enough data.
+        """
         try:
             dist = np.diff(self.trace, axis=0)[-1]
         except IndexError:
@@ -179,6 +228,14 @@ class Track(object):
 
     @property
     def meanVelocity(self):
+        """
+        Calculate the mean velocity over the track history.
+
+        Returns
+        -------
+        array_like
+            Mean velocity vector [vx, vy, vz].
+        """
         return np.nanmean(np.diff(self.trace, axis=0), axis=0)
 
     @property
@@ -188,13 +245,46 @@ class Track(object):
 
     @property
     def trace(self):
+        """
+        Get the track's position history.
+
+        Returns
+        -------
+        array_like
+            Array of 3D positions [x, y, z] over time.
+        """
         return np.array(self._trace)
 
     @property
     def meanSize(self):
+        """
+        Calculate the mean size over the track history.
+
+        Returns
+        -------
+        float
+            Mean particle size.
+        """
         return np.nanmean(self._sizes)
 
     def updateTrack(self, position, feature, size):
+        """
+        Update track with new observation.
+
+        Parameters
+        ----------
+        position : array_like or None
+            New 3D position [x, y, z]. If None, uses prediction.
+        feature : array_like
+            New feature vector.
+        size : float
+            New particle size.
+
+        Notes
+        -----
+        When position is None, the track is updated with NaN positions
+        and the last known feature is reused.
+        """
         if position is not None:
             self._trace.append(position)
             self._features.append(feature)
@@ -210,6 +300,18 @@ class Track(object):
             self.KF.Q = self.reducedQ
 
     def predict(self):
+        """
+        Predict next state using Kalman Filter.
+
+        Returns
+        -------
+        predictedPos : array_like
+            Predicted 3D position [x, y, z].
+        predictedVel : array_like
+            Predicted velocity [vx, vy, vz].
+        predictedAng : float
+            Predicted angle from vertical (radians).
+        """
         self.KF.predict()
         self.predictedPos = self.KF.x[::2].squeeze()
         self.predictedVel = self.KF.x[1::2].squeeze()
@@ -218,10 +320,7 @@ class Track(object):
 
 
 class Tracker(object):
-    """Tracker class that updates track vectors of object tracked
-    Attributes:
-        None
-    """
+    """Tracker class that updates track vectors of object tracked"""
 
     def __init__(
         self,
@@ -249,16 +348,51 @@ class Tracker(object):
         training=True,  # go back to start after coefficients for velocity size relation have been determined
         verbosity=0,
     ):
-        """Initialize variable used by Tracker class
-        Args:
-            dist_thresh: distance threshold. When exceeds the threshold,
-                         track will be deleted and new track is created
-            max_frames_to_skip: maximum allowed frames to be skipped for
-                                the track object undetected
-            max_trace_lenght: trace path history length
-            trackIdCount: identification of each track object
-        Return:
-            None
+        """
+        Initialize particle tracker.
+
+        Parameters
+        ----------
+        lv1match : xarray.Dataset
+            Level1 matched particle data.
+        config : object
+            Configuration settings.
+        dist_thresh : float, optional
+            Distance threshold for assignment, default 4.
+        max_trace_length : int, optional
+            Maximum history length, default None (unlimited).
+        velocityGuessXY : array_like, optional
+            Initial XY velocity guess [vx, vy], default [0, 0].
+        maxIter : int, optional
+            Maximum frames to process, default 1e30.
+        fig : matplotlib.figure.Figure, optional
+            Figure for debugging visualization, default None.
+        featureVariance : dict, optional
+            Variances for cost calculation, default {"distance":40000, "Dmax":1}.
+        minTrackLen4training : int, optional
+            Minimum track length for training, default 4.
+        maxAge4training : float, optional
+            Maximum age (seconds) for training data, default 300.
+        costExperiencePenalty : array_like, optional
+            Penalty factors based on track length.
+        velSlope : float, optional
+            Precomputed slope for size-velocity relation, default None.
+        velIntercept : float, optional
+            Precomputed intercept for size-velocity relation, default None.
+        R_std : float, optional
+            Measurement noise standard deviation, default 2.
+        q_var : float, optional
+            Process noise variance, default 1.
+        reduced_q_var : float, optional
+            Reduced process noise after first step, default 1.
+        training : bool, optional
+            Training mode flag, default True.
+        verbosity : int, optional
+            Verbosity level, default 0.
+
+        Notes
+        -----
+        Uses Kalman Filters and Hungarian algorithm for particle tracking.
         """
         self.sizeVariable = "pixSum"
         # self.sizeVariable = "area"
@@ -387,6 +521,24 @@ class Tracker(object):
         log.info(f"processing {self.nFrames} frames of {lv1match.encoding['source']}")
 
     def updateAll(self):
+        """
+        Process all frames for tracking.
+
+        Returns
+        -------
+        lv1track : xarray.Dataset
+            Tracked particle data with track IDs.
+        velGuess_slope : float
+            Slope of size-velocity relationship.
+        velGuess_intercept : float
+            Intercept of size-velocity relationship.
+
+        Notes
+        -----
+        Runs in two passes if in training mode:
+        1. Training pass: learns size-velocity relationship
+        2. Tracking pass: applies learned model to entire dataset
+        """
         from tqdm import tqdm
 
         for ff in tqdm(range(self.nFrames), file=sys.stdout):
@@ -418,26 +570,35 @@ class Tracker(object):
 
     @property
     def activeTrackLength(self):
+        """
+        Get lengths of all active tracks.
+
+        Returns
+        -------
+        array_like
+            Array containing the length of each active track.
+        """
         return np.array([t.length for t in self.activeTracks])
 
     def update(self, ff):
-        """Update tracks vector using following steps:
-            - extract data from one frame
-            - Create tracks if no tracks vector found
-            - Calculate self.cost using sum of square distance
-              between predicted vs detected centroids
-            - Using Hungarian Algorithm assign the correct
-              detected measurements to predicted tracks
-              https://en.wikipedia.org/wiki/Hungarian_algorithm
-            - Identify tracks with no assignment, if any
-            - If tracks are not detected for max_frames_to_skip+1 frames, remove them
-            - Now look for un_assigned detects
-            - Start new tracks
-            - Update KalmanFilter state, lastResults and tracks trace
-        Args:
-            detections: detected centroids of object to be tracked
-        Return:
-            None
+        """
+        Process one frame of particle detections.
+
+        Parameters
+        ----------
+        ff : int
+            Frame index.
+
+        Notes
+        -----
+        Steps:
+        1. Extract particle positions and features
+        2. Predict next state for active tracks
+        3. Calculate assignment cost matrix
+        4. Apply Hungarian algorithm for assignment
+        5. Handle unassigned detections (new tracks)
+        6. Update tracks with new measurements
+        7. Remove stale tracks
         """
         from scipy.optimize import linear_sum_assignment
 
@@ -744,6 +905,21 @@ class Tracker(object):
         return
 
     def getFeatures(self, features, pair_id):
+        """
+        Get features for a specific particle.
+
+        Parameters
+        ----------
+        features : array_like or None
+            Feature array for all particles.
+        pair_id : int
+            Index of the particle to get features for.
+
+        Returns
+        -------
+        tuple
+            Tuple of (feature_vector, size, velocity_guess)
+        """
         if features is not None:
             feat = features.isel(pair_id=pair_id)
         else:
@@ -770,9 +946,20 @@ class Tracker(object):
 
     def updateVelocityFirstGuess(self, capture_times, ff):
         """
-        update the first guess based on the previous observations
-        """
+        Update velocity first guess using recent track data.
 
+        Parameters
+        ----------
+        capture_times : array_like
+            Current frame capture times.
+        ff : int
+            Frame index.
+
+        Notes
+        -----
+        Fits a new size-velocity model when sufficient recent data exists.
+        Resets to defaults when data is stale or insufficient.
+        """
         self.velocityGuessXY = self.defaultVelocityGuessXY
         self.costGuessFactor = 4
 
@@ -859,8 +1046,23 @@ class Tracker(object):
         return
 
     def getVelocityFirstGuess(self, size):
-        """get first guess of particle velocity based on the size"""
+        """
+        Estimate initial velocity from particle size.
 
+        Parameters
+        ----------
+        size : float
+            Particle size.
+
+        Returns
+        -------
+        velocityGuess : list
+            Velocity vector [vx, vy, vz] in mm/s.
+
+        Notes
+        -----
+        Uses logarithmic relationship: log10(v) = slope*log10(size) + intercept
+        """
         velocityGuessZ = self.velGuess_slope * np.log10(size) + self.velGuess_intercept
         velocityGuessZ = 10**velocityGuessZ
         velocityGuess = self.velocityGuessXY + [velocityGuessZ]
@@ -869,7 +1071,14 @@ class Tracker(object):
         return velocityGuess
 
     def reset(self):
-        "reset everything"
+        """
+        Reset active tracks and archive recent track data.
+
+        Notes
+        -----
+        Moves active tracks to archive and clears active track list.
+        Maintains only recent archive data (last backSteps*10 items).
+        """
         if (not self.training) and (self.fig is not None):
             for ii in range(len(self.activeTracks)):
                 # #print(self.activeTracks[ii].trace)
@@ -897,6 +1106,19 @@ class Tracker(object):
         self.assignment = []
 
     def removeTracks(self, del_ii):
+        """
+        Remove inactive tracks and archive their data.
+
+        Parameters
+        ----------
+        del_ii : array_like
+            Indices of tracks to remove.
+
+        Notes
+        -----
+        Archives track data before removing from active list.
+        Maintains only recent archive data (last backSteps*10 items).
+        """
         del_ii = np.where(del_ii)[0]
         self.archiveTrackTimes += [
             i.startTime for j, i in enumerate(self.activeTracks) if j in del_ii
@@ -948,6 +1170,64 @@ def trackParticles(
     skipExisting=True,
     verbosity=0,
 ):
+    """
+    Main particle tracking workflow.
+
+    Parameters
+    ----------
+    fnameLv1Detect : str
+        Level1 detection filename.
+    config : object
+        Configuration settings.
+    version : str, optional
+        Processing version, default __version__.
+    dist_thresh : float, optional
+        Assignment distance threshold, default 4.
+    fig : matplotlib.figure.Figure, optional
+        Figure for visualization, default None.
+    max_trace_length : int, optional
+        Maximum track history length, default None.
+    velocityGuessXY : list, optional
+        Initial XY velocity guess [vx, vy], default [0,0].
+    maxIter : int, optional
+        Maximum frames to process, default 1e30.
+    featureVariance : dict, optional
+        Feature variances for cost calculation, default {"distance":40000, "Dmax":1}.
+    minMatchScore : float, optional
+        Minimum match score for particles, default 1e-3.
+    minTrackLen4training : int, optional
+        Minimum track length for training, default 2.
+    maxAge4training : float, optional
+        Maximum training data age (seconds), default 100.
+    costExperiencePenalty : array_like, optional
+        Assignment penalty factors by track length.
+    R_std : float, optional
+        Measurement noise standard deviation, default 2.
+    q_var : float, optional
+        Process noise variance, default 1.
+    reduced_q_var : float, optional
+        Reduced process noise after first step, default 1.
+    doMatchIfRequired : bool, optional
+        Run matching if missing, default False.
+    writeNc : bool, optional
+        Write netCDF output, default True.
+    skipExisting : bool, optional
+        Skip processing if output exists, default True.
+    verbosity : int, optional
+        Verbosity level, default 0.
+
+    Returns
+    -------
+    lv1track : xarray.Dataset or None
+        Tracked particle data, None if skipped/broken.
+    fnameTracking : str
+        Output filename.
+
+    Notes
+    -----
+    Handles data loading, particle matching (if needed), and tracking.
+    Creates output files and handles existing/skipped cases.
+    """
     config = tools.readSettings(config)
 
     ffl1 = files.FilenamesFromLevel(fnameLv1Detect, config)

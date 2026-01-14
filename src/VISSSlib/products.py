@@ -1,7 +1,6 @@
 import glob
 import logging
 import os
-import pdb
 import random
 import string
 import sys
@@ -26,7 +25,6 @@ class DataProduct(object):
         camera,
         relatives=None,
         addRelatives=True,
-        fileObject=None,
         childrensRelatives=tools.DictNoDefault({}),
     ):
         """
@@ -48,8 +46,6 @@ class DataProduct(object):
             Relative path specification
         addRelatives : bool, default True
             Whether to add relatives of the corresponding product
-        fileObject : object, optional
-            File object for processing
         childrensRelatives : dict, default {}
             Dictionary of child relatives
 
@@ -65,7 +61,6 @@ class DataProduct(object):
 
         """
         log.info(f"created  {level} {camera} for {case} with {childrensRelatives}.")
-        # pdb.set_trace()
         self.level = level
         self.config = tools.readSettings(settings)
         if relatives is not None:

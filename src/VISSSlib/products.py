@@ -1363,10 +1363,54 @@ def submitAll(
 
 @tools.loopify
 def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue=None):
+    """
+    Process VISSS data for a specific case across all processing levels.
+
+    This function orchestrates the complete processing pipeline for a given case,
+    handling both leader and follower cameras where applicable. It processes
+    through various levels of data products including metadata creation,
+    particle detection, matching, tracking, and level 2/3 retrievals.
+
+    Parameters
+    ----------
+    case : str
+        Case or case range identifier for the data to process
+    config : str or object
+        Configuration settings for processing. Can be a path to a settings file
+        or a configuration object
+    ignoreErrors : bool, default False
+        If True, continue processing even if errors occur in individual steps
+    nJobs : int or callable, default os.cpu_count
+        Number of parallel jobs to run. If callable, it will be called to get
+        the number of jobs. This parameter is passed to the workers function.
+    fileQueue : str, optional
+        File queue for task management. If None, a temporary queue will be created.
+
+    Notes
+    -----
+    The actual processing flow is:
+
+    1. Meta Events creation
+    2. Level 1 detection
+    3. Meta Rotation (if enabled)
+    4. Level 1 matching
+    5. Level 1 tracking
+    6. Level 2 matching
+    7. Level 2 tracking
+    8. Level 2 detection (if enabled)
+    9. Level 3 combined riming retrieval (if enabled)
+    10. All Done marker
+
+    For each processing level, both leader and follower cameras are processed
+    where applicable. The function also handles error checking to ensure
+    successful completion of each stage.
+
+    Note that this is a rather unefficient way of processing the data. It is
+    recommended to use submitAll and run the workers separately
+
+    """
     if fileQueue is None:
-        fileQueue = f"/tmp/visss_{''.join(
-            random.choice(string.ascii_uppercase) for _ in range(10)
-            )}"
+        fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
 
     products = [
         "metaEvents",

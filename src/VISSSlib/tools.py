@@ -10,7 +10,6 @@ import shutil
 import socket
 import struct
 import subprocess
-import tarfile
 import time
 import warnings
 import zipfile
@@ -2168,51 +2167,6 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     return success
 
 
-def create_TaskQueuePatched():
-    """
-    Create patched TaskQueue class with custom is_empty_wait function.
-
-    Returns
-    -------
-    class
-        Patched TaskQueue class.
-    """
-    import taskqueue
-
-    class TaskQueuePatched(taskqueue.TaskQueue):
-        def is_empty_wait(self):
-            import psutil
-
-            waitTime = 5
-            # first delay everything if there are no jobs
-            for i in range(4):
-                if not self.is_empty():
-                    break
-                print(f"waiting for jobs... {i}", flush=True)
-                time.sleep(waitTime)
-            # if there are really no jobs, nothing to do
-            if self.is_empty():
-                return True
-            print("jobs present")
-
-            # if there are jobs, check for killwitch file
-            if os.path.isfile("VISSS_KILLSWITCH"):
-                print(f"found file VISSS_KILLSWITCH, stopping", flush=True)
-                return True
-            print("no VISSS_KILLSWITCH")
-
-            # if there are jobsm check for memory and wait otherwise
-            while True:
-                if psutil.virtual_memory().percent < 95:
-                    break
-                print(f"waiting for available memory...", flush=True)
-                time.sleep(waitTime)
-            print("sufficient memory")
-            return self.is_empty()
-
-    return TaskQueuePatched
-
-
 def worker1(queue, ww=0, status=None, waitTime=5):
     """
     Worker function for processing queue items.
@@ -2234,8 +2188,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
     """
     print(f"starting worker {ww} for {queue}", flush=True)
     time.sleep(ww / 5.0)  # to avoid race conditions
-    TaskQueuePatched = create_TaskQueuePatched()  # generator for lazy import
-    tq = TaskQueuePatched(f"fq://{queue}")
+    tq = taskqueue.TaskQueue(f"fq://{queue}")
     out = None
     while True:
         if not tq.is_empty():

@@ -1359,3 +1359,47 @@ def submitAll(
         scripts.loopCreateMetaRotation(settings, skipExisting=skipExisting, nDays=nDays)
 
     return prod
+
+
+@tools.loopify
+def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue=None):
+    if fileQueue is None:
+        fileQueue = f"/tmp/visss_{''.join(
+            random.choice(string.ascii_uppercase) for _ in range(10)
+            )}"
+
+    products = [
+        "metaEvents",
+        "level1detect",
+    ]
+    if config.level1match.processL1match:
+        products += [
+            "metaRotation",
+            "level1match",
+            "level1track",
+            "level2match",
+            "level2track",
+        ]
+    if config.level2.processL2detect:
+        products += ["level2detect"]
+    if config.level3.combinedRiming.processRetrieval:
+        products += ["level3combinedRiming"]
+    products += [
+        "allDone",
+    ]
+
+    followerProducts = ["metaEvents", "level1detect", "level2detect"]
+    for prod in products:
+        print("#" * 10, prod, "#" * 10)
+        dp1 = DataProduct(prod, case, config, fileQueue, "leader")
+        dp1.submitCommands(withParents=False)
+        if prod in followerProducts:
+            dp2 = DataProduct(prod, case, config, fileQueue, "follower")
+            dp2.submitCommands(withParents=False)
+        VISSSlib.tools.workers(fileQueue, waitTime=1, nJobs=nJobs)
+        if not ignoreErrors:
+            assert len(dp1.listBroken()) == 0, "leader files broken"
+            assert len(dp1.listFiles()) > 0, "no leader output"
+            if prod in followerProducts:
+                assert len(dp2.listBroken()) == 0, "follower files broken"
+                assert len(dp2.listFiles()) > 0, "no follower output"

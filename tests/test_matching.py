@@ -1,5 +1,8 @@
 import numpy as np
+import pytest
 from VISSSlib.matching import *
+
+from helpers import get_test_data_path, get_test_path, readTestSettings
 
 nSample = 100
 seed = 0
@@ -131,3 +134,38 @@ class TestRotation(object):
         )
 
         assert np.allclose(L_z_test, L_z)
+
+
+class TestMatch(object):
+    @pytest.fixture(autouse=True)
+    def setup_files(self):
+        self.config = readTestSettings("test_0.6/test_0.6.yaml")
+        self.testPath = get_test_data_path()
+        yield
+
+    def testMetaRotation(self):
+        case = "20260110"
+        metaRotation, fnameMetaRotation = createMetaRotation(
+            case, self.config, skipExisting=False, writeNc=False, doPlots=False
+        )
+        assert np.all(
+            np.isclose(
+                metaRotation.isel(file_starttime=-1).camera_phi.values, [0.3144, 0.0161]
+            )
+        )
+
+    def testL1Match(self):
+        fname = f"{self.testPath}/test_0.6/products/level1detect/2026/01/10/level1detect_V1.2_test_visss11gb_visss_leader_S1145792_20260110-083000.nc"
+        (
+            _,
+            matchedDats,
+            rotate_final,
+            rotate_err_final,
+            nLeader,
+            nFollower,
+            nPairs,
+            _,
+        ) = matchParticles(fname, self.config, writeNc=False, skipExisting=False)
+
+        assert nPairs == 1035
+        np.isclose(rotate_final["camera_Ofz"], -20.31999969482422)

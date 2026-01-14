@@ -1442,7 +1442,7 @@ def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue
         if prod in followerProducts:
             dp2 = DataProduct(prod, case, config, fileQueue, "follower")
             dp2.submitCommands(withParents=False)
-        VISSSlib.tools.workers(fileQueue, waitTime=1, nJobs=nJobs)
+        tools.workers(fileQueue, waitTime=1, nJobs=nJobs)
         if not ignoreErrors:
             assert len(dp1.listBroken()) == 0, "leader files broken"
             assert len(dp1.listFiles()) > 0, "no leader output"

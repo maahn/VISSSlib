@@ -12,4 +12,5 @@ notebooks/.ipynb_checkpoints
 *.tmp
 .aider*
 tests/data
+tests/data.zip
 *processing.txt

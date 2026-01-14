@@ -1,11 +1,14 @@
+import os
 import shutil
+import urllib.request
+import zipfile
 
 import numpy as np
 import pytest
 import VISSSlib
 from VISSSlib.products import *
 
-from helpers import readTestSettings
+from helpers import get_test_data_path, get_test_path, readTestSettings
 
 
 def processCase(case, config):
@@ -42,6 +45,19 @@ def processCase(case, config):
 class TestProducts:
     @pytest.fixture(autouse=True)
     def setup_files(self):
+        test_path = get_test_path()
+        test_0_6_yaml = os.path.join(test_path, "data", "test_0.6", "test_0.6.yaml")
+        if not os.path.exists(test_0_6_yaml):
+            url = "https://speicherwolke.uni-leipzig.de/public.php/dav/files/PJ8dt77ND9tmaB2/?accept=zip"
+            zip_path = os.path.join(test_path, "data.zip")
+            print(f"Downloading test data from {url} to {zip_path}")
+            urllib.request.urlretrieve(url, zip_path)
+            print(f"Extracting test data to {test_path}")
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(test_path)
+            print(f"Removing zip file {zip_path}")
+            os.remove(zip_path)
+
         self.config = readTestSettings("test_0.6/test_0.6.yaml")
         try:
             shutil.rmtree(self.config.tmpPath)

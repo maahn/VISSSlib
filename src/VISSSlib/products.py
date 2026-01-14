@@ -1302,7 +1302,8 @@ def submitAll(
     cleanUpDuplicates=False,
 ):
     """
-    Submit all processing jobs for a given range of days.
+    Submit all processing jobs of for a given range of days. All processing
+    levels are considered if corresponding input files are available
 
     Parameters
     ----------
@@ -1410,7 +1411,8 @@ def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue
 
     """
     if fileQueue is None:
-        fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
+        randString = "".join(random.choice(string.ascii_uppercase) for _ in range(10))
+        fileQueue = f"/tmp/visss_{randString}"
 
     products = [
         "metaEvents",

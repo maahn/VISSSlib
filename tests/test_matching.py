@@ -169,3 +169,10 @@ class TestMatch(object):
 
         assert nPairs == 1035
         np.isclose(rotate_final["camera_Ofz"], -20.31999969482422)
+
+    def testManualRotation(self):
+        cases = ["20260110-083000"]
+        res = manualRotationEstimate(cases, self.config, minSamples4rot=10)
+        assert (
+            res[:60] == "20260110-083000:\n  transformation:\n    camera_Ofz: -20.29870"
+        )

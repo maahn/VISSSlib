@@ -2347,7 +2347,9 @@ def createMetaRotation(
     return metaRotation, fnameMetaRotation
 
 
-def manualRotationEstimate(cases, settings, nPoints=1000, iterations=4):
+def manualRotationEstimate(
+    cases, settings, nPoints=1000, iterations=4, minSamples4rot=90
+):
     """
     Estimate camera rotation parameters through iterative particle matching.
 
@@ -2383,8 +2385,10 @@ def manualRotationEstimate(cases, settings, nPoints=1000, iterations=4):
     4. Validate results at each iteration
     5. Store final rotation parameters if all validations pass
     """
+    import pandas as pd
+    import yaml
 
-    config = VISSSlib.tools.readSettings(settings)
+    config = tools.readSettings(settings)
     results = {}  # Initialize results dictionary
     rotate_default = pd.Series(
         {"camera_phi": 0.0, "camera_theta": 0.0, "camera_Ofz": 0}
@@ -2397,7 +2401,7 @@ def manualRotationEstimate(cases, settings, nPoints=1000, iterations=4):
         print(case)
         print("#" * 80)
 
-        fl = VISSSlib.files.FindFiles(case, config.leader, config)
+        fl = files.FindFiles(case, config.leader, config)
         fname1L = fl.listFiles("level1detect")[0]
 
         # Precompute minSize once per case
@@ -2429,7 +2433,7 @@ def manualRotationEstimate(cases, settings, nPoints=1000, iterations=4):
                     {
                         "maxDiffMs": "config",
                         "chunckSize": 1000,
-                        "minSamples4rot": 90,
+                        "minSamples4rot": minSamples4rot,
                         "minDMax4rot": minSize,
                         "singleParticleFramesOnly": True,
                         "nSamples4rot": 2000,
@@ -2449,7 +2453,7 @@ def manualRotationEstimate(cases, settings, nPoints=1000, iterations=4):
                 nF,
                 nM,
                 _,
-            ) = VISSSlib.matching.matchParticles(fname1L, config, **kwargs)
+            ) = matchParticles(fname1L, config, **kwargs)
 
             # Validation checks
             if not nL:

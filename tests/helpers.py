@@ -1,4 +1,5 @@
 import os
+import shutil
 import socket
 import urllib
 import zipfile
@@ -30,6 +31,10 @@ def readTestSettings(settings):
 
 def downloadData():
     test_path = get_test_path()
+    test_data_path = get_test_data_path()
+    # remove old data dir if present
+    if os.path.exists(test_data_path):
+        shutil.rmtree(test_data_path)
     url = "https://speicherwolke.uni-leipzig.de/public.php/dav/files/PJ8dt77ND9tmaB2/?accept=zip"
     zip_path = os.path.join(test_path, "data.zip")
     print(f"Downloading test data from {url} to {zip_path}")

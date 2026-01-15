@@ -512,17 +512,21 @@ def _getMetaData1(
             return None
 
     metaDat["capture_time"] = xr.DataArray(
-        [
-            datetime.datetime.utcfromtimestamp(t1 * 1e-6)
-            for t1 in metaDat["capture_time"].values
-        ],
+        pd.to_datetime(
+            [
+                datetime.datetime.utcfromtimestamp(t1 * 1e-6)
+                for t1 in metaDat["capture_time"].values
+            ]
+        ),
         coords=metaDat["capture_time"].coords,
     )
     metaDat["record_time"] = xr.DataArray(
-        [
-            datetime.datetime.utcfromtimestamp(t1 * 1e-6)
-            for t1 in metaDat["record_time"].values.astype(int)
-        ],
+        pd.to_datetime(
+            [
+                datetime.datetime.utcfromtimestamp(t1 * 1e-6)
+                for t1 in metaDat["record_time"].values.astype(int)
+            ]
+        ),
         coords=metaDat["record_time"].coords,
     )
 

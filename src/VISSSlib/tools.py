@@ -339,8 +339,9 @@ def getCaseRange(nDays, config, endYesterday=True):
         List of case identifiers.
     """
     # shortcut to detect timestamps of YYYYMMDD-HH or YYYYMMDD-HHMMSS
-    if (nDays[-3] == "-") or (nDays[-7] == "-"):
-        return [nDays]
+    if type(nDays) is str:
+        if (nDays[-3] == "-") or (nDays[-7] == "-"):
+            return [nDays]
     days = getDateRange(nDays, config, endYesterday=endYesterday)
     cases = []
     for dd in days:
@@ -394,10 +395,10 @@ def getDateRange(nDays, config, endYesterday=True):
 
     if nDays == 0:
         days = pd.date_range(
-            start=config["start"],
+            start=pd.Timestamp(config["start"], tz="UTC"),
             end=end2,
             freq="1D",
-            tz=None,
+            tz="UTC",
             normalize=True,
             name=None,
             inclusive="both",
@@ -412,7 +413,7 @@ def getDateRange(nDays, config, endYesterday=True):
                     start=nDays,
                     periods=1,
                     freq="1D",
-                    tz=None,
+                    tz="UTC",
                     normalize=True,
                     name=None,
                     inclusive="both",
@@ -422,7 +423,7 @@ def getDateRange(nDays, config, endYesterday=True):
                     start=days[0],
                     end=days[1],
                     freq="1D",
-                    tz=None,
+                    tz="UTC",
                     normalize=True,
                     name=None,
                     inclusive="both",
@@ -435,29 +436,29 @@ def getDateRange(nDays, config, endYesterday=True):
             end=end2,
             periods=nDays,
             freq="1D",
-            tz=None,
+            tz="UTC",
             normalize=True,
             name=None,
             inclusive="both",
         )
 
     # double check to make sure we did not add too much
-    if np.any(days < pd.Timestamp(config.start)):
+    if np.any(days < pd.Timestamp(config.start, tz="UTC")):
         log.warning(
             f"Date range {nDays} includes cases that are before the specified start {config.start}"
         )
-        days = days[days >= pd.Timestamp(config.start)]
+        days = days[days >= pd.Timestamp(config.start, tz="UTC")]
 
     if config.end == "today":
         end = datetime.datetime.now(datetime.UTC)
     else:
-        end = config.end
+        end = pd.Timestamp(config.end, tz="UTC")
 
-    if np.any(days > pd.Timestamp(end)):
+    if np.any(days > end):
         log.warning(
             f"Date range {nDays} includes cases that are after the specified end {end}"
         )
-        days = days[days <= pd.Timestamp(config.end)]
+        days = days[days <= pd.Timestamp(config.end, tz="UTC")]
 
     return days
 

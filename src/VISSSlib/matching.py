@@ -1415,6 +1415,11 @@ def matchParticles(
         leader1D.capture_time.max(), leader1D.record_time.max()
     ) + np.timedelta64(1, "s")
 
+    leader1D.load()
+    follower1DAll.load()
+    leader1D.close()
+    follower1DAll.close()
+
     matchedDats = []
     errorStrs = []
     nSamples = []
@@ -2340,3 +2345,147 @@ def createMetaRotation(
         quicklooks.metaRotationQuicklook(case, config, skipExisting=skipExisting)
 
     return metaRotation, fnameMetaRotation
+
+
+def manualRotationEstimate(cases, settings, nPoints=1000, iterations=4):
+    """
+    Estimate camera rotation parameters through iterative particle matching.
+
+    This function processes multiple cases to estimate optimal camera rotation parameters
+    by iteratively refining the rotation estimate using particle matching. Each case undergoes
+    up to 4 iterations of matching with progressively refined parameters.
+
+    Parameters
+    ----------
+    cases : list of str
+        List of case identifiers to process in format ["YYYYMMDD-HHMMSS"]
+    settings : dict or str
+        Configuration settings or path to settings file
+    nPoints : int, optional
+        Number of points to use in matching (default=1000)
+    iterations : int, optional
+        Number of iterations (default=4)
+
+    Returns
+    -------
+    str
+        yaml Dictionary with case names as keys and rotation parameters as values
+        Format: {case: {"transformation": dict, "transformation_err": dict}}
+
+    Notes
+    -----
+    The function performs these steps for each case:
+    1. Load level1 detection data
+    2. Calculate minimum particle size (minSize) for filtering
+    3. Run up to 4 iterations of particle matching:
+        - 1st iteration: Full parameter set with strict filters
+        - Subsequent iterations: Relaxed parameters using previous rotation estimate
+    4. Validate results at each iteration
+    5. Store final rotation parameters if all validations pass
+    """
+
+    config = VISSSlib.tools.readSettings(settings)
+    results = {}  # Initialize results dictionary
+    rotate_default = pd.Series(
+        {"camera_phi": 0.0, "camera_theta": 0.0, "camera_Ofz": 0}
+    )
+    rotate_err_default = pd.Series(
+        {"camera_phi": 1, "camera_theta": 1, "camera_Ofz": 50}
+    )
+    for case in cases:
+        print("#" * 80)
+        print(case)
+        print("#" * 80)
+
+        fl = VISSSlib.files.FindFiles(case, config.leader, config)
+        fname1L = fl.listFiles("level1detect")[0]
+
+        # Precompute minSize once per case
+        with xr.open_dataset(fname1L) as l1dat:
+            try:
+                minSize = np.sort(l1dat.isel(pid=(l1dat.blur > 100)).Dmax)[-500 * 10]
+            except IndexError:
+                minSize = 15
+        print("minSize", minSize)
+
+        # Initialize rotation parameters
+        current_rot = rotate_default
+        current_rot_err = rotate_err_default
+        results[case] = None  # Default if case fails
+
+        # Loop through matchParticles calls (up to 4 iterations)
+        for i in range(iterations):
+            # Configure parameters per iteration
+            kwargs = {
+                "doRot": True,
+                "rotationOnly": True,
+                "rotate": current_rot,
+                "rotate_err": current_rot_err,
+                "nPoints": nPoints,
+            }
+
+            if i == 0:  # First iteration has special parameters
+                kwargs.update(
+                    {
+                        "maxDiffMs": "config",
+                        "chunckSize": 1000,
+                        "minSamples4rot": 90,
+                        "minDMax4rot": minSize,
+                        "singleParticleFramesOnly": True,
+                        "nSamples4rot": 2000,
+                        "sigma": {"H": 1.2, "T": 1e-4},
+                    }
+                )
+            else:  # Subsequent iterations
+                kwargs.update({"minSamples4rot": 30})
+
+            # Execute matching
+            (
+                fout,
+                matchedDat,
+                new_rot,
+                new_rot_err,
+                nL,
+                nF,
+                nM,
+                _,
+            ) = VISSSlib.matching.matchParticles(fname1L, config, **kwargs)
+
+            # Validation checks
+            if not nL:
+                print("Too little leader data!")
+                break
+            if not nM:
+                print("NO MATCHED DATA!")
+                break
+            try:
+                if nL / nM < 0.05:
+                    print("Too little matched data!")
+                    break
+            except ZeroDivisionError:
+                print("NO MATCHED DATA!")
+                break
+            if (new_rot is None) or (new_rot.get("camera_phi") == 0):
+                print(f"Rotation invalid at iteration {i+1}")
+                break
+
+            # Update rotation for next iteration
+            current_rot, current_rot_err = new_rot, new_rot_err
+            print(f"Iteration {i+1}: MATCHED {nM/nL:.2f}, Leader particles: {nL}")
+            print(current_rot)
+
+            # Final iteration processing
+            if i == 3:
+                matchScoreMedian = matchedDat.matchScore.median().values
+                if matchScoreMedian < config.quality.minMatchScore:
+                    print(f"Low match score: {matchScoreMedian}")
+                    break
+
+                # Store successful result
+                results[case] = {
+                    "transformation": current_rot.round(6).to_dict(),
+                    "transformation_err": current_rot_err.round(6).to_dict(),
+                }
+                print(results[case])
+
+    return yaml.dump(results)

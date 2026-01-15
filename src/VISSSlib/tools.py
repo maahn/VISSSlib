@@ -2380,7 +2380,34 @@ def timestamp2str(ts):
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+@loopify
 def copyLastMetaRotation(config, fromCase, toCase):
+    """
+    Copy the last meta rotation file from one case to another.
+
+    This function copies the most recent meta rotation file from a source case
+    to a destination case, updating the timestamp in the filename accordingly.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration settings.
+    fromCase : str
+        Source case identifier (e.g., "20230101").
+    toCase : str
+        Destination case identifier (e.g., "20230102").
+
+    Returns
+    -------
+    xarray.Dataset or None
+        The copied meta rotation dataset or None if no rotation file exists.
+
+    Notes
+    -----
+    This function is decorated with @loopify, which means it will automatically
+    iterate over all cases if a range is provided. For example, if fromCase is
+    "20230101-20230103", it will process all three cases.
+    """
     config = readSettings(config)
     ff = files.FindFiles(fromCase, config.leader, config)
     if len(ff.listFiles("metaRotation")) == 0:

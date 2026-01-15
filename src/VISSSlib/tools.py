@@ -2378,3 +2378,25 @@ def timestamp2str(ts):
         Formatted timestamp string.
     """
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def copyLastMetaRotation(config, fromCase, toCase):
+    config = readSettings(config)
+    ff = files.FindFiles(fromCase, config.leader, config)
+    if len(ff.listFiles("metaRotation")) == 0:
+        log.error("no rotation file yet")
+        return None
+
+    fname = ff.listFiles("metaRotation")[0]
+    metaRot = xr.open_dataset(fname)
+    metaRotLast = metaRot.isel(file_starttime=-1)
+    metaRotLast.attrs = {}
+
+    ffnew = files.FindFiles(toCase, config.leader, config)
+    newTime = ffnew.datetime64 + np.timedelta64(1439, "m")
+    fnameNew = fname.replace(f"/{ff.year}/", f"/{ffnew.year}/").replace(
+        fromCase, toCase
+    )
+    metaRotLast = metaRotLast.assign_coords(file_starttime=[newTime])
+    metaRotLast
+    to_netcdf2(metaRotLast, config, fnameNew)

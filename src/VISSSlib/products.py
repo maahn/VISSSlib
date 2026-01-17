@@ -9,7 +9,7 @@ from functools import cached_property, partial
 import numpy as np
 import xarray as xr
 
-from . import __version__, files, scripts, tools
+from . import __version__, files, matching, scripts, tools
 from .tools import runCommandInQueue
 
 log = logging.getLogger(__name__)
@@ -1355,10 +1355,9 @@ def submitAll(
 
     if doMetaRot:
         log.warning(
-            f"{sys.executable} -m VISSSlib scripts.loopCreateMetaRotation  {settings} {nDays}"
+            f"{sys.executable} -m VISSSlib matching.createMetaRotation  {settings} {nDays}"
         )
-        scripts.loopCreateMetaRotation(settings, skipExisting=skipExisting, nDays=nDays)
-
+        matching.createMetaRotation(nDays, settings, skipExisting=skipExisting)
     return prod
 
 

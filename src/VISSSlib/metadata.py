@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 logDebug = log.isEnabledFor(logging.DEBUG)
 
 
-from . import __version__, detection, files, fixes, tools
+from . import __version__, detection, files, fixes, quicklooks, tools
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -789,7 +789,9 @@ def _getMetaData1(
 
 
 @tools.loopify_with_camera
-def createMetaFrames(case, camera, config, skipExisting=True, writeNc=True):
+def createMetaFrames(
+    case, camera, config, skipExisting=True, writeNc=True, doPlot=True
+):
     """
     Create metadata frames for a given case and camera.
 
@@ -806,6 +808,8 @@ def createMetaFrames(case, camera, config, skipExisting=True, writeNc=True):
         Configuration dictionary or path to configuration file
     skipExisting : bool, optional
         Whether to skip existing files, default is True
+    doPlot : bool, optional
+        Do plot, default is True
 
     Returns
     -------
@@ -866,6 +870,11 @@ def createMetaFrames(case, camera, config, skipExisting=True, writeNc=True):
         else:
             with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
                 f.write("no data recorded")
+
+    if doPlot:
+        fOut, fig = quicklooks.metaFramesQuicklook(
+            case, camera, config, skipExisting=skipExisting
+        )
 
     return metaDat
 

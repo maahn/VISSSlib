@@ -3,14 +3,12 @@ import datetime
 import logging
 import multiprocessing
 import os
-import shlex
 import shutil
 import socket
 import subprocess
 import sys
 import time
 from functools import partial
-from itertools import chain
 
 import numpy as np
 import xarray as xr
@@ -849,15 +847,9 @@ def loopCreateMetaFrames(
         case = f"{year}{month}{day}"
 
         for camera in cameras:
-            metadata.createMetaFrames(case, camera, config, skipExisting=skipExisting)
-            if doPlot:
-                fOut, fig = quicklooks.metaFramesQuicklook(
-                    case, camera, config, skipExisting=skipExisting
-                )
-                try:
-                    fig.close()
-                except AttributeError:
-                    pass
+            metadata.createMetaFrames(
+                case, camera, config, skipExisting=skipExisting, doPlot=doPlot
+            )
 
     return
 
@@ -1106,7 +1098,6 @@ def _runCommand(command, tmpFile, fOut, stdout=subprocess.DEVNULL):
             log.info(f"written {tmpFile} in {os.getcwd()}")
             log.info(command)
 
-            # proc = subprocess.Popen(shlex.split(f'bash -c "{command}"'), stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
             proc = subprocess.Popen(
                 command, shell=True, stdout=stdout, stderr=subprocess.PIPE
             )
@@ -1467,101 +1458,3 @@ def loopCheckCompleteness(
                     for missingTime in missingTimes:
                         print(camera, firstMiss, missingTime)
     return
-
-
-def reportLastFiles(
-    settings,
-    writeFile=True,
-    nameFile=False,
-    products=[
-        "level0txt",
-        "level0",
-        "metaFrames",
-        "level1detect",
-        "metaRotation",
-        "level1match",
-        "level1track",
-        "level2match",
-        "level2track",
-    ],
-):
-    """
-    report last available files for various processing levels
-
-    Parameters
-    ----------
-    settings : str
-        VISSS settings YAML file
-    writeFile : bool, optional
-        write output to file (the default is True)
-    nameFile : bool, optional
-        name last files (the default is False)
-    products : list, optional
-        list of products to be summarized (the default is [ "level0txt", "level0", "metaFrames", "level1detect", "metaRotation", "level1match", "level1track", "level2match", "level2track", ])
-
-    """
-    config = tools.readSettings(settings)
-    days = tools.getDateRange(0, config, endYesterday=False)[::-1]
-
-    cameras = [config.follower, config.leader]
-    output = ""
-
-    output += "#" * 80
-    output += "\n"
-    output += (
-        f"Last available files for {config.site} at {datetime.datetime.utcnow()} UTC\n"
-    )
-    output += "#" * 80
-    output += "\n"
-
-    for prod in products:
-        for camera in cameras:
-            if camera == config.follower and (
-                (prod in ["level1match", "level1track", "metaRotation"])
-                or prod.startswith("level2")
-            ):
-                continue
-
-            foundLastFile, completeCase, lastFile, lastFileTime = files.findLastFile(
-                config, prod, camera
-            )
-
-            output += f"{prod.ljust(14)} {(camera.split('_')[0]).ljust(8)} last full day:'{completeCase}' last file:'{lastFileTime}'"
-            if nameFile:
-                output += f" {lastFile}"
-            output += "\n"
-
-    output += "#" * 80
-    output += "\n"
-    output += f"VISSSlib version {__version__}\n"
-
-    if writeFile:
-        fOut = f"{config['pathQuicklooks'].format(version=__version__,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
-        with tools.open2(fOut, config, "w") as f:
-            f.write("<html><pre>\n")
-            f.write(output)
-            f.write("</pre></html>\n")
-
-    return output
-
-
-def copyLastMetaFrames(config, fromCase, toCase):
-    config = tools.readSettings(config)
-    ff = files.FindFiles(fromCase, config.leader, config)
-    if len(ff.listFiles("metaRotation")) == 0:
-        log.error("no rotation file yet")
-        return None
-
-    fname = ff.listFiles("metaRotation")[0]
-    metaRot = xr.open_dataset(fname)
-    metaRotLast = metaRot.isel(file_starttime=-1)
-    metaRotLast.attrs = {}
-
-    ffnew = files.FindFiles(toCase, config.leader, config)
-    newTime = ffnew.datetime64 + np.timedelta64(1439, "m")
-    fnameNew = fname.replace(f"/{ff.year}/", f"/{ffnew.year}/").replace(
-        fromCase, toCase
-    )
-    metaRotLast = metaRotLast.assign_coords(file_starttime=[newTime])
-    metaRotLast
-    tools.to_netcdf2(metaRotLast, config, fnameNew)

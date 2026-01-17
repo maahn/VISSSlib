@@ -2185,13 +2185,13 @@ def createMetaRotation(
                         " and I assume that the instrument was offline."
                         " I try to fix it"
                     )
-                    scripts.copyLastMetaFrames(config, lastCase, fflM.yesterday)
+                    tools.copyLastMetaRotation(config, lastCase, fflM.yesterday)
                     # try again
                     prevFile = fl.yesterdayObject.listFiles("metaRotation")[0]
 
                 else:
                     print(
-                        f"Try running '{sys.executable} -m VISSSlib scripts.copyLastMetaFrames "
+                        f"Try running '{sys.executable} -m VISSSlib tools.copyLastMetaRotation "
                         f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
                     )
                     return None, None
@@ -2199,7 +2199,7 @@ def createMetaRotation(
                 #     f"Skipping, no previous data found for {fnameMetaRotation}"
                 #     "! data in config file "
                 #     f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "
-                #     f"than 48h. Try running '{sys.executable} -m VISSSlib scripts.copyLastMetaFrames "
+                #     f"than 48h. Try running '{sys.executable} -m VISSSlib tools.copyLastMetaRotation "
                 #     f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
                 # )
 

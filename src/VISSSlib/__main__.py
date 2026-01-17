@@ -54,19 +54,13 @@ def main():
         "%s %s %i %s" % (sys.executable, sys.version, os.getpid(), socket.gethostname())
     )  # , file=sys.stderr)
 
-    if sys.argv[1] == "scripts.loopCreateEvents":
+    if sys.argv[1] == "metadata.createEvent":
         settings = sys.argv[2]
-        nDays = sys.argv[3]
         try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateEvents(settings, skipExisting=skipExisting, nDays=nDays)
-
-    elif sys.argv[1] == "metadata.createEvent":
-        settings = sys.argv[2]
-        camera, case = sys.argv[3].split("+")
+            camera, case = sys.argv[3].split("+")
+        except ValueError:
+            case = sys.argv[3]
+            camera = "all"
         try:
             skipExisting = bool(int(sys.argv[4]))
         except IndexError:
@@ -78,7 +72,7 @@ def main():
         try:
             camera, case = sys.argv[3].split("+")
         except ValueError:
-            nDays = sys.argv[3]
+            case = sys.argv[3]
             camera = "all"
         try:
             skipExisting = bool(int(sys.argv[4]))
@@ -86,8 +80,22 @@ def main():
             skipExisting = True
 
         scripts.loopCreateMetaFrames(
-            settings, skipExisting=skipExisting, nDays=nDays, camera=camera
+            settings, skipExisting=skipExisting, nDays=case, camera=camera
         )
+
+    elif sys.argv[1] == "metadata.createMetaFrames":
+        settings = sys.argv[2]
+        try:
+            camera, case = sys.argv[3].split("+")
+        except ValueError:
+            case = sys.argv[3]
+            camera = "all"
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+
+        metadata.createMetaFrames(case, camera, settings, skipExisting=skipExisting)
 
     elif sys.argv[1] == "quicklooks.createLevel1detectQuicklook":
         settings = sys.argv[2]
@@ -162,7 +170,7 @@ def main():
             settings, nDays=nDays, skipExisting=skipExisting
         )
 
-    elif sys.argv[1] == "scripts.loopLevel0Quicklook":
+    elif sys.argv[1] == "quicklooks.level0Quicklook":
         settings = sys.argv[2]
         nDays = sys.argv[3]
 
@@ -171,8 +179,8 @@ def main():
         except IndexError:
             skipExisting = True
 
-        scripts.loopLevel0Quicklook(settings, nDays=nDays, skipExisting=skipExisting)
-
+        # scripts.loopLevel0Quicklook(settings, nDays=nDays, skipExisting=skipExisting)
+        quicklooks.level0Quicklook(nDays, "all", settings)
     elif sys.argv[1] == "detection.detectParticles":
         fname = sys.argv[2]
         settings = sys.argv[3]
@@ -433,9 +441,9 @@ def main():
             settings, nDays=nDays, skipExisting=skipExisting
         )
 
-    elif sys.argv[1] == "scripts.reportLastFiles":
+    elif sys.argv[1] == "tools.reportLastFiles":
         settings = sys.argv[2]
-        output = scripts.reportLastFiles(settings)
+        output = tools.reportLastFiles(settings)
         print(output)
 
     elif sys.argv[1] == "quicklooks.metaRotationYearlyQuicklook":
@@ -449,11 +457,11 @@ def main():
         taskQueue = sys.argv[4]
         products.submitAll(nDays, settings, taskQueue)
 
-    elif sys.argv[1] == "scripts.copyLastMetaFrames":
+    elif sys.argv[1] == "tools.copyLastMetaRotation":
         settings = sys.argv[2]
         fromCase = sys.argv[3]
         ToCase = sys.argv[4]
-        scripts.copyLastMetaFrames(settings, fromCase, ToCase)
+        tools.copyLastMetaRotation(settings, fromCase, ToCase)
 
     elif sys.argv[1] == "worker":
         # alternatives to consider

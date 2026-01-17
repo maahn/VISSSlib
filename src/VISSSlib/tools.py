@@ -195,7 +195,6 @@ def loopify_with_camera(func):
             cameras = [camera]
 
         cases = getCaseRange(case, config)
-
         returns = list()
         for case1 in cases:
             for camera1 in cameras:
@@ -314,7 +313,7 @@ def readSettings(fname):
             if not config[key].startswith("/"):
                 config[key] = f"{os.path.dirname(fname)}/{config[key]}"
             config[key] = config[key].replace("$HOSTNAME", socket.gethostname())
-        return config
+            return config
     else:  # is already config
         return fname
 
@@ -340,7 +339,9 @@ def getCaseRange(nDays, config, endYesterday=True):
     """
     # shortcut to detect timestamps of YYYYMMDD-HH or YYYYMMDD-HHMMSS
     if type(nDays) is str:
-        if (nDays[-3] == "-") or (nDays[-7] == "-"):
+        if len(nDays) < 6:
+            nDays = int(nDays)
+        elif (nDays[-3] == "-") or (nDays[-7] == "-"):
             return [nDays]
     days = getDateRange(nDays, config, endYesterday=endYesterday)
     cases = []
@@ -2427,3 +2428,79 @@ def copyLastMetaRotation(config, fromCase, toCase):
     metaRotLast = metaRotLast.assign_coords(file_starttime=[newTime])
     metaRotLast
     to_netcdf2(metaRotLast, config, fnameNew)
+
+
+def reportLastFiles(
+    settings,
+    writeFile=True,
+    nameFile=False,
+    products=[
+        "level0txt",
+        "level0",
+        "metaFrames",
+        "level1detect",
+        "metaRotation",
+        "level1match",
+        "level1track",
+        "level2match",
+        "level2track",
+    ],
+):
+    """
+    report last available files for various processing levels
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    writeFile : bool, optional
+        write output to file (the default is True)
+    nameFile : bool, optional
+        name last files (the default is False)
+    products : list, optional
+        list of products to be summarized (the default is [ "level0txt", "level0", "metaFrames", "level1detect", "metaRotation", "level1match", "level1track", "level2match", "level2track", ])
+
+    """
+    config = readSettings(settings)
+    days = getDateRange(0, config, endYesterday=False)[::-1]
+
+    cameras = [config.follower, config.leader]
+    output = ""
+
+    output += "#" * 80
+    output += "\n"
+    output += (
+        f"Last available files for {config.site} at {datetime.datetime.utcnow()} UTC\n"
+    )
+    output += "#" * 80
+    output += "\n"
+
+    for prod in products:
+        for camera in cameras:
+            if camera == config.follower and (
+                (prod in ["level1match", "level1track", "metaRotation"])
+                or prod.startswith("level2")
+            ):
+                continue
+
+            foundLastFile, completeCase, lastFile, lastFileTime = files.findLastFile(
+                config, prod, camera
+            )
+
+            output += f"{prod.ljust(14)} {(camera.split('_')[0]).ljust(8)} last full day:'{completeCase}' last file:'{lastFileTime}'"
+            if nameFile:
+                output += f" {lastFile}"
+            output += "\n"
+
+    output += "#" * 80
+    output += "\n"
+    output += f"VISSSlib version {__version__}\n"
+
+    if writeFile:
+        fOut = f"{config['pathQuicklooks'].format(version=__version__,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
+        with open2(fOut, config, "w") as f:
+            f.write("<html><pre>\n")
+            f.write(output)
+            f.write("</pre></html>\n")
+
+    return output

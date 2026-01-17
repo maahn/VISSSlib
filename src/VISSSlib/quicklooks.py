@@ -15,7 +15,7 @@ import xarray as xr
 from image_packer import packer
 
 from . import *
-from . import __version__, av, tools
+from . import __version__, av, files, tools
 
 log = logging.getLogger(__name__)
 

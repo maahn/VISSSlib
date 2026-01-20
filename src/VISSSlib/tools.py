@@ -214,7 +214,7 @@ def loopify_with_camera(func=None, *, endYesterday=True):
             for case1 in cases:
                 for camera1 in cameras:
                     log.warning(
-                        f"Processing {case1} with {f.__name__} for {camera1} at {os.path.basename(settings)}"
+                        f"Processing {case1} with {f.__name__} for {camera1} at {os.path.basename(config.filename)}"
                     )
                     returns.append(f(case1, camera1, config, *args, **kwargs))
             if len(returns) == 1:
@@ -270,7 +270,7 @@ def loopify(func=None, *, endYesterday=True):
             returns = list()
             for case1 in cases:
                 log.warning(
-                    f"Processing {case1} with {f.__name__} at {os.path.basename(settings)}"
+                    f"Processing {case1} with {f.__name__} at {os.path.basename(config.filename)}"
                 )
                 returns.append(f(case1, config, *args, **kwargs))
             if len(returns) == 1:
@@ -2319,6 +2319,18 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
     if join:
         [x.join() for x in workerList]
     return workerList
+
+
+def copyCurrentQuicklook(level, ff):
+    fOut = ff.quicklook[level]
+
+    if ff.datetime.date() == datetime.datetime.today().date():
+        try:
+            shutil.copy(fOut, ff.quicklookCurrent[level])
+        except PermissionError:
+            log.error(f"No permission to write {fOut}")
+
+    return
 
 
 def checkForExisting(ffOut, level0=None, events=None, parents=None):

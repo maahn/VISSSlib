@@ -1659,7 +1659,7 @@ def _statusText(fig, fnames, config, addLogo=True):
     except FileNotFoundError:
         thisDate = ""
     else:
-        thisDate = tools.timestamp2str(thisDate)
+        thisDate = timestamp2str(thisDate)
     string = f"VISSSlib {__version__}, created  "
     string += f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
     string += f"from files created at {thisDate} "

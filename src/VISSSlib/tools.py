@@ -358,13 +358,14 @@ def readSettings(fname):
         config = DictNoDefault(flatten_dict.unflatten(config))
         config["filename"] = fname
         config["basename"] = os.path.basename(fname)
+        config["dirname"] = os.path.dirname(fname)
         config["instruments"] = [config.leader, config.follower]
         # check for relative paths (with respect to the yaml file and make them absolute
         for key in ["path", "pathOut", "pathQuicklooks"]:
             if not config[key].startswith("/"):
-                config[key] = f"{os.path.dirname(fname)}/{config[key]}"
+                config[key] = f"{config["dirname"]}/{config[key]}"
             config[key] = config[key].replace("$HOSTNAME", socket.gethostname())
-            return config
+        return config
     else:  # is already config
         return fname
 
@@ -1582,7 +1583,7 @@ def createParentDir(file, mode=None):
     return
 
 
-def savefig(fig, config, filename, fnames=None, addLogo=True, **kwargs):
+def savefig(fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=None, **kwargs):
     """
     Save a matplotlib Figure to `filename` with proper permissions.
 
@@ -1605,6 +1606,12 @@ def savefig(fig, config, filename, fnames=None, addLogo=True, **kwargs):
     **kwargs : dict
         Additional arguments for saving.
     """
+
+    # Add status text to the figure
+    _statusText(fig, fnames, config, addLogo=addLogo)
+    fig.tight_layout(w_pad=w_pad, h_pad=h_pad)
+
+
     # Ensure parent directory exists
     createParentDir(filename, config.dirMode)
 
@@ -1614,7 +1621,8 @@ def savefig(fig, config, filename, fnames=None, addLogo=True, **kwargs):
     except FileNotFoundError:
         pass
 
-    # Save the figure
+
+
     fig.savefig(filename, **kwargs)
 
     # Set file permissions
@@ -1623,10 +1631,8 @@ def savefig(fig, config, filename, fnames=None, addLogo=True, **kwargs):
     except PermissionError:
         log.warning(f"chmod {config.fileMode} {filename} failed")
     
-    # Add status text to the figure
-    _statusText(fig, fnames, config, addLogo=addLogo)
-    fig.savefig(filename, **kwargs)
 
+    return fig
 
 def _statusText(fig, fnames, config, addLogo=True):
     """

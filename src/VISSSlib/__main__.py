@@ -16,7 +16,6 @@ from . import (
     metadata,
     products,
     quicklooks,
-    scripts,
     tools,
     tracking,
 )
@@ -66,22 +65,6 @@ def main():
         except IndexError:
             skipExisting = True
         metadata.createEvent(case, camera, settings, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "scripts.loopCreateMetaFrames":
-        settings = sys.argv[2]
-        try:
-            camera, case = sys.argv[3].split("+")
-        except ValueError:
-            case = sys.argv[3]
-            camera = "all"
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateMetaFrames(
-            settings, skipExisting=skipExisting, nDays=case, camera=camera
-        )
 
     elif sys.argv[1] == "metadata.createMetaFrames":
         settings = sys.argv[2]
@@ -137,43 +120,6 @@ def main():
             case, config, version=version, skipExisting=skipExisting
         )
 
-    elif sys.argv[1] == "scripts.loopLevel1detectQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopLevel1detectQuicklooks(
-            settings, nDays=nDays, skipExisting=skipExisting
-        )
-
-    elif sys.argv[1] == "scripts.loopMetaCoefQuicklooks":
-        settings = sys.argv[2]
-        version = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopMetaCoefQuicklooks(
-            settings, version=version, skipExisting=skipExisting
-        )
-
-    elif sys.argv[1] == "scripts.loopMetaFramesQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopMetaFramesQuicklooks(
-            settings, nDays=nDays, skipExisting=skipExisting
-        )
-
     elif sys.argv[1] == "quicklooks.level0Quicklook":
         settings = sys.argv[2]
         nDays = sys.argv[3]
@@ -183,7 +129,6 @@ def main():
         except IndexError:
             skipExisting = True
 
-        # scripts.loopLevel0Quicklook(settings, nDays=nDays, skipExisting=skipExisting)
         quicklooks.level0Quicklook(nDays, "all", settings, skipExisting=skipExisting)
 
     elif sys.argv[1] == "detection.detectParticles":
@@ -275,176 +220,6 @@ def main():
             skipExisting = True
 
         level3.retrieveCombinedRiming(case, settings, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "scripts.loopCreateLevel1detect":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateLevel1detect(
-            settings, skipExisting=skipExisting, nDays=nDays, cameras="all", nCPU=None
-        )
-
-    elif sys.argv[1] == "scripts.loopCreateLevel1match":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateLevel1match(
-            settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
-        )
-
-    elif sys.argv[1] == "scripts.loopCreateLevel1track":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateLevel1track(
-            settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
-        )
-
-    elif sys.argv[1] == "scripts.loopCreateLevel2detect":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateLevel2detect(
-            settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
-        )
-
-    elif sys.argv[1] == "scripts.loopCreateLevel2match":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateLevel2match(
-            settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
-        )
-
-    elif sys.argv[1] == "scripts.loopCreateLevel2track":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopCreateLevel2track(
-            settings, skipExisting=skipExisting, nDays=nDays, nCPU=None
-        )
-
-    elif sys.argv[1] == "scripts.loopLevel2matchQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopLevel2matchQuicklooks(
-            settings, skipExisting=skipExisting, nDays=nDays
-        )
-    elif sys.argv[1] == "scripts.loopLevel2trackQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopLevel2trackQuicklooks(
-            settings, skipExisting=skipExisting, nDays=nDays
-        )
-
-    elif sys.argv[1] == "scripts.loopLevel1matchQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopLevel1matchQuicklooks(
-            settings, nDays=nDays, skipExisting=skipExisting
-        )
-
-    elif sys.argv[1] == "scripts.loopLevel1matchParticlesQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopLevel1matchParticlesQuicklooks(
-            settings, nDays=nDays, skipExisting=skipExisting
-        )
-
-    elif sys.argv[1] == "scripts.loopLevel2matchQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopLevel2matchQuicklooks(
-            settings, nDays=nDays, skipExisting=skipExisting
-        )
-
-    elif sys.argv[1] == "scripts.loopCreateMetaRotation":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        try:
-            maxAgeDaysPrevFile = int(sys.argv[5])
-        except IndexError:
-            maxAgeDaysPrevFile = 1
-
-        scripts.loopCreateMetaRotation(
-            settings,
-            nDays=nDays,
-            skipExisting=skipExisting,
-            maxAgeDaysPrevFile=maxAgeDaysPrevFile,
-        )
-
-    elif sys.argv[1] == "scripts.loopMetaRotationQuicklooks":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        scripts.loopMetaRotationQuicklooks(
-            settings, nDays=nDays, skipExisting=skipExisting
-        )
 
     elif sys.argv[1] == "tools.reportLastFiles":
         settings = sys.argv[2]

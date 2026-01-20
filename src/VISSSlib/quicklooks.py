@@ -1491,9 +1491,8 @@ def metaFramesQuicklook(
 
     ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
 
-    _statusText(fig, ff.listFiles("metaFrames"), config)
-
-    tools.savefig(fig, config, fOut)
+    # _statusText(fig, ff.listFiles("metaFrames"), config)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaFrames"))
 
     if ff.datetime.date() == datetime.datetime.today().date():
         try:
@@ -1592,7 +1591,7 @@ def createLevel1matchQuicklook(
         fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
         axcax.axis("off")
         axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
-        _statusText(fig, [], config)
+        # _statusText(fig, [], config)
         tools.savefig(fig, config, fOut)
         return fOut, fig
 
@@ -1629,7 +1628,7 @@ def createLevel1matchQuicklook(
         axcax.set_title(
             f"VISSS level1match {config.name} {case} \n No precipitation (2)"
         )
-        _statusText(fig, [], config)
+        # _statusText(fig, [], config)
         tools.savefig(fig, config, fOut)
         return fOut, fig
 
@@ -1912,9 +1911,8 @@ def createLevel1matchQuicklook(
     fig.tight_layout(w_pad=0.05, h_pad=0.005)
 
     print("DONE", fOut)
-    _statusText(fig, fnames1M, config)
-    tools.savefig(fig, config, fOut)
-
+    # _statusText(fig, fnames1M, config)
+    tools.savefig(fig, config, fOut, fnames=fnames1M)
     if returnFig:
         return fOut, fig
     else:
@@ -2092,9 +2090,8 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     ax3.grid()
     ax3.set_xlabel("time")
 
-    _statusText(fig, rotFiles, config)
-
-    tools.savefig(fig, config, fOut)
+    # _statusText(fig, rotFiles, config)
+    tools.savefig(fig, config, fOut, fnames=rotFiles)
     rotDat.close()
 
     if year == str(datetime.datetime.today().year):
@@ -2411,9 +2408,8 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     ax1.legend(fontsize=15)
     ax3.legend(fontsize=15)
 
-    _statusText(fig, ff.listFiles("metaRotation"), config)
-
-    tools.savefig(fig, config, fOut)
+    # _statusText(fig, ff.listFiles("metaRotation"), config)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaRotation"))
     rotDat.close()
     events.close()
 
@@ -2661,9 +2657,8 @@ def createLevel2detectQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    _statusText(fig, ff.listFiles("level2detect"), config)
-    tools.savefig(fig, config, fOut)
-
+    # _statusText(fig, ff.listFiles("level2detect"), config)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2detect"))
     if returnFig:
         return fOut, fig
     else:
@@ -2917,9 +2912,8 @@ def createLevel2matchQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    _statusText(fig, ff.listFiles("level2match"), config)
-    tools.savefig(fig, config, fOut)
-
+    # _statusText(fig, ff.listFiles("level2match"), config)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2match"))
     if returnFig:
         return fOut, fig
     else:
@@ -3212,9 +3206,8 @@ def createLevel2trackQuicklook(
             bx.axis("off")
 
     fig.tight_layout()
-    _statusText(fig, ff.listFiles("level2track"), config)
-    tools.savefig(fig, config, fOut)
-
+    # _statusText(fig, ff.listFiles("level2track"), config)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2track"))
     if returnFig:
         return fOut, fig
     else:
@@ -3993,7 +3986,6 @@ def createLevel3RimingQuicklook(
         dat2.close()
         dat3.close()
     fig.tight_layout()
-    _statusText(fig, ff.listFiles("level3combinedRiming"), config)
-    tools.savefig(fig, config, fOut)
-
+    # _statusText(fig, ff.listFiles("level3combinedRiming"), config)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level3combinedRiming"))
     return fig

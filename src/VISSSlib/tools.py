@@ -1582,7 +1582,7 @@ def createParentDir(file, mode=None):
     return
 
 
-def savefig(fig, config, filename, **kwargs):
+def savefig(fig, config, filename, fnames=None, addLogo=True, **kwargs):
     """
     Save a matplotlib Figure to `filename` with proper permissions.
 
@@ -1598,6 +1598,10 @@ def savefig(fig, config, filename, **kwargs):
         Configuration settings.
     filename : str
         Output file name.
+    fnames : str or list of str, optional
+        File names used to determine creation date, by default None
+    addLogo : bool, optional
+        Whether to add logo to the figure, by default True
     **kwargs : dict
         Additional arguments for saving.
     """
@@ -1618,6 +1622,66 @@ def savefig(fig, config, filename, **kwargs):
         os.chmod(filename, config.fileMode)
     except PermissionError:
         log.warning(f"chmod {config.fileMode} {filename} failed")
+    
+    # Add status text to the figure
+    _statusText(fig, fnames, config, addLogo=addLogo)
+    fig.savefig(filename, **kwargs)
+
+
+def _statusText(fig, fnames, config, addLogo=True):
+    """
+    Add status text to a matplotlib figure.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to add status text to
+    fnames : str or list of str
+        File names used to determine creation date
+    config : dict
+        Configuration dictionary containing metadata
+    addLogo : bool, optional
+        Whether to add logo to the figure, by default True
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The figure with added status text
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    if not isinstance(fnames, (list, tuple)):
+        fnames = [fnames]
+    try:
+        thisDate = np.max([os.path.getmtime(f) for f in fnames])
+    except ValueError:
+        thisDate = ""
+    except FileNotFoundError:
+        thisDate = ""
+    else:
+        thisDate = tools.timestamp2str(thisDate)
+    string = f"VISSSlib {__version__}, created  "
+    string += f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+    string += f"from files created at {thisDate} "
+    fig.text(
+        0,
+        0,
+        string,
+        fontsize=8,
+        transform=fig.transFigure,
+        verticalalignment="bottom",
+        horizontalalignment="left",
+    )
+
+    if addLogo and (config.logo is not None):
+        try:
+            im = Image.open(config.logo)
+        except FileNotFoundError:
+            log.error(f"Did not find {config.logo}")
+        else:
+            fig.figimage(np.asarray(im), 0, fig.bbox.ymax - im.height, zorder=10)
+
+    return fig
 
 
 def ncAttrs(site, visssGen, extra={}):

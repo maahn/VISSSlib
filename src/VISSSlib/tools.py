@@ -214,7 +214,7 @@ def loopify_with_camera(func=None, *, endYesterday=True):
             for case1 in cases:
                 for camera1 in cameras:
                     log.warning(
-                        f"Processing {case1} with {f.__name__} for {camera1} at {os.path.basename(config.filename)}"
+                        f"Processing {case1} with {f.__name__} for {camera1} at {config.basename}"
                     )
                     returns.append(f(case1, camera1, config, *args, **kwargs))
             if len(returns) == 1:
@@ -270,7 +270,7 @@ def loopify(func=None, *, endYesterday=True):
             returns = list()
             for case1 in cases:
                 log.warning(
-                    f"Processing {case1} with {f.__name__} at {os.path.basename(config.filename)}"
+                    f"Processing {case1} with {f.__name__} at {config.basename}"
                 )
                 returns.append(f(case1, config, *args, **kwargs))
             if len(returns) == 1:
@@ -357,6 +357,7 @@ def readSettings(fname):
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))
         config["filename"] = fname
+        config["basename"] = os.path.basename(fname)
         config["instruments"] = [config.leader, config.follower]
         # check for relative paths (with respect to the yaml file and make them absolute
         for key in ["path", "pathOut", "pathQuicklooks"]:
@@ -2322,6 +2323,31 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
 
 
 def copyCurrentQuicklook(level, ff):
+    """
+    Copy the latest quicklook file to the current quicklook location.
+
+    This function copies the most recently generated quicklook file for a given
+    processing level to a corresponding "current" location. This is typically used
+    to maintain a symlink or copy of the most recent quicklook image for easy access.
+
+    Parameters
+    ----------
+    level : str
+        Processing level for which to copy the quicklook (e.g., 'level1detect').
+    ff : object
+        File finder object containing file information and quicklook paths.
+
+    Returns
+    -------
+    None
+        This function does not return a value but performs file copying operations.
+
+    Notes
+    -----
+    The function only copies the quicklook file if the date matches today's date.
+    This prevents overwriting previous quicklook files with potentially outdated
+    images from previous days.
+    """
     fOut = ff.quicklook[level]
 
     if ff.datetime.date() == datetime.datetime.today().date():

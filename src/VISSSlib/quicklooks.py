@@ -361,7 +361,7 @@ def _crop(image):
     ]
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def createLevel1detectQuicklookHourly(
     case,
     camera,
@@ -458,7 +458,7 @@ def createLevel1detectQuicklookHourly(
     return
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def createLevel1detectQuicklook(
     timestamp,
     camera,
@@ -1179,12 +1179,7 @@ def level0Quicklook(case, camera, config, version=__version__, skipExisting=True
     else:
         print("no input files")
         return None
-    if ff.datetime.date() == datetime.datetime.today().date():
-        try:
-            shutil.copy(fOut, ff.quicklookCurrent.level0)
-        except PermissionError:
-            log.error(f"No permission to write {fOut}")
-
+    tools.copyCurrentQuicklook("level0", ff)
     return fOut
 
 
@@ -2425,7 +2420,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     return fOut, fig
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def createLevel2detectQuicklook(
     case, camera, config, version=__version__, skipExisting=True, returnFig=True
 ):

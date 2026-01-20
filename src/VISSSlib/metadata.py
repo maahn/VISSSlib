@@ -788,7 +788,7 @@ def _getMetaData1(
     return metaDat
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def createMetaFrames(
     case, camera, config, skipExisting=True, writeNc=True, doPlot=True
 ):

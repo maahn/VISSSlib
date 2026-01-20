@@ -1583,34 +1583,61 @@ def createParentDir(file, mode=None):
     return
 
 
-def savefig(fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=None, **kwargs):
+def savefig(
+    fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=None, **kwargs
+):
     """
     Save a matplotlib Figure to `filename` with proper permissions.
 
-    - Creates parent directories if they do not exist.
-    - Directories: owner rwx, group rwx, others rx (0o775)
-    - File: owner rw, group rw, others r (0o664)
+    This function saves a matplotlib figure to a file with appropriate directory
+    creation and file permissions. It also adds status text to the figure and
+    optionally includes a logo.
 
     Parameters
     ----------
     fig : matplotlib.figure.Figure
-        Figure to save.
+        The matplotlib figure to save.
     config : dict
-        Configuration settings.
+        Configuration settings containing directory modes and logo information.
     filename : str
-        Output file name.
+        The output file path where the figure will be saved.
     fnames : str or list of str, optional
-        File names used to determine creation date, by default None
+        File names used to determine creation date for status text.
+        If None, no date information is included. Default is None.
     addLogo : bool, optional
-        Whether to add logo to the figure, by default True
+        Whether to add a logo to the figure. Default is True.
+    w_pad : float, optional
+        Width padding for tight layout. Default is None.
+    h_pad : float, optional
+        Height padding for tight layout. Default is None.
     **kwargs : dict
-        Additional arguments for saving.
+        Additional keyword arguments passed to matplotlib's savefig function.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The figure that was saved (for chaining operations).
+
+    Notes
+    -----
+    - Creates parent directories if they don't exist with permissions based on config.dirMode
+    - Sets file permissions to config.fileMode after saving
+    - Adds status text with VISSSlib version, creation timestamp, and file creation date
+    - Optionally adds a logo from config.logo if available
+    - Removes existing files with the same name before saving to prevent corruption
+    - Uses tight_layout with specified padding for better figure formatting
+
+    Example
+    -------
+    >>> import matplotlib.pyplot as plt
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot([1, 2, 3], [1, 4, 9])
+    >>> savefig(fig, config, "output.png")
     """
 
     # Add status text to the figure
     _statusText(fig, fnames, config, addLogo=addLogo)
     fig.tight_layout(w_pad=w_pad, h_pad=h_pad)
-
 
     # Ensure parent directory exists
     createParentDir(filename, config.dirMode)
@@ -1621,8 +1648,6 @@ def savefig(fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=
     except FileNotFoundError:
         pass
 
-
-
     fig.savefig(filename, **kwargs)
 
     # Set file permissions
@@ -1630,9 +1655,9 @@ def savefig(fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=
         os.chmod(filename, config.fileMode)
     except PermissionError:
         log.warning(f"chmod {config.fileMode} {filename} failed")
-    
 
     return fig
+
 
 def _statusText(fig, fnames, config, addLogo=True):
     """
@@ -1654,7 +1679,7 @@ def _statusText(fig, fnames, config, addLogo=True):
     matplotlib.figure.Figure
         The figure with added status text
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageFont
 
     if not isinstance(fnames, (list, tuple)):
         fnames = [fnames]

@@ -106,62 +106,6 @@ def loop(
     return res
 
 
-def _statusText(fig, fnames, config, addLogo=True):
-    """
-    Add status text to a matplotlib figure.
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The figure to add status text to
-    fnames : str or list of str
-        File names used to determine creation date
-    config : dict
-        Configuration dictionary containing metadata
-    addLogo : bool, optional
-        Whether to add logo to the figure, by default True
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        The figure with added status text
-    """
-    from PIL import Image, ImageDraw, ImageFont
-
-    if not isinstance(fnames, (list, tuple)):
-        fnames = [fnames]
-    try:
-        thisDate = np.max([os.path.getmtime(f) for f in fnames])
-    except ValueError:
-        thisDate = ""
-    except FileNotFoundError:
-        thisDate = ""
-    else:
-        thisDate = tools.timestamp2str(thisDate)
-    string = f"VISSSlib {__version__}, created  "
-    string += f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
-    string += f"from files created at {thisDate} "
-    fig.text(
-        0,
-        0,
-        string,
-        fontsize=8,
-        transform=fig.transFigure,
-        verticalalignment="bottom",
-        horizontalalignment="left",
-    )
-
-    if addLogo and (config.logo is not None):
-        try:
-            im = Image.open(config.logo)
-        except FileNotFoundError:
-            log.error(f"Did not find {config.logo}")
-        else:
-            fig.figimage(np.asarray(im), 0, fig.bbox.ymax - im.height, zorder=10)
-
-    return fig
-
-
 def _plotVar(
     pVar,
     capture_time,
@@ -1908,11 +1852,8 @@ def createLevel1matchQuicklook(
         np.datetime64(f"{fl.year}-{fl.month}-{fl.day}T00:00") + np.timedelta64(1, "D"),
     )
 
-    fig.tight_layout(w_pad=0.05, h_pad=0.005)
-
     print("DONE", fOut)
-    # _statusText(fig, fnames1M, config)
-    tools.savefig(fig, config, fOut, fnames=fnames1M)
+    tools.savefig(fig, config, fOut, fnames=fnames1M, w_pad=0.05, h_pad=0.005)
     if returnFig:
         return fOut, fig
     else:
@@ -2656,8 +2597,6 @@ def createLevel2detectQuicklook(
         for bx in axs[1:, 1]:
             bx.axis("off")
 
-    fig.tight_layout()
-    # _statusText(fig, ff.listFiles("level2detect"), config)
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2detect"))
     if returnFig:
         return fOut, fig
@@ -2911,8 +2850,6 @@ def createLevel2matchQuicklook(
         for bx in axs[1:, 1]:
             bx.axis("off")
 
-    fig.tight_layout()
-    # _statusText(fig, ff.listFiles("level2match"), config)
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2match"))
     if returnFig:
         return fOut, fig
@@ -3205,8 +3142,6 @@ def createLevel2trackQuicklook(
         for bx in axs[2:, 1]:
             bx.axis("off")
 
-    fig.tight_layout()
-    # _statusText(fig, ff.listFiles("level2track"), config)
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2track"))
     if returnFig:
         return fOut, fig
@@ -3985,7 +3920,5 @@ def createLevel3RimingQuicklook(
         ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
         dat2.close()
         dat3.close()
-    fig.tight_layout()
-    # _statusText(fig, ff.listFiles("level3combinedRiming"), config)
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level3combinedRiming"))
     return fig

@@ -4,13 +4,18 @@ import numpy as np
 import pytest
 import VISSSlib
 
-from helpers import get_test_data_path
+from helpers import downloadData, get_test_data_path
 
 
 def test_readConfig():
     testRoot = get_test_data_path()
-    config = VISSSlib.tools.readSettings(f"{testRoot}/test_0.6/test_0.6.yaml")
+    settings = f"{testRoot}/test_0.6/testtmp_0.6.yaml"
+    if not os.path.exists(settings):
+        downloadData()
+    config = VISSSlib.tools.readSettings(settings)
     assert config.visssGen == "visss"
+    assert config.path.startswith("/")
+    assert "$HOSTNAME" not in config.pathQuicklooks
 
 
 def test_block_archive(tmp_path):

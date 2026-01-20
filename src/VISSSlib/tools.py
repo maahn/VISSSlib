@@ -183,8 +183,8 @@ def loopify_with_camera(func):
     """
 
     @wraps(func)
-    def myinner(case, camera, config, *args, **kwargs):
-        config = readSettings(config)
+    def myinner(case, camera, settings, *args, **kwargs):
+        config = readSettings(settings)
         if camera == "all":
             cameras = [config.leader, config.follower]
         elif camera == "leader":
@@ -198,6 +198,9 @@ def loopify_with_camera(func):
         returns = list()
         for case1 in cases:
             for camera1 in cameras:
+                log.warning(
+                    f"Processing {case1} with {func.__name__} for {camera1} at {os.path.basename(settings)}"
+                )
                 returns.append(func(case1, camera1, config, *args, **kwargs))
         if len(returns) == 1:
             return returns[0]
@@ -223,12 +226,15 @@ def loopify(func):
     """
 
     @wraps(func)
-    def myinner(case, config, *args, **kwargs):
-        config = readSettings(config)
+    def myinner(case, settings, *args, **kwargs):
+        config = readSettings(settings)
         cases = getCaseRange(case, config)
 
         returns = list()
         for case1 in cases:
+            log.warning(
+                f"Processing {case1} with {func.__name__} at {os.path.basename(settings)}"
+            )
             returns.append(func(case1, config, *args, **kwargs))
         if len(returns) == 1:
             return returns[0]
@@ -2291,31 +2297,28 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
     bool
         True if file should be regenerated.
     """
-    # checks whether file exists and checks age of parents and meta files
     if not os.path.isfile(ffOut):
+        # file does not exist yet
         return False
     if level0 is not None:
         if len(level0) == 0:
-            print("no level0 data", ffOut)
+            log.warning("fno level0 data {ffOut}")
             return True
     if events is not None:
         if np.any(
             os.path.getmtime(ffOut)
             < np.array([0] + [os.path.getmtime(f) for f in events])
         ):
-            print("file exists but older than event file, redoing", ffOut)
+            log.warning(f"file exists but older than event file, redoing {ffOut}")
             return False
     if parents is not None:
         if np.any(
             os.path.getmtime(ffOut)
             < np.array([0] + [os.path.getmtime(f) for f in parents])
         ):
-            print(
-                "file exists but older than parents files, redoing",
-                ffOut,
-            )
+            log.warning(f"file exists but older than parents files, redoing {ffOut}")
             return False
-
+    log.warning(f"output file exists already: {ffOut}")
     return True
 
 

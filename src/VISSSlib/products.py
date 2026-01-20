@@ -1448,3 +1448,4 @@ def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue
             if prod in followerProducts:
                 assert len(dp2.listBroken()) == 0, "follower files broken"
                 assert len(dp2.listFiles()) > 0, "no follower output"
+    return

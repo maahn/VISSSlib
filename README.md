@@ -11,14 +11,12 @@ This repository contains the VISSS data acquisition software. Please see also
 
 ## Installation
 
-Install conda/mamba dependencies
-
-    conda install numpy  scipy  xarray  dask[complete]  pandas pyyaml matplotlib bottleneck pillow  addict opencv  netcdf4 ipywidgets trimesh scikit-image tqdm filterpy flox portalocker numba xarray-extras ninja
-
 Install PIP dependencies
 
 
-    pip install image-packer flatten_dict pyOptimalEstimation vg manifold3d pangaeapy task-queue
+    pip install numpy  scipy  xarray  dask[complete]  pandas pyyaml matplotlib bottleneck pillow  addict opencv-python  netcdf4 ipywidgets trimesh scikit-image tqdm filterpy flox portalocker numba xarray-extras ninja image-packer flatten_dict pyOptimalEstimation vg manifold3d pangaeapy task-queue pytest
+
+Note, opencv-python is called opencv when you use conda. 
 
 Level3 products also require https://github.com/igmk/pamtra. 
 

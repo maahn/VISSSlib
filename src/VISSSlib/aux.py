@@ -1,6 +1,5 @@
 import glob
 import logging
-import os
 import warnings
 
 import numpy as np

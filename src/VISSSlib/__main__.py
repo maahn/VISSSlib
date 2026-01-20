@@ -180,7 +180,8 @@ def main():
             skipExisting = True
 
         # scripts.loopLevel0Quicklook(settings, nDays=nDays, skipExisting=skipExisting)
-        quicklooks.level0Quicklook(nDays, "all", settings)
+        quicklooks.level0Quicklook(nDays, "all", settings, skipExisting=skipExisting)
+
     elif sys.argv[1] == "detection.detectParticles":
         fname = sys.argv[2]
         settings = sys.argv[3]

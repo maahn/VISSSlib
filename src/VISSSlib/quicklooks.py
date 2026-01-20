@@ -20,7 +20,9 @@ from . import __version__, av, files, tools
 log = logging.getLogger(__name__)
 
 
-def loop(level, nDays, settings, version=__version__, skipExisting=True):
+def loop(
+    level, nDays, settings, version=__version__, skipExisting=True, endYesterday=False
+):
     """
     Generate quicklooks for a specified level over a range of days.
 
@@ -38,6 +40,9 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
         Version identifier for the processing, by default __version__
     skipExisting : bool, optional
         Whether to skip generation if output already exists, by default True
+    endYesterday : bool, optional
+        Whether to end the case range at yesterday. Default is True.
+        This parameter is passed to getCaseRange.
 
     Returns
     -------
@@ -50,7 +55,7 @@ def loop(level, nDays, settings, version=__version__, skipExisting=True):
         If the specified level is not recognized
     """
     config = tools.readSettings(settings)
-    days = tools.getDateRange(nDays, config, endYesterday=False)
+    days = tools.getDateRange(nDays, config, endYesterday=endYesterday)
 
     if level in ["level0", "level1detect", "metaFrames", "level2detect"]:
         cameras = config["instruments"]
@@ -1108,7 +1113,7 @@ class Packer_patched(packer.Packer):
         return blank_image
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def level0Quicklook(case, camera, config, version=__version__, skipExisting=True):
     """
     Create level0 quicklook for a given case and camera.
@@ -1183,7 +1188,7 @@ def level0Quicklook(case, camera, config, version=__version__, skipExisting=True
     return fOut
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def metaFramesQuicklook(
     case, camera, config, version=__version__, skipExisting=True, plotCompleteOnly=True
 ):

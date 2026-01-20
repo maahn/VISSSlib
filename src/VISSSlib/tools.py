@@ -167,81 +167,125 @@ niceNames = (
 )
 
 
-def loopify_with_camera(func):
+def loopify_with_camera(func=None, *, endYesterday=True):
     """
     Decorator to make function loop over cases and cameras.
 
     Parameters
     ----------
-    func : callable
-        Function to be decorated.
+    endYesterday : bool, optional
+        Whether to end the case range at yesterday. Default is True.
+        This parameter is passed to getCaseRange.
 
     Returns
     -------
     callable
-        Wrapped function that loops over cameras.
+        Decorator function or wrapped function.
+
+    Examples
+    --------
+    @loopify_with_camera
+    def my_func(case, camera, config):
+        pass
+
+    @loopify_with_camera()
+    def my_func(case, camera, config):
+        pass
+
+    @loopify_with_camera(endYesterday=False)
+    def my_func(case, camera, config):
+        pass
     """
 
-    @wraps(func)
-    def myinner(case, camera, settings, *args, **kwargs):
-        config = readSettings(settings)
-        if camera == "all":
-            cameras = [config.leader, config.follower]
-        elif camera == "leader":
-            cameras = [config.leader]
-        elif camera == "follower":
-            cameras = [config.follower]
-        else:
-            cameras = [camera]
+    def decorator(f):
+        @wraps(f)
+        def myinner(case, camera, settings, *args, **kwargs):
+            config = readSettings(settings)
+            if camera == "all":
+                cameras = [config.leader, config.follower]
+            elif camera == "leader":
+                cameras = [config.leader]
+            elif camera == "follower":
+                cameras = [config.follower]
+            else:
+                cameras = [camera]
+            cases = getCaseRange(case, config, endYesterday=endYesterday)
+            returns = list()
+            for case1 in cases:
+                for camera1 in cameras:
+                    log.warning(
+                        f"Processing {case1} with {f.__name__} for {camera1} at {os.path.basename(settings)}"
+                    )
+                    returns.append(f(case1, camera1, config, *args, **kwargs))
+            if len(returns) == 1:
+                return returns[0]
+            else:
+                return returns
 
-        cases = getCaseRange(case, config)
-        returns = list()
-        for case1 in cases:
-            for camera1 in cameras:
-                log.warning(
-                    f"Processing {case1} with {func.__name__} for {camera1} at {os.path.basename(settings)}"
-                )
-                returns.append(func(case1, camera1, config, *args, **kwargs))
-        if len(returns) == 1:
-            return returns[0]
-        else:
-            return returns
+        return myinner
 
-    return myinner
+    if func is None:
+        # Called with parentheses: @loopify_with_camera() or @loopify_with_camera(endYesterday=False)
+        return decorator
+    else:
+        # Called without parentheses: @loopify_with_camera
+        return decorator(func)
 
 
-def loopify(func):
+def loopify(func=None, *, endYesterday=True):
     """
     Decorator to make function loop over cases.
 
     Parameters
     ----------
-    func : callable
-        Function to be decorated.
+    endYesterday : bool, optional
+        Whether to end the case range at yesterday. Default is True.
+        This parameter is passed to getCaseRange.
 
     Returns
     -------
     callable
-        Wrapped function that loops over cases.
+        Decorator function or wrapped function.
+
+    Examples
+    --------
+    @loopify
+    def my_func(case, config):
+        pass
+
+    @loopify()
+    def my_func(case, config):
+        pass
+
+    @loopify(endYesterday=False)
+    def my_func(case, config):
+        pass
     """
 
-    @wraps(func)
-    def myinner(case, settings, *args, **kwargs):
-        config = readSettings(settings)
-        cases = getCaseRange(case, config)
+    def decorator(f):
+        @wraps(f)
+        def myinner(case, settings, *args, **kwargs):
+            config = readSettings(settings)
+            cases = getCaseRange(case, config, endYesterday=endYesterday)
+            returns = list()
+            for case1 in cases:
+                log.warning(
+                    f"Processing {case1} with {f.__name__} at {os.path.basename(settings)}"
+                )
+                returns.append(f(case1, config, *args, **kwargs))
+            if len(returns) == 1:
+                return returns[0]
+            else:
+                return returns
 
-        returns = list()
-        for case1 in cases:
-            log.warning(
-                f"Processing {case1} with {func.__name__} at {os.path.basename(settings)}"
-            )
-            returns.append(func(case1, config, *args, **kwargs))
-        if len(returns) == 1:
-            return returns[0]
-        else:
-            return returns
+        return myinner
 
-    return myinner
+    if func is None:
+        # Called with parentheses: @loopify() or @loopify(endYesterday=False)
+        return decorator
+    else:
+        # Called without parentheses: @loopify
+        return decorator(func)
 
 
 class DictNoDefault(Dict):

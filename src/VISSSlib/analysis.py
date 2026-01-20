@@ -20,7 +20,6 @@ from . import (
     matching,
     metadata,
     quicklooks,
-    scripts,
     tools,
     tracking,
 )

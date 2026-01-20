@@ -9,7 +9,7 @@ from functools import cached_property, partial
 import numpy as np
 import xarray as xr
 
-from . import __version__, files, matching, scripts, tools
+from . import __version__, files, matching, tools
 from .tools import runCommandInQueue
 
 log = logging.getLogger(__name__)
@@ -320,7 +320,7 @@ class DataProduct(object):
             )
         elif self.level == "metaFrames":
             return self._commandTemplateDaily(
-                "scripts.loopCreateMetaFrames",
+                "metadata.createMetaFrames",
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,

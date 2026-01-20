@@ -10,7 +10,7 @@ from copy import deepcopy
 import numpy as np
 import xarray as xr
 
-from . import __version__, files, fixes, metadata, quicklooks, scripts, tools
+from . import __version__, files, fixes, metadata, quicklooks, tools
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)

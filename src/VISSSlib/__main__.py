@@ -99,7 +99,11 @@ def main():
 
     elif sys.argv[1] == "quicklooks.createLevel1detectQuicklook":
         settings = sys.argv[2]
-        camera, case = sys.argv[3].split("+")
+        try:
+            camera, case = sys.argv[3].split("+")
+        except ValueError:
+            case = sys.argv[3]
+            camera = "all"
         try:
             skipExisting = bool(int(sys.argv[4]))
         except IndexError:

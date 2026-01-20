@@ -1437,12 +1437,7 @@ def metaFramesQuicklook(
 
     # _statusText(fig, ff.listFiles("metaFrames"), config)
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaFrames"))
-
-    if ff.datetime.date() == datetime.datetime.today().date():
-        try:
-            shutil.copy(fOut, ff.quicklookCurrent.metaFrames)
-        except PermissionError:
-            log.error(f"No permission to write {fOut}")
+    tools.copyCurrentQuicklook("metaFrames", ff)
 
     if metaDats is not None:
         metaDats.close()
@@ -2033,6 +2028,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
     # _statusText(fig, rotFiles, config)
     tools.savefig(fig, config, fOut, fnames=rotFiles)
+
     rotDat.close()
 
     if year == str(datetime.datetime.today().year):

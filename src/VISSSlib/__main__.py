@@ -237,6 +237,24 @@ def main():
         taskQueue = sys.argv[4]
         products.submitAll(nDays, settings, taskQueue)
 
+    elif sys.argv[1] == "products.processAll":
+        settings = sys.argv[2]
+        nDays = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+        products.processAll(nDays, settings, skipExisting=skipExisting)
+
+    elif sys.argv[1] == "products.processRealtime":
+        settings = sys.argv[2]
+        nDays = sys.argv[3]
+        try:
+            skipExisting = bool(int(sys.argv[4]))
+        except IndexError:
+            skipExisting = True
+        products.processRealtime(nDays, settings, skipExisting)
+
     elif sys.argv[1] == "tools.copyLastMetaRotation":
         settings = sys.argv[2]
         fromCase = sys.argv[3]

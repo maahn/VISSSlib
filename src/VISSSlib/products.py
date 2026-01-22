@@ -9,7 +9,7 @@ from functools import cached_property, partial
 import numpy as np
 import xarray as xr
 
-from . import __version__, files, matching, tools
+from . import __version__, files, matching, metadata, quicklooks, tools
 from .tools import runCommandInQueue
 
 log = logging.getLogger(__name__)
@@ -1290,7 +1290,7 @@ class DataProductRange(object):
 
 
 def submitAll(
-    nDays,
+    case,
     settings,
     fileQueue,
     doMetaRot=True,
@@ -1307,8 +1307,8 @@ def submitAll(
 
     Parameters
     ----------
-    nDays : int
-        Number of days to process
+    case : str
+        Case or case range identifier for the data to process
     settings : str
         Path to settings file
     fileQueue : str
@@ -1339,7 +1339,7 @@ def submitAll(
         tq = taskqueue.TaskQueue(f"fq://{fileQueue}")
         log.warning(f"{tq.enqueued} tasks in Queue")
 
-        prod = DataProductRange("allDone", nDays, settings, fileQueue, "leader")
+        prod = DataProductRange("allDone", case, settings, fileQueue, "leader")
         if cleanUpBroken:
             prod.cleanUpBroken(withParents=True, withNoData=False)
         if cleanUpDuplicates:
@@ -1362,7 +1362,14 @@ def submitAll(
 
 
 @tools.loopify
-def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue=None):
+def processAll(
+    case,
+    config,
+    ignoreErrors=False,
+    nJobs=os.cpu_count,
+    fileQueue=None,
+    skipExisting=True,
+):
     """
     Process VISSS data for a specific case across all processing levels.
 
@@ -1437,10 +1444,10 @@ def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue
     for prod in products:
         print("#" * 10, prod, "#" * 10)
         dp1 = DataProduct(prod, case, config, fileQueue, "leader")
-        dp1.submitCommands(withParents=False)
+        dp1.submitCommands(withParents=False, skipExisting=skipExisting)
         if prod in followerProducts:
             dp2 = DataProduct(prod, case, config, fileQueue, "follower")
-            dp2.submitCommands(withParents=False)
+            dp2.submitCommands(withParents=False, skipExisting=skipExisting)
         tools.workers(fileQueue, waitTime=1, nJobs=nJobs)
         if not ignoreErrors:
             assert len(dp1.listBroken()) == 0, "leader files broken"
@@ -1449,3 +1456,31 @@ def processCases(case, config, ignoreErrors=False, nJobs=os.cpu_count, fileQueue
                 assert len(dp2.listBroken()) == 0, "follower files broken"
                 assert len(dp2.listFiles()) > 0, "no follower output"
     return
+
+
+def processRealtime(case, settings, skipExisting=True):
+    print("#" * 50)
+    print(
+        f"python3 -m VISSSlib metadata.createEvent {settings} {case} {int(skipExisting)}"
+    )
+    print("#" * 50)
+    metadata.createEvent(case, "all", settings, skipExisting=skipExisting)
+
+    print("#" * 50)
+    print(
+        f"python3 -m VISSSlib quicklooks.level0Quicklook {settings} {case} {int(skipExisting)}"
+    )
+    print("#" * 50)
+    quicklooks.level0Quicklook(case, "all", settings, skipExisting=skipExisting)
+
+    print("#" * 50)
+    print(
+        f"python3 -m VISSSlib metadata.createMetaFrames {settings} {case} {int(skipExisting)}"
+    )
+    print("#" * 50)
+    metadata.createMetaFrames(case, "all", settings, skipExisting=skipExisting)
+
+    print("#" * 50)
+    print(f"python3 -m VISSSlib tools.reportLastFiles {settings}")
+    print("#" * 50)
+    tools.reportLastFiles(settings)

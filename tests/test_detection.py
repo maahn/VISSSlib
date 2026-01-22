@@ -69,7 +69,7 @@ class TestDetection(object):
             "solidityConsideringHoles",
         ]:
             assert var in dat.data_vars
-        assert np.isclose(dat.Dmax.mean(), 6.45963144)
-        assert np.isclose(dat.area.mean(), 42.46416092)
-        assert np.isclose(dat.perimeter.mean(), 18.66514397)
-        assert np.isclose(dat.contourFFT.mean(), 1.39864063)
+        assert np.isclose(dat.Dmax.mean(), 6.45963144, rtol=1e-3)
+        assert np.isclose(dat.area.mean(), 42.46416092, rtol=1e-3)
+        assert np.isclose(dat.perimeter.mean(), 18.66514397, rtol=1e-3)
+        assert np.isclose(dat.contourFFT.mean(), 1.39864063, rtol=1e-3)

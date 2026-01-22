@@ -1256,7 +1256,7 @@ def getEvents(fnames0, config, fname0status=None):
     return metaDats
 
 
-@tools.loopify_with_camera
+@tools.loopify_with_camera(endYesterday=False)
 def createEvent(
     case,
     camera,

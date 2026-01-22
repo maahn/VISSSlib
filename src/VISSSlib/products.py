@@ -1392,6 +1392,8 @@ def processAll(
         the number of jobs. This parameter is passed to the workers function.
     fileQueue : str, optional
         File queue for task management. If None, a temporary queue will be created.
+    skipExisting : bool, default True
+        Whether to skip existing files during processing
 
     Notes
     -----
@@ -1459,6 +1461,35 @@ def processAll(
 
 
 def processRealtime(case, settings, skipExisting=True):
+    """
+    Process VISSS data products that do not require significant computing
+    resources for a specific case or case range. Calls
+    * metadata.createEvent
+    * quicklooks.level0Quicklook
+    * metadata.createMetaFrames
+    * tools.reportLastFiles
+
+
+    Parameters
+    ----------
+    case : str
+        Case identifier for the data to process
+    settings : str
+        Path to settings file
+    skipExisting : bool, default True
+        Whether to skip existing files during processing
+
+    Notes
+    -----
+    The processing sequence includes:
+    1. Creating metadata events
+    2. Generating level 0 quicklooks
+    3. Creating metadata frames
+    4. Reporting last processed files
+
+    This function is designed for real-time processing scenarios where
+    immediate results are needed.
+    """
     print("#" * 50)
     print(
         f"python3 -m VISSSlib metadata.createEvent {settings} {case} {int(skipExisting)}"

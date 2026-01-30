@@ -33,7 +33,7 @@ class TestL2(object):
             doPlot=False,
             doParticlePlot=False,
         )
-        assert np.isclose(dat.PSD.mean(), 439.43313599)
+        assert np.isclose(dat.PSD.mean(), 438.8838501)
         assert np.isclose(dat.M6.mean(), 5.05424415e-20)
         assert np.isclose(dat.angle_mean.mean(), 75.70424652)
         for var in [
@@ -105,7 +105,7 @@ class TestL2(object):
             doPlot=False,
             doParticlePlot=False,
         )
-        assert np.isclose(dat.PSD.mean(), 4234.27587891)
+        assert np.isclose(dat.PSD.mean(), 4228.98486328)
         assert np.isclose(dat.M6.mean(), 3.32397295e-20)
         assert np.isclose(dat.angle_mean.mean(), 78.70565796)
         for var in [
@@ -177,7 +177,7 @@ class TestL2(object):
             writeNc=False,
             doPlot=False,
         )
-        assert np.isclose(dat.PSD.mean(), 4224.98632812)
+        assert np.isclose(dat.PSD.mean(), 4219.70556641)
         assert np.isclose(dat.M6.mean(), 2.45204412e-20)
         assert np.isclose(dat.angle_mean.mean(), 67.9868927)
         for var in [

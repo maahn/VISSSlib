@@ -24,10 +24,10 @@ from helpers import readTestSettings
 #         # clean up
 #         shutil.rmtree(self.config.tmpPath)
 
-#     def test_processCases(self):
+#     def test_processAll(self):
 #         case = "20260110"
 
-#         processCases(
+#         processAll(
 #             case,
 #             self.config,
 #             ignoreErrors=False,
@@ -44,14 +44,14 @@ class TestProducts:
             #            ("test_0.4/testtmp_0.4.yaml", "20260111"),
         ],
     )
-    def test_processCases(self, config_subpath, case):
+    def test_processAll(self, config_subpath, case):
         # Read the config for this test case
         config = readTestSettings(config_subpath)
         # Ensure tmpPath is clean
         if os.path.exists(config.tmpPath):
             shutil.rmtree(config.tmpPath)
         try:
-            processCases(
+            processAll(
                 case,
                 config,
                 ignoreErrors=False,

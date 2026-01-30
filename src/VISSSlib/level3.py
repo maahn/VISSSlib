@@ -452,7 +452,7 @@ def heymsfield10_particles_M(Dmax, M, temperature, press, shape):
     Dmax : float or array-like
         Maximum particle diameter
     M : float or array-like
-        Riming mass parameter
+        Normalized rime mass
     temperature : float
         Temperature in Kelvin
     press : float

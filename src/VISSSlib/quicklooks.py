@@ -862,7 +862,7 @@ def createLevel1detectQuicklook(
             #   new_im.paste(im, (x_offset,max(heights) +50))
             #   x_offset += im.size[0] + extra
 
-    tenmm = 1e6 / config["resolution"] / 100
+    tenmm = 1e6 / (1 / config.calibration.slope) / 100
 
     if ff.hour == "":
         title = (
@@ -874,7 +874,7 @@ def createLevel1detectQuicklook(
                 tools.nicerNames(camera),
                 config["name"],
                 minSize,
-                minSize * config["resolution"] * 1e-6 * 1000,
+                minSize * (1 / config.calibration.slope) * 1e-6 * 1000,
                 particlesPloted,
                 nParticles,
                 tenmm,
@@ -891,7 +891,7 @@ def createLevel1detectQuicklook(
                 tools.nicerNames(camera),
                 config["name"],
                 minSize,
-                minSize * config["resolution"] * 1e-6 * 1000,
+                minSize * (1 / config.calibration.slope) * 1e-6 * 1000,
                 particlesPloted,
                 nParticles,
                 tenmm,
@@ -3603,7 +3603,7 @@ def createLevel1matchParticlesQuicklook(
             #   new_im.paste(im, (x_offset,max(heights) +50))
             #   x_offset += im.size[0] + extra
 
-    tenmm = 1e6 / config["resolution"] / 100
+    tenmm = 1e6 / (1 / config.calibration.slope) / 100
 
     if ff.hour == "":
         title = (
@@ -3614,7 +3614,7 @@ def createLevel1matchParticlesQuicklook(
                 ff.day,
                 config["name"],
                 minSize,
-                minSize * config["resolution"] * 1e-6 * 1000,
+                minSize * (1 / config.calibration.slope) * 1e-6 * 1000,
                 particlesPloted,
                 nParticles,
                 tenmm,
@@ -3630,7 +3630,7 @@ def createLevel1matchParticlesQuicklook(
                 ff.hour,
                 config["name"],
                 minSize,
-                minSize * config["resolution"] * 1e-6 * 1000,
+                minSize * (1 / config.calibration.slope) * 1e-6 * 1000,
                 particlesPloted,
                 nParticles,
                 tenmm,

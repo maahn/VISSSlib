@@ -1860,7 +1860,7 @@ def addVariables(
     # 1 min data
     deltaT = int(timeIndex.freq.nanos * 1e-9) * config.fps
     # 1 pixel size bins
-    deltaD = config.resolution * 1e-6
+    deltaD = (1 / config.calibration.slope) * 1e-6
 
     calibDat["PSD"] = (
         calibDat["counts"] / deltaT / calibDat["obs_volume"] / deltaD
@@ -1992,10 +1992,6 @@ def addVariables(
     calibDat["qualityFlags"] = xr.DataArray(qualityFlag, coords=[calibDat.time])
 
     assert (allFilter.time == calibDat.time).all()
-
-    # reverse for D_bins_left and D_bins_right
-    calibDat["D_bins_left"] = calibDat["D_bins_left"]
-    calibDat["D_bins_right"] = calibDat["D_bins_right"]
 
     # calibDat["recordingFailed"] = recordingFailed
     # calibDat["processingFailed"] = processingFailed

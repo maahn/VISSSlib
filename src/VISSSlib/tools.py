@@ -32,7 +32,6 @@ DEFAULT_SETTINGS = {
     # settings that must be provided in YAML file
     "computers": None,
     "fps": None,
-    "resolution": None,
     "frame_height": None,
     "frame_width": None,
     "leader": None,

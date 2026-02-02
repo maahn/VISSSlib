@@ -164,6 +164,9 @@ def readSettings(fname):
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))
         config["filename"] = fname
+        if "resolution" in config.keys():
+            print(f"ignoring config.resolution={config["resolution"]} and using {(1/config.calibration.slope)} instead")
+        config["resolution"] = (1/config.calibration.slope)
         return config
     else:  # is already config
         return fname

@@ -108,18 +108,6 @@ def main():
             case, settings, skipExisting=skipExisting
         )
 
-    elif sys.argv[1] == "quicklooks.createMetaCoefQuicklook":
-        case = sys.argv[2]
-        config = sys.argv[3]
-        version = sys.argv[4]
-        try:
-            skipExisting = bool(int(sys.argv[5]))
-        except IndexError:
-            skipExisting = True
-        quicklooks.createMetaCoefQuicklook(
-            case, config, version=version, skipExisting=skipExisting
-        )
-
     elif sys.argv[1] == "quicklooks.level0Quicklook":
         settings = sys.argv[2]
         nDays = sys.argv[3]

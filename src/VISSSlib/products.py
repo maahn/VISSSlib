@@ -432,8 +432,10 @@ class DataProduct(object):
         list
             List of commands to execute
         """
-        nCPU = 1
-        skipExisitingInt = int(skipExisting)
+        if skipExisting:
+            skipExistingStr = "--skip-existing"
+        else:
+            skipExistingStr = ""
         if bin is None:
             bin = os.path.join(sys.exec_prefix, "bin", "python")
         commands = []
@@ -466,7 +468,7 @@ class DataProduct(object):
                     os.remove(ex)
                     log.warning(f"too many files, removed {ex}")
 
-            command = f"{bin} -m VISSSlib {call}  {pName} {self.config.filename} {skipExisitingInt}"
+            command = f"{bin} -m VISSSlib {call} {self.config.filename} {pName} {skipExistingStr}"
             if nCPU is not None:
                 command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
             commands.append((command, outFile))
@@ -493,7 +495,10 @@ class DataProduct(object):
             List of commands to execute
         """
         nCPU = 1
-        skipExisitingInt = int(skipExisting)
+        if skipExisting:
+            skipExistingStr = "--skip-existing"
+        else:
+            skipExistingStr = ""
         if bin is None:
             bin = os.path.join(sys.exec_prefix, "bin", "python")
         if (
@@ -502,7 +507,7 @@ class DataProduct(object):
             or call.endswith("createEvent")
             or call.endswith("createLevel1detectQuicklook")
         ):
-            case = f"{self.camera}+{self.case}"
+            case = f"{self.case} --camera={self.camera}"
         else:
             case = self.case
 
@@ -514,7 +519,7 @@ class DataProduct(object):
             return []
 
         command = (
-            f"{bin} -m VISSSlib {call} {self.config.filename} {case} {skipExisitingInt}"
+            f"{bin} -m VISSSlib {call} {self.config.filename} {case} {skipExistingStr}"
         )
         if nCPU is not None:
             command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
@@ -1355,9 +1360,9 @@ def submitAll(
 
     if doMetaRot:
         log.warning(
-            f"{sys.executable} -m VISSSlib matching.createMetaRotation  {settings} {nDays}"
+            f"{sys.executable} -m VISSSlib matching.createMetaRotation  {settings} {case}"
         )
-        matching.createMetaRotation(nDays, settings, skipExisting=skipExisting)
+        matching.createMetaRotation(case, settings, skipExisting=skipExisting)
     return prod
 
 
@@ -1490,23 +1495,28 @@ def processRealtime(case, settings, skipExisting=True):
     This function is designed for real-time processing scenarios where
     immediate results are needed.
     """
+    if skipExisting:
+        skipExistingStr = "--skip-existing"
+    else:
+        skipExistingStr = ""
+
     print("#" * 50)
     print(
-        f"python3 -m VISSSlib metadata.createEvent {settings} {case} {int(skipExisting)}"
+        f"python3 -m VISSSlib metadata.createEvent {settings} {case} {skipExistingStr}"
     )
     print("#" * 50)
     metadata.createEvent(case, "all", settings, skipExisting=skipExisting)
 
     print("#" * 50)
     print(
-        f"python3 -m VISSSlib quicklooks.level0Quicklook {settings} {case} {int(skipExisting)}"
+        f"python3 -m VISSSlib quicklooks.level0Quicklook {settings} {case} {skipExistingStr}"
     )
     print("#" * 50)
     quicklooks.level0Quicklook(case, "all", settings, skipExisting=skipExisting)
 
     print("#" * 50)
     print(
-        f"python3 -m VISSSlib metadata.createMetaFrames {settings} {case} {int(skipExisting)}"
+        f"python3 -m VISSSlib metadata.createMetaFrames {settings} {case} {skipExistingStr}"
     )
     print("#" * 50)
     metadata.createMetaFrames(case, "all", settings, skipExisting=skipExisting)

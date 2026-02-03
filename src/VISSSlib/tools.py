@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import argparse
 import datetime
 import io
 import json
@@ -2683,3 +2684,158 @@ def reportLastFiles(
             f.write("</pre></html>\n")
 
     return output
+
+def _create_parser():
+    """Create the argument parser for VISSS processing pipeline."""
+    parser = argparse.ArgumentParser(
+        prog="python -m VISSSlib",
+        description="VISSS data processing pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m VISSSlib metadata.createEvent settings.yaml nDays --camera leader
+  python -m VISSSlib detection.detectParticles file.txt settings.yaml --skip-existing
+  python -m VISSSlib products.processAll settings.yaml YYYYMMDD-YYYYMMDD
+
+For information about the commands, run
+  python -m VISSSlib command --help
+        """,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Processing command")
+    subparsers.required = True
+
+    # Helper to add common arguments
+    def _add_std_args(
+        p, has_fname=False, has_case=True, has_camera=False, has_skip=True
+    ):
+        """Add standard arguments to a subparser."""
+        skip_default = True
+        p.add_argument("settings", help="Settings YAML file")
+        if has_fname:
+            p.add_argument("fname", help="Input file path")
+        if has_case:
+            p.add_argument(
+                "case",
+                help="Number of days going back or date string 'YYYYMMDD' or "
+                "'YYYYMMDD-YYYYMMDD' or 'YYYYMMDD,YYYYMMDD,YYYYMMDD'",
+            )
+        if has_camera:
+            p.add_argument("--camera", default="all", help="Camera name (default: all)")
+        if has_skip:
+            p.add_argument(
+                "--skip-existing",
+                action="store_true",
+                default=skip_default,
+                help=f"Skip if exists (default: {skip_default})",
+            )
+
+    # Metadata commands
+    p = subparsers.add_parser("metadata.createEvent", help="Create event metadata")
+    _add_std_args(p, has_camera=True)
+
+    p = subparsers.add_parser(
+        "metadata.createMetaFrames", help="Create metadata frames"
+    )
+    _add_std_args(p, has_camera=True)
+
+    # Quicklook commands
+    p = subparsers.add_parser(
+        "quicklooks.createLevel1detectQuicklook",
+        help="Create Level 1 detection quicklook",
+    )
+    _add_std_args(p, has_camera=True)
+
+    p = subparsers.add_parser(
+        "quicklooks.createLevel1matchParticlesQuicklook",
+        help="Create Level 1 matching quicklook",
+    )
+    _add_std_args(p)
+
+    p = subparsers.add_parser(
+        "quicklooks.createMetaCoefQuicklook",
+        help="Create metadata coefficient quicklook",
+    )
+    _add_std_args(p)
+
+    p = subparsers.add_parser(
+        "quicklooks.level0Quicklook", help="Create Level 0 quicklook"
+    )
+    _add_std_args(p)
+
+    p = subparsers.add_parser(
+        "quicklooks.metaRotationYearlyQuicklook",
+        help="Create yearly rotation quicklook",
+    )
+    _add_std_args(p, has_fname=False, has_case=False, has_camera=False, has_skip=False)
+    p.add_argument("year", help="Year to process")
+
+    # Detection commands
+    p = subparsers.add_parser("detection.detectParticles", help="Detect particles")
+    _add_std_args(p, has_fname=True, has_case=False)
+
+    # Matching commands
+    p = subparsers.add_parser(
+        "matching.createMetaRotation", help="Create metadata rotation"
+    )
+    _add_std_args(p)
+
+    p = subparsers.add_parser("matching.matchParticles", help="Match particles")
+    _add_std_args(p, has_fname=True, has_case=False)
+
+    # Tracking commands
+    p = subparsers.add_parser("tracking.trackParticles", help="Track particles")
+    _add_std_args(p, has_fname=True, has_case=False)
+
+    # Distribution commands
+    p = subparsers.add_parser(
+        "distributions.createLevel2detect", help="Create Level 2 detection distribution"
+    )
+    _add_std_args(p, has_camera=True)
+
+    p = subparsers.add_parser(
+        "distributions.createLevel2match", help="Create Level 2 matching distribution"
+    )
+    _add_std_args(p)
+
+    p = subparsers.add_parser(
+        "distributions.createLevel2track", help="Create Level 2 tracking distribution"
+    )
+    _add_std_args(p)
+
+    # Level 3 commands
+    p = subparsers.add_parser(
+        "level3.retrieveCombinedRiming", help="Retrieve combined riming"
+    )
+    _add_std_args(p)
+
+    # Tools commands
+    p = subparsers.add_parser("tools.reportLastFiles", help="Report last files")
+    _add_std_args(p, has_fname=False, has_case=False, has_camera=False, has_skip=False)
+    p = subparsers.add_parser(
+        "tools.copyLastMetaRotation", help="Copy last metadata rotation"
+    )
+    _add_std_args(p, has_fname=False, has_case=False, has_camera=False, has_skip=False)
+    p.add_argument("from_case", help="Source case")
+    p.add_argument("to_case", help="Destination case")
+
+    # Products commands
+    p = subparsers.add_parser("products.submitAll", help="Submit all products")
+    _add_std_args(p, has_fname=False, has_case=True, has_camera=False, has_skip=False)
+    p.add_argument("task_queue", help="Task queue directory")
+
+    p = subparsers.add_parser("products.processAll", help="Process all products")
+    _add_std_args(p)
+
+    p = subparsers.add_parser("products.processRealtime", help="Process realtime")
+    _add_std_args(p)
+
+    # Worker
+    p = subparsers.add_parser("worker", help="Start task worker")
+    p.add_argument("task_queue", help="Task queue directory")
+    p.add_argument(
+        "--n-jobs", type=int, default=None, help="Number of jobs (default: CPU count)"
+    )
+
+    return parser
+

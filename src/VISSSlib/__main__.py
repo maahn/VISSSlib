@@ -2,7 +2,6 @@ import logging
 import os
 import socket
 import sys
-import time
 
 from . import (
     aux,
@@ -20,255 +19,145 @@ from . import (
     tracking,
 )
 
-# to be deleted
-from .tools import runCommandInQueue
-
 log = logging.getLogger(__name__)
 
 
 def main():
-    """
-    Main entry point for the VISSS processing pipeline.
+    """Main entry point for the VISSS processing pipeline."""
 
-    This function serves as the command-line interface for running various
-    VISSS processing tasks. It parses command-line arguments and dispatches
-    to the appropriate processing functions based on the specified command.
+    print(f"{sys.executable} {sys.version} {os.getpid()} {socket.gethostname()}")
 
-    The function supports numerous commands for different stages of the
-    VISSS data processing pipeline including event creation, metadata
-    generation, particle detection, matching, tracking, and quicklook
-    generation.
+    parser = tools._create_parser()
+    args = parser.parse_args()
 
-    Returns
-    -------
-    int
-        Exit code (0 for success, 1 for error).
+    cmd = args.command
 
-    Examples
-    --------
-    >>> python -m VISSSlib metadata.createEvent settings.yaml leader+20251201
-    """
+    try:
+        # Detection commands
+        if cmd == "detection.detectParticles":
+            detection.detectParticles(
+                args.fname, args.settings, skipExisting=args.skip_existing
+            )
 
-    print(
-        "%s %s %i %s" % (sys.executable, sys.version, os.getpid(), socket.gethostname())
-    )  # , file=sys.stderr)
+        # Distribution commands
+        elif cmd == "distributions.createLevel2detect":
+            distributions.createLevel2detect(
+                args.case,
+                args.camera,
+                args.settings,
+                skipExisting=args.skip_existing,
+            )
 
-    if sys.argv[1] == "metadata.createEvent":
-        settings = sys.argv[2]
-        try:
-            camera, case = sys.argv[3].split("+")
-        except ValueError:
-            case = sys.argv[3]
-            camera = "all"
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        metadata.createEvent(case, camera, settings, skipExisting=skipExisting)
+        elif cmd == "distributions.createLevel2match":
+            distributions.createLevel2match(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-    elif sys.argv[1] == "metadata.createMetaFrames":
-        settings = sys.argv[2]
-        try:
-            camera, case = sys.argv[3].split("+")
-        except ValueError:
-            case = sys.argv[3]
-            camera = "all"
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        elif cmd == "distributions.createLevel2track":
+            distributions.createLevel2track(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-        metadata.createMetaFrames(case, camera, settings, skipExisting=skipExisting)
+        # Level 3 commands
+        elif cmd == "level3.retrieveCombinedRiming":
+            level3.retrieveCombinedRiming(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-    elif sys.argv[1] == "quicklooks.createLevel1detectQuicklook":
-        settings = sys.argv[2]
-        try:
-            camera, case = sys.argv[3].split("+")
-        except ValueError:
-            case = sys.argv[3]
-            camera = "all"
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        # Matching commands
+        elif cmd == "matching.createMetaRotation":
+            matching.createMetaRotation(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-        quicklooks.createLevel1detectQuicklook(
-            case, camera, settings, skipExisting=skipExisting
-        )
+        elif cmd == "matching.matchParticles":
+            matching.matchParticles(
+                args.fname, args.settings, skipExisting=args.skip_existing
+            )
 
-    elif sys.argv[1] == "quicklooks.createLevel1matchParticlesQuicklook":
-        settings = sys.argv[2]
-        case = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        # Metadata commands
+        elif cmd == "metadata.createEvent":
+            metadata.createEvent(
+                args.case,
+                args.camera,
+                args.settings,
+                skipExisting=args.skip_existing,
+            )
 
-        quicklooks.createLevel1matchParticlesQuicklook(
-            case, settings, skipExisting=skipExisting
-        )
+        elif cmd == "metadata.createMetaFrames":
+            metadata.createMetaFrames(
+                args.case,
+                args.camera,
+                args.settings,
+                skipExisting=args.skip_existing,
+            )
 
-    elif sys.argv[1] == "quicklooks.level0Quicklook":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
+        # Products commands
+        elif cmd == "products.processAll":
+            products.processAll(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        elif cmd == "products.processRealtime":
+            products.processRealtime(args.case, args.settings, args.skip_existing)
 
-        quicklooks.level0Quicklook(nDays, "all", settings, skipExisting=skipExisting)
+        elif cmd == "products.submitAll":
+            products.submitAll(args.case, args.settings, args.task_queue)
 
-    elif sys.argv[1] == "detection.detectParticles":
-        fname = sys.argv[2]
-        settings = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = False
+        # Quicklook commands
+        elif cmd == "quicklooks.createLevel1detectQuicklook":
+            quicklooks.createLevel1detectQuicklook(
+                args.case,
+                args.camera,
+                args.settings,
+                skipExisting=args.skip_existing,
+            )
 
-        detection.detectParticles(
-            fname,
-            settings,
-            skipExisting=skipExisting,
-        )
+        elif cmd == "quicklooks.createLevel1matchParticlesQuicklook":
+            quicklooks.createLevel1matchParticlesQuicklook(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-    elif sys.argv[1] == "matching.createMetaRotation":
-        settings = sys.argv[2]
-        case = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        try:
-            maxAgeDaysPrevFile = int(sys.argv[5])
-        except IndexError:
-            maxAgeDaysPrevFile = 1
+        elif cmd == "quicklooks.createMetaCoefQuicklook":
+            quicklooks.createMetaCoefQuicklook(
+                args.case, args.settings, skipExisting=args.skip_existing
+            )
 
-        matching.createMetaRotation(case, settings, skipExisting=skipExisting)
+        elif cmd == "quicklooks.level0Quicklook":
+            quicklooks.level0Quicklook(
+                args.case, "all", args.settings, skipExisting=args.skip_existing
+            )
 
-    elif sys.argv[1] == "matching.matchParticles":
-        fname = sys.argv[2]
-        settings = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        elif cmd == "quicklooks.metaRotationYearlyQuicklook":
+            quicklooks.metaRotationYearlyQuicklook(args.year, args.settings)
 
-        matching.matchParticles(fname, settings, skipExisting=skipExisting)
+        # Tracking commands
+        elif cmd == "tracking.trackParticles":
+            tracking.trackParticles(
+                args.fname, args.settings, skipExisting=args.skip_existing
+            )
 
-    elif sys.argv[1] == "tracking.trackParticles":
-        fname = sys.argv[2]
-        settings = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        # Tools commands
+        elif cmd == "tools.copyLastMetaRotation":
+            tools.copyLastMetaRotation(args.settings, args.from_case, args.to_case)
 
-        tracking.trackParticles(fname, settings, skipExisting=skipExisting)
+        elif cmd == "tools.reportLastFiles":
+            output = tools.reportLastFiles(args.settings)
+            print(output)
 
-    elif sys.argv[1] == "distributions.createLevel2detect":
-        settings = sys.argv[2]
-        camera, case = sys.argv[3].split("+")
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
+        # Worker
+        elif cmd == "worker":
+            assert os.path.isdir(
+                args.task_queue
+            ), f"Queue directory not found: {args.task_queue}"
+            n_jobs = args.n_jobs if args.n_jobs is not None else os.cpu_count()
+            tools.workers(args.task_queue, nJobs=n_jobs, waitTime=60)
 
-        distributions.createLevel2detect(
-            case, camera, settings, skipExisting=skipExisting
-        )
+        return 0
 
-    elif sys.argv[1] == "distributions.createLevel2match":
-        settings = sys.argv[2]
-        case = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        distributions.createLevel2match(case, settings, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "distributions.createLevel2track":
-        settings = sys.argv[2]
-        case = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        distributions.createLevel2track(case, settings, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "level3.retrieveCombinedRiming":
-        settings = sys.argv[2]
-        case = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-
-        level3.retrieveCombinedRiming(case, settings, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "tools.reportLastFiles":
-        settings = sys.argv[2]
-        output = tools.reportLastFiles(settings)
-        print(output)
-
-    elif sys.argv[1] == "quicklooks.metaRotationYearlyQuicklook":
-        settings = sys.argv[2]
-        year = sys.argv[3]
-        quicklooks.metaRotationYearlyQuicklook(year, settings)
-
-    elif sys.argv[1] == "products.submitAll":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        taskQueue = sys.argv[4]
-        products.submitAll(nDays, settings, taskQueue)
-
-    elif sys.argv[1] == "products.processAll":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        products.processAll(nDays, settings, skipExisting=skipExisting)
-
-    elif sys.argv[1] == "products.processRealtime":
-        settings = sys.argv[2]
-        nDays = sys.argv[3]
-        try:
-            skipExisting = bool(int(sys.argv[4]))
-        except IndexError:
-            skipExisting = True
-        products.processRealtime(nDays, settings, skipExisting)
-
-    elif sys.argv[1] == "tools.copyLastMetaRotation":
-        settings = sys.argv[2]
-        fromCase = sys.argv[3]
-        ToCase = sys.argv[4]
-        tools.copyLastMetaRotation(settings, fromCase, ToCase)
-
-    elif sys.argv[1] == "worker":
-        # alternatives to consider
-        # https://github.com/Nukesor/pueue
-        # https://github.com/justanhduc/task-spooler
-        # https://www.gnu.org/software/parallel/parallel_tutorial.html
-        # https://pm2.keymetrics.io/docs/usage/quick-start/
-        # https://github.com/leahneukirchen/nq
-        queue = sys.argv[2]
-        assert os.path.isdir(queue)
-        try:
-            nJobs = int(sys.argv[3])
-        except IndexError:
-            nJobs = os.cpu_count()
-
-        tools.workers(queue, nJobs=nJobs, waitTime=60)
-
-    else:
-        print(f"Do not understand {sys.argv[1]}")
+    except Exception as e:
+        log.error(f"Error executing {cmd}: {e}", exc_info=True)
         return 1
-    return 0
 
 
 sys.exit(main())

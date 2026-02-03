@@ -2168,7 +2168,7 @@ def createMetaRotation(
                     lastFileTime,
                 ) = files.findLastFile(config, "metaRotation", config.leader)
 
-                log, warning(
+                log.warning(
                     f"no previous data found for {fnameMetaRotation}"
                     f"! data in config file "
                     f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "

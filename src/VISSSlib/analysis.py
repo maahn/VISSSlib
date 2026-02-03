@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-
 import datetime
 import logging
 import os
@@ -9,6 +8,7 @@ from copy import deepcopy
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import (
     __version__,
@@ -23,8 +23,6 @@ from . import (
     tools,
     tracking,
 )
-
-log = logging.getLogger(__name__)
 
 
 class _stereoViewMatch(object):

@@ -13,11 +13,10 @@ from copy import deepcopy
 import numpy as np
 import xarray as xr
 from image_packer import packer
+from loguru import logger as log
 
 from . import *
 from . import __version__, av, files, tools
-
-log = logging.getLogger(__name__)
 
 
 @tools.loopify

@@ -9,14 +9,12 @@ from copy import deepcopy
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import __version__, files, matching, tools
 
-log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-# for performance
-logDebug = log.isEnabledFor(logging.DEBUG)
 
 _reference_slopes = {
     "area": {
@@ -996,8 +994,7 @@ class Tracker(object):
                 zVels = zVels[cond][-self.backSteps :]
                 sizes = sizes[cond][-self.backSteps :]
 
-                if logDebug:
-                    log.debug(f"using {len(sizes)} particle tracks")
+                log.debug(f"using {len(sizes)} particle tracks")
                 # print(f"using {len(sizes)} particle tracks")
                 # add default values in case too few data points
                 if len(zVels) < self.backStepsMin:
@@ -1014,10 +1011,9 @@ class Tracker(object):
                 if np.isnan(self.velGuess_slope):
                     log.error("nan result of velocity size fit!")
                     raise ValueError
-                if logDebug:
-                    log.debug(
-                        f"fit results in slope {self.velGuess_slope} and intercept {self.velGuess_intercept}"
-                    )
+                log.debug(
+                    f"fit results in slope {self.velGuess_slope} and intercept {self.velGuess_intercept}"
+                )
                 # print(
                 #     f"fit results in slope {self.velGuess_slope} and intercept {self.velGuess_intercept}"
                 # )
@@ -1036,8 +1032,7 @@ class Tracker(object):
                     np.array(self.archiveTrackVelocities)[:, :2], axis=0
                 )
                 self.velocityGuessXY = [xVel, yVel]  # , np.mean(zVels, axis=0)
-                if logDebug:
-                    log.debug(self.velocityGuessXY)
+                log.debug(self.velocityGuessXY)
                 self.costGuessFactor = 1
 
         self.lastTime = capture_times[0]
@@ -1148,6 +1143,7 @@ class Tracker(object):
         return
 
 
+@log.catch
 def trackParticles(
     fnameLv1Detect,
     config,

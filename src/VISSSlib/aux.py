@@ -4,15 +4,11 @@ import warnings
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import __version__, files, tools
 
-log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-
-
-# for performance
-logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def getCloudnet(date, config, path, kind, item):

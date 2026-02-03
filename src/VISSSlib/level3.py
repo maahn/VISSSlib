@@ -5,16 +5,12 @@ import warnings
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import __version__, aux, files, quicklooks, tools
 
-log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=Warning)
-
-
-# for performance
-logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def retrieveM(y_obs, psd, air_temperature, Dmean, Dbound, frequency, config):

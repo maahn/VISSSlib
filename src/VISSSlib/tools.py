@@ -4,7 +4,6 @@ import argparse
 import datetime
 import io
 import json
-import logging
 import multiprocessing
 import os
 import shutil
@@ -23,11 +22,9 @@ import numpy as np
 import taskqueue
 import xarray as xr
 from addict import Dict
+from loguru import logger as log
 
 from . import __version__, __versionFull__, files, fixes
-
-log = logging.getLogger(__name__)
-
 
 DEFAULT_SETTINGS = {
     # settings that must be provided in YAML file
@@ -199,6 +196,7 @@ def loopify_with_camera(func=None, *, endYesterday=True):
 
     def decorator(f):
         @wraps(f)
+        @log.catch  #catches exceptions from the wrapped function
         def myinner(case, camera, settings, *args, **kwargs):
             config = readSettings(settings)
             if camera == "all":
@@ -213,10 +211,12 @@ def loopify_with_camera(func=None, *, endYesterday=True):
             returns = list()
             for case1 in cases:
                 for camera1 in cameras:
-                    log.warning(
+                    log.info(
                         f"Processing {case1} with {f.__name__} for {camera1} at {config.basename}"
                     )
-                    returns.append(f(case1, camera1, config, *args, **kwargs))
+                    returns.append(
+                        f(case1, camera1, config, *args, **kwargs)
+                    )
             if len(returns) == 1:
                 return returns[0]
             else:
@@ -264,14 +264,13 @@ def loopify(func=None, *, endYesterday=True):
 
     def decorator(f):
         @wraps(f)
+        @log.catch  #catches exceptions from the wrapped function
         def myinner(case, settings, *args, **kwargs):
             config = readSettings(settings)
             cases = getCaseRange(case, config, endYesterday=endYesterday)
             returns = list()
             for case1 in cases:
-                log.warning(
-                    f"Processing {case1} with {f.__name__} at {config.basename}"
-                )
+                log.info(f"Processing {case1} with {f.__name__} at {config.basename}")
                 returns.append(f(case1, config, *args, **kwargs))
             if len(returns) == 1:
                 return returns[0]
@@ -2334,7 +2333,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
     -------
     None
     """
-    print(f"starting worker {ww} for {queue}", flush=True)
+    log.info(f"starting worker {ww} for {queue}")
     time.sleep(ww / 5.0)  # to avoid race conditions
     tq = taskqueue.TaskQueue(f"fq://{queue}")
     out = None
@@ -2356,21 +2355,17 @@ def worker1(queue, ww=0, status=None, waitTime=5):
                 if status is not None:
                     status[ww] = 0
         else:
-            print(f"worker {ww} queue {queue} empty", flush=True)
+            log.warning(f"worker {ww} queue {queue} empty")
         if status is not None:
             if np.all([ss == 0 for ss in status]):
-                print(
-                    f"do not restart worker {ww} because all empty {[status[i] for i in range(len(status))]}",
-                    flush=True,
+                log.warning(
+                    f"do not restart worker {ww} because all empty {[status[i] for i in range(len(status))]}"
                 )
                 break
             summary = [status[i] for i in range(len(status))]
         else:
             summary = ""
-        print(
-            f"restart worker {ww} {summary}",
-            flush=True,
-        )
+        log.info(f"restart worker {ww} {summary}")
         time.sleep(waitTime)
 
     return out
@@ -2561,7 +2556,6 @@ def timestamp2str(ts):
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
-@loopify
 def copyLastMetaRotation(config, fromCase, toCase):
     """
     Copy the last meta rotation file from one case to another.
@@ -2684,6 +2678,7 @@ def reportLastFiles(
             f.write("</pre></html>\n")
 
     return output
+
 
 def _create_parser():
     """Create the argument parser for VISSS processing pipeline."""
@@ -2838,4 +2833,3 @@ For information about the commands, run
     )
 
     return parser
-

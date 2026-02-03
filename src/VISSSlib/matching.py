@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 import datetime
-import logging
 import os
 import sys
 import warnings
 from copy import deepcopy
 
-# import av
 import numpy as np
 import xarray as xr
 
+# import av
+from loguru import logger as log
+
 from . import __version__, files, fixes, metadata, quicklooks, tools
 
-log = logging.getLogger(__name__)
+# log = logger.bind(name=__name__)
+
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
@@ -1096,6 +1098,7 @@ def doMatchSlicer(
         return None, len(leader1D.fpid), len(follower1D.fpid), nMatched
 
 
+@log.catch
 def matchParticles(
     fnameLv1Detect,
     config,
@@ -1207,7 +1210,6 @@ def matchParticles(
             fname1Match,
             parents=[fnameLv1Detect] + fnames1F,
         ):
-            print("SKIPPING", fname1Match)
             return fname1Match, None, None, None, None, None, None, errors
 
         # get rotation estimates and add to config instead of estimating them
@@ -1799,14 +1801,14 @@ def matchParticles(
                         log.error(tools.concat(str(e)))
                         break
 
-                    log.info(
+                    log.debug(
                         tools.concat(
                             "MATCH",
                             ii,
                             matchedDat.matchScore.mean().values,
                         )
                     )
-                    log.info(
+                    log.debug(
                         tools.concat(
                             "ROTATE",
                             ii,
@@ -2097,7 +2099,7 @@ def createMetaRotation(
     try:
         fflM = files.FilenamesFromLevel(fl.listFiles("metaEvents")[0], config)
     except IndexError:
-        print("NO EVENT DATA", case)
+        log.error("NO EVENT DATA %s" % case)
         return None, None
 
     # output file
@@ -2109,12 +2111,11 @@ def createMetaRotation(
         events=fl.listFiles("metaEvents") + ff.listFiles(f"metaEvents"),
         parents=fl.listFilesExt(f"level1detect") + ff.listFilesExt(f"level1detect"),
     ):
-        print("SKIPPING", fnameMetaRotation)
         return None, None
 
     # figure out whether all level1detect data has been processed
     if completeDaysOnly and not fl.isCompleteL1detect:
-        print(
+        log.warning(
             "L1 LEADER NOT COMPLETE YET %i of %i "
             % (len(fl.listFilesExt("level1detect")), len(fl.listFiles("level0txt")))
         )
@@ -2122,13 +2123,13 @@ def createMetaRotation(
 
     # figure out whether all level1detect data has been processed
     if completeDaysOnly and not ff.isCompleteL1detect:
-        print(
+        log.warning(
             "L1 FOLLOWER NOT COMPLETE YET %i of %i "
             % (len(ff.listFilesExt("level1detect")), len(ff.listFiles("level0txt")))
         )
         return None, None
 
-    print("running", fnameMetaRotation)
+    log.info("running %s" % fnameMetaRotation)
 
     # collect results here later
     metaRotation = []
@@ -2167,7 +2168,7 @@ def createMetaRotation(
                     lastFileTime,
                 ) = files.findLastFile(config, "metaRotation", config.leader)
 
-                print(
+                log, warning(
                     f"no previous data found for {fnameMetaRotation}"
                     f"! data in config file "
                     f"{round(deltaT/np.timedelta64(1,'h'))}h old which is more "
@@ -2180,17 +2181,19 @@ def createMetaRotation(
                     fflM.datetime64 - np.datetime64(lastFileTime)
                 ) < np.timedelta64(8, "D")
                 if yesterdayEventFileMissing and dataGapSmallEnough:
-                    print(
+                    log.error(
                         f"I cannot find {fflM.yesterdayObject.fnamesDaily.metaEvents}"
                         " and I assume that the instrument was offline."
-                        " I try to fix it"
+                        " I try to fix it with copyLastMetaRotation",
+                        lastCase=lastCase,
+                        yesterday=fflM.yesterday,
                     )
                     tools.copyLastMetaRotation(config, lastCase, fflM.yesterday)
                     # try again
                     prevFile = fl.yesterdayObject.listFiles("metaRotation")[0]
 
                 else:
-                    print(
+                    log.error(
                         f"Try running '{sys.executable} -m VISSSlib tools.copyLastMetaRotation "
                         f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
                     )
@@ -2242,7 +2245,7 @@ def createMetaRotation(
             or fname1L.endswith("nodata")
             or fname1L.endswith("notenoughframes")
         ):
-            print("NO leader DATA", fname1L)
+            log.warning("NO leader DATA", fname1L)
             continue
 
         # check whether we can use a result from the config file
@@ -2284,8 +2287,8 @@ def createMetaRotation(
                 # metaRotationErr.append(xr.DataArray())
 
             except (RuntimeError, AssertionError) as e:
-                print("matchParticles FAILED", fnameMetaRotation)
-                print(str(e))
+                log.error("matchParticles FAILED %s" % fnameMetaRotation)
+                log.error(str(e))
                 continue
 
         # avoid division by zero
@@ -2296,16 +2299,18 @@ def createMetaRotation(
         if nM is None:
             nM = 1
 
-        print(
-            fname1L,
-            rot,
-            nL,
-            nF,
-            nM,
-            (nL > nSamples4rot),
-            (nF > nSamples4rot),
-            ((nM // nL) < 0.01),
-            ((nM // nF) < 0.01),
+        log.debug(
+            tools.concat(
+                fname1L,
+                rot,
+                nL,
+                nF,
+                nM,
+                (nL > nSamples4rot),
+                (nF > nSamples4rot),
+                ((nM // nL) < 0.01),
+                ((nM // nF) < 0.01),
+            )
         )
 
         # append result to metaRotation object
@@ -2339,7 +2344,7 @@ def createMetaRotation(
     if writeNc:
         metaRotation = tools.finishNc(metaRotation, config.site, config.visssGen)
         tools.to_netcdf2(metaRotation, config, fnameMetaRotation)
-    print("DONE", fnameMetaRotation)
+    log.debug("DONE", fnameMetaRotation)
 
     if doPlots:
         quicklooks.metaRotationQuicklook(case, config, skipExisting=skipExisting)
@@ -2347,6 +2352,7 @@ def createMetaRotation(
     return metaRotation, fnameMetaRotation
 
 
+@log.catch
 def manualRotationEstimate(
     cases, settings, nPoints=1000, iterations=4, minSamples4rot=90
 ):
@@ -2397,9 +2403,8 @@ def manualRotationEstimate(
         {"camera_phi": 1, "camera_theta": 1, "camera_Ofz": 50}
     )
     for case in cases:
-        print("#" * 80)
-        print(case)
-        print("#" * 80)
+        log.info("#" * 80)
+        log.info(case)
 
         fl = files.FindFiles(case, config.leader, config)
         fname1L = fl.listFiles("level1detect")[0]
@@ -2410,7 +2415,7 @@ def manualRotationEstimate(
                 minSize = np.sort(l1dat.isel(pid=(l1dat.blur > 100)).Dmax)[-500 * 10]
             except IndexError:
                 minSize = 15
-        print("minSize", minSize)
+        log.info("minSize %i" % minSize)
 
         # Initialize rotation parameters
         current_rot = rotate_default
@@ -2457,32 +2462,32 @@ def manualRotationEstimate(
 
             # Validation checks
             if not nL:
-                print("Too little leader data!")
+                log.warning("Too little leader data!")
                 break
             if not nM:
-                print("NO MATCHED DATA!")
+                log.warning("NO MATCHED DATA!")
                 break
             try:
                 if nL / nM < 0.05:
-                    print("Too little matched data!")
+                    log.warning("Too little matched data!")
                     break
             except ZeroDivisionError:
-                print("NO MATCHED DATA!")
+                log.warning("NO MATCHED DATA!")
                 break
             if (new_rot is None) or (new_rot.get("camera_phi") == 0):
-                print(f"Rotation invalid at iteration {i+1}")
+                log.warning(f"Rotation invalid at iteration {i+1}")
                 break
 
             # Update rotation for next iteration
             current_rot, current_rot_err = new_rot, new_rot_err
-            print(f"Iteration {i+1}: MATCHED {nM/nL:.2f}, Leader particles: {nL}")
-            print(current_rot)
+            log.info(f"Iteration {i+1}: MATCHED {nM/nL:.2f}, Leader particles: {nL}")
+            log.info(current_rot)
 
             # Final iteration processing
             if i == 3:
                 matchScoreMedian = matchedDat.matchScore.median().values
                 if matchScoreMedian < config.quality.minMatchScore:
-                    print(f"Low match score: {matchScoreMedian}")
+                    log.warning(f"Low match score: {matchScoreMedian}")
                     break
 
                 # Store successful result
@@ -2490,6 +2495,6 @@ def manualRotationEstimate(
                     "transformation": current_rot.round(6).to_dict(),
                     "transformation_err": current_rot_err.round(6).to_dict(),
                 }
-                print(results[case])
+                log.info(results[case])
 
     return yaml.dump(results)

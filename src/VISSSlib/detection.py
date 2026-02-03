@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import itertools
-import logging
 import os
 import subprocess
 import sys
@@ -12,15 +11,12 @@ from copy import deepcopy
 import numba
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import __version__, av, files, metadata, tools
 
-log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-
-# for performance
-logDebug = log.isEnabledFor(logging.DEBUG)
 
 """
 changes in 11/23
@@ -251,13 +247,15 @@ class detectedParticles(object):
         # check whether anxthing is moving
         self.nMovingPix = self.fgMask.sum() // 255
         if self.nMovingPix == 0:
-            print(
-                "particles.update",
-                "FRAME",
-                pp,
-                "capture_time",
-                capture_time,
-                "nothing is moving",
+            log.info(
+                tools.concat(
+                    "particles.update",
+                    "FRAME",
+                    pp,
+                    "capture_time",
+                    capture_time,
+                    "nothing is moving",
+                )
             )
             if "nonMovingFgMask" in self.testing:
                 print("SHOWING", "nonMovingFgMask")
@@ -375,15 +373,14 @@ class detectedParticles(object):
         """
         import cv2
 
-        if logDebug:
-            log.debug(
-                tools.concat(
-                    "applyCannyFilter",
-                    threshold1,
-                    threshold2,
-                    self.config.level1detect.doubleDynamicRange,
-                )
+        log.trace(
+            tools.concat(
+                "applyCannyFilter",
+                threshold1,
+                threshold2,
+                self.config.level1detect.doubleDynamicRange,
             )
+        )
         if self.config.level1detect.doubleDynamicRange:
             frame = av.doubleDynamicRange(frame)
 
@@ -1688,6 +1685,7 @@ def _getTrainingFrames(fnamesV, trainingSize, config):
     return trainingFrames
 
 
+@log.catch
 def detectParticles(
     fname,
     config,
@@ -2122,8 +2120,7 @@ def detectParticles(
                 if (part.Dmax >= minDmax4write) and (part.blur >= minBlur4write):
                     pidStr = "%07i" % part.pid
                     # imName = '%s/%s/%s.npy' % (tarRoot, pidStr[:4], pidStr)
-                    if logDebug:
-                        log.debug("writing %s %s" % (fn.fname.imagesL1detect, pidStr))
+                    # log.debug("writing %s %s" % (fn.fname.imagesL1detect, pidStr))
 
                     # imagesL1detect.addimage(imName, part.particleBoxAlpha)
                     imagesL1detect.addnpy(pidStr, part.particleBoxAlpha)

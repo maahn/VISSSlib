@@ -11,8 +11,7 @@ from copy import deepcopy
 import numpy as np
 import xarray as xr
 from addict import Dict
-
-log = logging.getLogger(__name__)
+from loguru import logger as log
 
 from . import __version__, metadata
 from .tools import DictNoDefault, getCaseRange, nicerNames, otherCamera, readSettings

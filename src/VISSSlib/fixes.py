@@ -10,9 +10,7 @@ from itertools import groupby
 
 import numpy as np
 import xarray as xr
-
-log = logging.getLogger(__name__)
-
+from loguru import logger as log
 
 # various tools to fix bugs in the data
 

@@ -33,72 +33,36 @@ except PackageNotFoundError:
     __versionFull__ = "NotAvailable"
     pass
 
-import logging
-import logging.config
+
 import os
 import socket
+import sys
 from copy import deepcopy
 
-LOGGING_CONFIG = {
-    "version": 1,
-    "disable_existing_loggers": True,
-    "formatters": {
-        "standard": {
-            "format": "%(asctime)s: %(levelname)s: %(name)s.%(funcName)s: %(message)s"
-        },
-    },
-    "handlers": {
-        "stream": {
-            "level": "WARNING",
-            "formatter": "standard",
-            "class": "logging.StreamHandler",
-            "stream": "ext://sys.stdout",  # stream is stdout
-        },
-        "err": {
-            "level": "ERROR",
-            "formatter": "standard",
-            "class": "logging.StreamHandler",
-            "stream": "ext://sys.stderr",  # stream is stderr
-        },
-        # 'file': {
-        #     'level': 'WARNING',
-        #     'formatter': 'standard',
-        #     'class': 'logging.FileHandler',
-        #     'filename': None,  # stream is stderr
-        # },
-    },
-    "loggers": {
-        "": {  # root logger
-            "handlers": ["stream", "err"],  # , 'file'
-            "level": "DEBUG",
-            "propagate": False,
-        },
-    },
-}
+from loguru import logger
 
+# Configure loguru
+logger.remove()
+logger.add(
+    sys.stdout,
+    level="INFO",
+    filter=lambda record: record["level"].no < 40,
+)
 
-def get_logging_config(fname):
-    """
-    Get logging configuration dictionary with specified log file name.
+logger.add(
+    sys.stderr,
+    level="ERROR",
+)
 
-    Parameters
-    ----------
-    fname : str
-        Name of the log file to be used for logging.
-
-    Returns
-    -------
-    dict
-        Dictionary containing the logging configuration.
-    """
-    lc = deepcopy(LOGGING_CONFIG)
-    # lc['handlers']['file']['filename'] = fname
-    return lc
-
-
-# logging.config.dictConfig(get_logging_config(f'VISSS_{socket.gethostname()}_{os.getpid()}.log'))
-logging.config.dictConfig(get_logging_config(f"VISSS_{socket.gethostname()}.log"))
-log = logging.getLogger(__name__)
+# Add file handler (uncomment when needed)
+# logger.add(
+#     f"VISSS_{socket.gethostname()}.log",
+#     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}.{function} | {message}",
+#     level="WARNING",
+#     rotation="10 MB",  # Rotate when file reaches 10MB
+#     retention="1 week",  # Keep logs for 1 week
+#     compression="zip",  # Compress rotated logs
+# )
 
 
 from . import (

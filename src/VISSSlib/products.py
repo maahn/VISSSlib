@@ -1,5 +1,4 @@
 import glob
-import logging
 import os
 import random
 import string
@@ -8,14 +7,14 @@ from functools import cached_property, partial
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import __version__, files, matching, metadata, quicklooks, tools
 from .tools import runCommandInQueue
 
-log = logging.getLogger(__name__)
-
 
 class DataProduct(object):
+    @log.catch
     def __init__(
         self,
         level,
@@ -60,7 +59,7 @@ class DataProduct(object):
         Class for processing VISSS data
 
         """
-        log.info(f"created  {level} {camera} for {case} with {childrensRelatives}.")
+        log.debug(f"created  {level} {camera} for {case} with {childrensRelatives}.")
         self.level = level
         self.config = tools.readSettings(settings)
         if relatives is not None:
@@ -215,6 +214,7 @@ class DataProduct(object):
             self.parents.update(self.parents[parentCam].parents)
             self.childrensRelatives.update(self.parents)
 
+    @log.catch
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
         Generate all commands for processing this product and its dependencies.
@@ -247,7 +247,7 @@ class DataProduct(object):
             and self.parentsComplete
         ):
             if withParents:
-                log.warning(f"{self.case} {self.relatives}: everything processed")
+                log.info(f"{self.case} {self.relatives}: everything processed")
             return []
         if isComplete and (not self._youngerThanParents):
             for name, younger in self._youngerThanParentsDict.items():
@@ -260,16 +260,16 @@ class DataProduct(object):
                 skipExisting=skipExisting,
             )
             if len(commands) > 0:
-                log.warning(
+                log.info(
                     f"{self.case} {self.relatives} generated commands for level {self.level} {self.camera}"
                 )
         elif not self.parentsComplete:
-            log.info(
+            log.warning(
                 f"{self.case} {self.relatives} no commands generated yet, parents not complete yet"
             )
             commands = []
         else:
-            log.info(
+            log.warning(
                 f"{self.case} {self.relatives} no commands generated, grandparents older"
             )
             commands = []
@@ -287,6 +287,7 @@ class DataProduct(object):
             )
         return self.commands
 
+    @log.catch
     def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
         """
         Generate commands for processing this product.
@@ -525,6 +526,7 @@ class DataProduct(object):
             command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
         return [(command, outFile)]
 
+    @log.catch
     def submitCommands(
         self,
         skipExisting=True,
@@ -578,6 +580,7 @@ class DataProduct(object):
 
         return
 
+    @log.catch
     def runWorkers(self, nJobs=os.cpu_count(), waitTime=1):
         """
         Run worker processes.
@@ -632,7 +635,7 @@ class DataProduct(object):
             else:
                 youngerThanParentsDict[name] = isYounger
             if not youngerThanParentsDict[name]:
-                log.info(
+                log.debug(
                     f"{self.relatives} is older "
                     f"({tools.timestamp2str(self.fileCreation)}) than parent "
                     f"{name} ({tools.timestamp2str(parent.fileCreation)})",
@@ -667,7 +670,7 @@ class DataProduct(object):
             parentsYoungerThanGrandparents = (
                 parentsYoungerThanGrandparents and parent._youngerThanParents
             )
-            log.info(
+            log.debug(
                 f"{self.relatives} parent {name} is younger than its (grand)parents { parent._youngerThanParents}"
             )
         return parentsYoungerThanGrandparents
@@ -717,7 +720,7 @@ class DataProduct(object):
         parentsComplete = True
         for name, parent in self.parents.items():
             thisParentIsComplete = parent.isComplete
-            log.info(
+            log.debug(
                 f"{self.relatives} {name} parentsComplete {thisParentIsComplete}",
             )
             parentsComplete = parentsComplete and thisParentIsComplete
@@ -1090,6 +1093,7 @@ class level0(DataProduct):
 
 
 class DataProductRange(object):
+    @log.catch
     def __init__(
         self,
         level,
@@ -1152,6 +1156,7 @@ class DataProductRange(object):
                 ),  # not sure why this is requried, bugs appear otehrwise
             )
 
+    @log.catch
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
         Generate all commands for the range of products.
@@ -1175,6 +1180,7 @@ class DataProductRange(object):
             )
         return self.allCommands
 
+    @log.catch
     def submitCommands(
         self,
         skipExisting=True,
@@ -1294,6 +1300,7 @@ class DataProductRange(object):
             self.dailies[dd].cleanUpDuplicates(withParents=withParents)
 
 
+@log.catch
 def submitAll(
     case,
     settings,
@@ -1465,6 +1472,7 @@ def processAll(
     return
 
 
+@log.catch
 def processRealtime(case, settings, skipExisting=True):
     """
     Process VISSS data products that do not require significant computing

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import functools
-import logging
 import operator
 import sys
 import warnings
@@ -9,16 +8,12 @@ from copy import deepcopy
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import __version__, quicklooks
 from .matching import *
 
-log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-
-
-# for performance
-logDebug = log.isEnabledFor(logging.DEBUG)
 
 
 def _preprocess(dat):
@@ -2949,7 +2944,7 @@ def _estimateVolumes(
                     deltaFollowerExtra2=followerExtra[1],
                 )
             )
-            log.info(
+            log.debug(
                 tools.concat(ii, dd, delta, leaderExtra, followerExtra, volumes[-1])
             )
 

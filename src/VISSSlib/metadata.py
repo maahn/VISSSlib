@@ -11,13 +11,7 @@ from copy import deepcopy
 
 import numpy as np
 import xarray as xr
-
-log = logging.getLogger(__name__)
-
-
-# for performance
-logDebug = log.isEnabledFor(logging.DEBUG)
-
+from loguru import logger as log
 
 from . import __version__, detection, files, fixes, quicklooks, tools
 
@@ -43,6 +37,7 @@ Mosaic problems with metadata:
 """
 
 
+@log.catch
 def getMetaData(
     fnames,
     camera,
@@ -182,7 +177,7 @@ def getMetaData(
     return metaDat, droppedFrames, beyondRepair
 
 
-def readHeaderData(fname, returnLasttime=False):
+def _readHeaderData(fname, returnLasttime=False):
     """
     Read header information from metadata file.
 
@@ -412,7 +407,7 @@ def _getMetaData1(
     else:
         nThread = int(fname.split("_")[-1].split(".")[0])
 
-    res = readHeaderData(metaFname, returnLasttime=False)
+    res = _readHeaderData(metaFname, returnLasttime=False)
     (
         record_starttime,
         asciiVersion,
@@ -912,7 +907,7 @@ def getEvents(fnames0, config, fname0status=None):
         fname0 = fname0Txt.replace("txt", config["movieExtension"])
 
         metaDat = {}
-        res = readHeaderData(fname0Txt, returnLasttime=True)
+        res = _readHeaderData(fname0Txt, returnLasttime=True)
 
         (
             record_starttime,

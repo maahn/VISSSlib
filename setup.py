@@ -55,6 +55,7 @@ setuptools.setup(
         "pangaeapy",
         "task-queue",
         "pytest",
+        "loguru",
     ],
     setup_requires=["setuptools_scm"],
 )

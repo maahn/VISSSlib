@@ -8,11 +8,9 @@ import zipfile
 
 import numpy as np
 import xarray as xr
+from loguru import logger as log
 
 from . import *
-
-log = logging.getLogger(__name__)
-
 
 __all__ = ["VideoReader", "VideoReaderMeta"]
 

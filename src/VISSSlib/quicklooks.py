@@ -20,22 +20,31 @@ from . import __version__, av, files, tools
 log = logging.getLogger(__name__)
 
 
-def loop(
-    level, nDays, settings, version=__version__, skipExisting=True, endYesterday=False
+@tools.loopify
+def generate(
+    case,
+    config,
+    level,
+    camera="all",
+    version=__version__,
+    skipExisting=True,
+    endYesterday=False,
 ):
     """
     Generate quicklooks for a specified level over a range of days.
 
     Parameters
     ----------
+    case : str
+        case identifier. e.g. string in format YYYYMMDD
+    config : dict
+        Configuration dictionary or settings file
+    camera : str, optional
+        Camera identifier. Default is "all"".
     level : str
         The data level for which to generate quicklooks. Options include:
         'level0', 'level1detect', 'metaFrames', 'level2detect', 'level1match',
         'level2match', 'level2track', 'level3combinedRiming'
-    nDays : int
-        Number of days to process, starting from today
-    settings : str
-        Path to the configuration settings file
     version : str, optional
         Version identifier for the processing, by default __version__
     skipExisting : bool, optional
@@ -54,55 +63,49 @@ def loop(
     ValueError
         If the specified level is not recognized
     """
-    config = tools.readSettings(settings)
-    days = tools.getDateRange(nDays, config, endYesterday=endYesterday)
 
-    if level in ["level0", "level1detect", "metaFrames", "level2detect"]:
-        cameras = config["instruments"]
+    if camera == "all":
+        if level in ["level0", "level1detect", "metaFrames", "level2detect"]:
+            cameras = config["instruments"]
+        else:
+            cameras = [config.leader]
     else:
-        cameras = [config.leader]
-
-    for dd in days:
-        year = str(dd.year)
-        month = "%02i" % dd.month
-        day = "%02i" % dd.day
-        case = f"{year}{month}{day}"
-        print(case)
-        for camera in cameras:
-            if level == "level0":
-                res = level0Quicklook(
-                    case, camera, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "metaFrames":
-                res = metaFramesQuicklook(
-                    case, camera, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "level1detect":
-                res = createLevel1detectQuicklook(
-                    case, camera, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "level1match":
-                res = createLevel1matchParticlesQuicklook(
-                    case, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "level2detect":
-                res = createLevel2detectQuicklook(
-                    case, camera, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "level2match":
-                res = createLevel2matchQuicklook(
-                    case, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "level2track":
-                res = createLevel2matchQuicklook(
-                    case, config, version=version, skipExisting=skipExisting
-                )
-            elif level == "level3combinedRiming":
-                res = createLevel3RimingQuicklook(
-                    case, config, version=version, skipExisting=skipExisting
-                )
-            else:
-                raise ValueError(f"Do not know level {level}")
+        cameras = [camera]
+    for camera in cameras:
+        if level == "level0":
+            res = level0Quicklook(
+                case, camera, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "metaFrames":
+            res = metaFramesQuicklook(
+                case, camera, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "level1detect":
+            res = createLevel1detectQuicklook(
+                case, camera, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "level1match":
+            res = createLevel1matchParticlesQuicklook(
+                case, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "level2detect":
+            res = createLevel2detectQuicklook(
+                case, camera, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "level2match":
+            res = createLevel2matchQuicklook(
+                case, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "level2track":
+            res = createLevel2matchQuicklook(
+                case, config, version=version, skipExisting=skipExisting
+            )
+        elif level == "level3combinedRiming":
+            res = createLevel3RimingQuicklook(
+                case, config, version=version, skipExisting=skipExisting
+            )
+        else:
+            raise ValueError(f"Do not know level {level}")
     return res
 
 

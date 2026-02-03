@@ -25,7 +25,7 @@ class TestQuicklooks(object):
             "level2track",
             # "level3combinedRiming",
         ]:
-            res = loop(level, case, self.config, skipExisting=False)
+            res = generate(case, self.config, level, skipExisting=False)
             try:
                 res = res[0]
             except TypeError:

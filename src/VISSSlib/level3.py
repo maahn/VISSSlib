@@ -1,5 +1,4 @@
 import glob
-import logging
 import os
 import warnings
 
@@ -366,8 +365,12 @@ def mass_size(M):
         [2.10, 2.35, 2.45, 2.57, 2.69, 2.77, 2.85, 2.89, 2.93, 2.97, 2.93]
     )
 
-    a_int = scipy.interpolate.interp1d(M_list, a_m_list, kind="cubic")
-    b_int = scipy.interpolate.interp1d(M_list, b_m_list, kind="cubic")
+    a_int = scipy.interpolate.interp1d(
+        M_list, a_m_list, kind="cubic", fill_value="extrapolate"
+    )
+    b_int = scipy.interpolate.interp1d(
+        M_list, b_m_list, kind="cubic", fill_value="extrapolate"
+    )
 
     a_m = a_int(M)
     b_m = b_int(M)

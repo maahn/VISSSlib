@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import functools
-import logging
 import os
 import sys
 import warnings

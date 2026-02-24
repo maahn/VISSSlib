@@ -38,7 +38,7 @@ class DataProduct(object):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str
             Camera identifier ('leader' or 'follower')
         relatives : str, optional
@@ -461,7 +461,7 @@ class DataProduct(object):
                 and (os.path.getmtime(pName) < os.path.getmtime(exisiting[0]))
                 and extraOlder
             ):
-                log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
+                log.debug(f"{self.relatives} skip exisiting {exisiting[0]}")
                 continue
 
             if len(exisiting) > 1:
@@ -527,12 +527,43 @@ class DataProduct(object):
         return [(command, outFile)]
 
     @log.catch
-    def submitCommands(
+    def process(
         self,
         skipExisting=True,
         checkForDuplicates=False,
         withParents=True,
         runWorkers=False,
+    ):
+        """
+        Process product using the task queue. Runs submitCommands and
+        runWorkers. Sometimes, needs to be called multiple times until all parent
+        products are processed
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        checkForDuplicates : bool, default False
+            Whether to check for duplicate commands in the queue
+        withParents : bool, default True
+            Whether to include parent commands
+        """
+
+        self.submitCommands(
+            skipExisting=skipExisting,
+            checkForDuplicates=checkForDuplicates,
+            withParents=withParents,
+            runWorkers=True,
+        )
+
+        self.runWorkers()
+
+    @log.catch
+    def submitCommands(
+        self,
+        skipExisting=True,
+        checkForDuplicates=False,
+        withParents=True,
     ):
         """
         Submit commands to the task queue.
@@ -542,7 +573,7 @@ class DataProduct(object):
         skipExisting : bool, default True
             Whether to skip existing files
         checkForDuplicates : bool, default False
-            Whether to check for duplicate commands
+            Whether to check for duplicate commands in the queue
         withParents : bool, default True
             Whether to include parent commands
         runWorkers : bool, default False
@@ -574,9 +605,6 @@ class DataProduct(object):
 
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
-
-        if runWorkers:
-            self.runWorkers()
 
         return
 
@@ -890,7 +918,7 @@ class allDone(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -909,7 +937,7 @@ class level2track(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -928,7 +956,7 @@ class level2match(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -947,7 +975,7 @@ class level2detect(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -966,7 +994,7 @@ class level1track(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -985,7 +1013,7 @@ class level1match(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -1004,7 +1032,7 @@ class metaRotation(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -1023,7 +1051,7 @@ class level1detect(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -1047,7 +1075,7 @@ class metaFrames(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -1066,7 +1094,7 @@ class metaEvents(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -1085,7 +1113,7 @@ class level0(DataProduct):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         """
@@ -1116,7 +1144,7 @@ class DataProductRange(object):
         settings : str
             Path to settings file
         fileQueue : str or taskqueue.TaskQueue
-            File queue for task management
+            File queue for task management. If None, a temporary queue will be created.
         camera : str, default "leader"
             Camera identifier
         addRelatives : bool, default True
@@ -1181,12 +1209,40 @@ class DataProductRange(object):
         return self.allCommands
 
     @log.catch
+    def process(
+        self,
+        skipExisting=True,
+        checkForDuplicates=False,
+        withParents=True,
+    ):
+        """
+        process the product for the range of cases. Runs submitCommands and
+        runWorkers. Sometimes, needs to be called multiple times until all parent
+        products are processed
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        checkForDuplicates : bool, default False
+            Whether to check for duplicate commands in the queue
+        withParents : bool, default True
+            Whether to include processing of product's parents
+        """
+        self.submitCommands(
+            skipExisting=skipExisting,
+            checkForDuplicates=checkForDuplicates,
+            withParents=withParents,
+        )
+
+        self.runWorkers()
+
+    @log.catch
     def submitCommands(
         self,
         skipExisting=True,
         checkForDuplicates=False,
         withParents=True,
-        runWorkers=False,
     ):
         """
         Submit commands for the range of products.
@@ -1196,11 +1252,9 @@ class DataProductRange(object):
         skipExisting : bool, default True
             Whether to skip existing files
         checkForDuplicates : bool, default False
-            Whether to check for duplicate commands
+            Whether to check for duplicate commands in the queue
         withParents : bool, default True
             Whether to include processing of product's parents
-        runWorkers : bool, default False
-            Whether to run workers immediately
         """
         if len(self.allCommands) == 0:
             self.generateAllCommands(
@@ -1229,9 +1283,6 @@ class DataProductRange(object):
         # region is SQS specific, green means cooperative threading
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
-
-        if runWorkers:
-            self.runWorkers()
 
         return
 
@@ -1324,7 +1375,7 @@ def submitAll(
     settings : str
         Path to settings file
     fileQueue : str
-        File queue for task management
+        File queue for task management. If None, a temporary queue will be created.
     doMetaRot : bool, default True
         Whether to perform meta rotation
     submitJobs : bool, default True
@@ -1332,7 +1383,7 @@ def submitAll(
     skipExisting : bool, default True
         Whether to skip existing files
     checkForDuplicates : bool, default True
-        Whether to check for duplicate commands
+        Whether to check for duplicate commands in the queue
     runWorkers : bool, default False
         Whether to run workers immediately
     cleanUpBroken : bool, default False
@@ -1426,8 +1477,9 @@ def processAll(
     where applicable. The function also handles error checking to ensure
     successful completion of each stage.
 
-    Note that this is a rather unefficient way of processing the data. It is
-    recommended to use submitAll and run the workers separately
+    Note that this is a rather unefficient way of processing the data and mostly
+    for testing. Instead, it is recommended to use submitAll and run the workers
+    separately.
 
     """
     if fileQueue is None:
@@ -1500,8 +1552,6 @@ def processRealtime(case, settings, skipExisting=True):
     3. Creating metadata frames
     4. Reporting last processed files
 
-    This function is designed for real-time processing scenarios where
-    immediate results are needed.
     """
     if skipExisting:
         skipExistingStr = "--skip-existing"
@@ -1533,3 +1583,121 @@ def processRealtime(case, settings, skipExisting=True):
     print(f"python3 -m VISSSlib tools.reportLastFiles {settings}")
     print("#" * 50)
     tools.reportLastFiles(settings)
+
+
+def checkCompleteness(
+    settings,
+    nDays=0,
+    cameras="all",
+    listDuplicates=True,
+    listMissing=False,
+    products=[
+        "metaFrames",
+        "level1detect",
+        "metaRotation",
+        "level1match",
+        "level1track",
+        # "level2detect",
+        "level2match",
+        "level2track",
+    ],
+):
+    """
+    loop through days to check whether products have been completely processed
+
+    Parameters
+    ----------
+    settings : str
+        VISSS settings YAML file
+    nDays : number or str, optional
+        number of days N`` to go back or date ``str(YYYYMMDD)`` or date range ``str(YYYYMMDD-YYYYMMDD)`` (the default is 0)
+    cameras : str, optional
+        list of camera names to process (the default is "all", which means leader and follower)
+    listDuplicates : bool, optional
+        list duplicates (the default is True)
+    listMissing : bool, optional
+        list missing files (the default is False)
+    products : list, optional
+        products to list (the default is [ "metaFrames", "level1detect", "metaRotation", "level1match", "level1track", "level2match", "level2track", ])
+    """
+    config = tools.readSettings(settings)
+
+    days = tools.getDateRange(nDays, config)
+
+    if cameras == "all":
+        cameras = [config.follower, config.leader]
+
+    print("looking for these products:")
+    print(products)
+
+    for dd in days:
+        year = str(dd.year)
+        month = "%02i" % dd.month
+        day = "%02i" % dd.day
+        case = f"{year}{month}{day}"
+
+        for camera in cameras:
+            # find files
+            ff = files.FindFiles(case, camera, config)
+
+            nMissing = {}
+            for prod in products:
+                if camera == config.follower and (
+                    (prod in ["level1match", "level1track", "metaRotation"])
+                    or prod.startswith("level2")
+                ):
+                    continue
+                nMissing[prod] = ff.nMissing(prod)
+            allDone = np.array(list(nMissing.values())) == 0
+
+            if np.all(allDone):
+                print(camera, case, "all done", np.all(allDone))
+            else:
+                print(camera, case, "MISSING", nMissing, "of", ff.nL0)
+
+                firstMiss = products[np.where(np.array(allDone) == False)[0][0]]
+                recFiles = np.array(ff.listFiles("level0txt"))
+                nRec = len(recFiles)
+                procFiles = np.array(ff.listFilesExt(firstMiss))
+                nProc = len(procFiles)
+                print(
+                    "# level0 has",
+                    nRec,
+                    "files #",
+                    firstMiss,
+                    "has only",
+                    nProc,
+                    "files.",
+                )
+
+                processedTimes = np.array(
+                    [
+                        files.FilenamesFromLevel(f, config).datetime64
+                        for f in ff.listFilesExt(firstMiss)
+                    ]
+                )
+
+                if listDuplicates and nProc > nRec:
+                    print("too many files processed, check these files:")
+                    print("*" * 50)
+                    seen = set()
+                    dupes = [x for x in processedTimes if x in seen or seen.add(x)]
+                    dupeFiles = []
+                    for dupe in dupes:
+                        dupeFiles.append(procFiles[(dupe == processedTimes)])
+                    if len(dupeFiles) > 0:
+                        dupeFiles = np.concatenate(dupeFiles)
+                        for dupeFile in dupeFiles:
+                            print(dupeFile)
+                elif listMissing:
+                    print("files missing")
+                    print("*" * 50)
+
+                    recTimes = [
+                        files.Filenames(f, config).datetime64
+                        for f in ff.listFiles("level0txt")
+                    ]
+                    missingTimes = set(recTimes).difference(set(processedTimes))
+                    for missingTime in missingTimes:
+                        print(camera, firstMiss, missingTime)
+    return

@@ -1788,7 +1788,7 @@ def detectParticles(
         return 0
 
     # just in case it is not there yet
-    metadata.createMetaFrames(fn.case, camera, config, skipExisting=True)
+    metadata.createMetaFrames1(fname, camera, config)
 
     # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
     # before discarding

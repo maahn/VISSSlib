@@ -811,65 +811,74 @@ def createMetaFrames(
     xarray.Dataset or None
         Dataset with metadata or None if no data
     """
-    if config["nThreads"] is None:
-        nThreads = 1
-    else:
-        nThreads = config["nThreads"]
 
     # find files
     ff = files.FindFiles(case, camera, config)
     metaDat = None
     for fname0 in ff.listFiles("level0txt"):
-        fn = files.Filenames(fname0, config)
-        fname0all = list(fn.fnameTxtAllThreads.values())
-
-        if os.path.isfile(fn.fname.metaFrames) and skipExisting:
-            log.info("%s exists" % fn.fname.metaFrames)
-            continue
-
-        if os.path.isfile(f"{fn.fname.metaFrames}.nodata") and skipExisting:
-            log.info("%s.nodata exists" % fn.fname.metaFrames)
-            continue
-
-        if os.path.getsize(fname0.replace(config.movieExtension, "txt")) == 0:
-            log.error("%s has size 0!" % fname0)
-            with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
-                f.write("%s has size 0!" % fname0)
-            continue
-
-        # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
-        tooFewThreads = len(fname0all) < int(nThreads)
-        # presence of an event file is a good sign that at least some data has been transferred
-        nextDayAvailable = os.path.isfile(ff.tomorrowObject.fnamesDaily.metaEvents)
-        campaignEnded = config.end != "today"
-        if tooFewThreads and (nextDayAvailable or campaignEnded):
-            log.error("%s file of second thread missing!" % fname0)
-            with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
-                f.write("%s file of second thread missing!" % fname0)
-            continue
-
-        metaDat, droppedFrames, beyondRepair = getMetaData(
-            fname0all, camera, config, idOffset=0
+        metaDat = createMetaFrames1(
+            fname0, camera, config, skipExisting=skipExisting, writeNc=writeNc
         )
-
-        if beyondRepair:
-            print(
-                f"{os.path.basename(fname0)}, broken beyond repair, {droppedFrames}, frames dropped\n"
-            )
-
-        if metaDat is not None:
-            metaDat = tools.finishNc(metaDat, config.site, config.visssGen)
-            if writeNc:
-                tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
-            print("%s written" % fn.fname.metaFrames)
-        else:
-            with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
-                f.write("no data recorded")
 
     if doPlot:
         fOut, fig = quicklooks.metaFramesQuicklook(
             case, camera, config, skipExisting=skipExisting
         )
+
+    return metaDat  # only for testing
+
+
+def createMetaFrames1(fname0, camera, config, skipExisting=True, writeNc=True):
+    if config["nThreads"] is None:
+        nThreads = 1
+    else:
+        nThreads = config["nThreads"]
+
+    fn = files.Filenames(fname0, config)
+    ff = files.FindFiles(fn.case, camera, config)
+    fname0all = list(fn.fnameTxtAllThreads.values())
+
+    if os.path.isfile(fn.fname.metaFrames) and skipExisting:
+        log.info("%s exists" % fn.fname.metaFrames)
+        return None
+
+    if os.path.isfile(f"{fn.fname.metaFrames}.nodata") and skipExisting:
+        log.info("%s.nodata exists" % fn.fname.metaFrames)
+        return None
+
+    if os.path.getsize(fname0.replace(config.movieExtension, "txt")) == 0:
+        log.error("%s has size 0!" % fname0)
+        with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
+            f.write("%s has size 0!" % fname0)
+        return None
+
+    # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
+    tooFewThreads = len(fname0all) < int(nThreads)
+    # presence of an event file is a good sign that at least some data has been transferred
+    nextDayAvailable = os.path.isfile(ff.tomorrowObject.fnamesDaily.metaEvents)
+    campaignEnded = config.end != "today"
+    if tooFewThreads and (nextDayAvailable or campaignEnded):
+        log.error("%s file of second thread missing!" % fname0)
+        with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
+            f.write("%s file of second thread missing!" % fname0)
+        return None
+
+    metaDat, droppedFrames, beyondRepair = getMetaData(
+        fname0all, camera, config, idOffset=0
+    )
+
+    if beyondRepair:
+        print(
+            f"{os.path.basename(fname0)}, broken beyond repair, {droppedFrames}, frames dropped\n"
+        )
+
+    if metaDat is not None:
+        metaDat = tools.finishNc(metaDat, config.site, config.visssGen)
+        if writeNc:
+            tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
+    else:
+        with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
+            f.write("no data recorded")
 
     return metaDat
 
@@ -1288,7 +1297,6 @@ def createEvent(
         Dataset with event metadata or None if skipped
     """
     # case is always daily for events!
-    print("createevent", case, camera)
     case = case.split("-")[0]
     if type(config) is str:
         config = tools.readSettings(config)

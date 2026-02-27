@@ -196,8 +196,8 @@ def loopify_with_camera(func=None, *, endYesterday=True):
 
     def decorator(f):
         @wraps(f)
-        @log.catch  #catches exceptions from the wrapped function
-        def myinner(case, camera, settings, *args, **kwargs):
+        @log.catch  # catches exceptions from the wrapped function
+        def loopify_with_camera_(case, camera, settings, *args, **kwargs):
             config = readSettings(settings)
             if camera == "all":
                 cameras = [config.leader, config.follower]
@@ -208,21 +208,20 @@ def loopify_with_camera(func=None, *, endYesterday=True):
             else:
                 cameras = [camera]
             cases = getCaseRange(case, config, endYesterday=endYesterday)
+            log.info(f"Converted case string '{case}' to case range: {cases}")
             returns = list()
             for case1 in cases:
                 for camera1 in cameras:
                     log.info(
                         f"Processing {case1} with {f.__name__} for {camera1} at {config.basename}"
                     )
-                    returns.append(
-                        f(case1, camera1, config, *args, **kwargs)
-                    )
+                    returns.append(f(case1, camera1, config, *args, **kwargs))
             if len(returns) == 1:
                 return returns[0]
             else:
                 return returns
 
-        return myinner
+        return loopify_with_camera_
 
     if func is None:
         # Called with parentheses: @loopify_with_camera() or @loopify_with_camera(endYesterday=False)
@@ -253,10 +252,6 @@ def loopify(func=None, *, endYesterday=True):
     def my_func(case, config):
         pass
 
-    @loopify()
-    def my_func(case, config):
-        pass
-
     @loopify(endYesterday=False)
     def my_func(case, config):
         pass
@@ -264,10 +259,11 @@ def loopify(func=None, *, endYesterday=True):
 
     def decorator(f):
         @wraps(f)
-        @log.catch  #catches exceptions from the wrapped function
-        def myinner(case, settings, *args, **kwargs):
+        @log.catch  # catches exceptions from the wrapped function
+        def loopify_(case, settings, *args, **kwargs):
             config = readSettings(settings)
             cases = getCaseRange(case, config, endYesterday=endYesterday)
+            log.info(f"Converted case string '{case}' to case range: {cases}")
             returns = list()
             for case1 in cases:
                 log.info(f"Processing {case1} with {f.__name__} at {config.basename}")
@@ -277,7 +273,7 @@ def loopify(func=None, *, endYesterday=True):
             else:
                 return returns
 
-        return myinner
+        return loopify_
 
     if func is None:
         # Called with parentheses: @loopify() or @loopify(endYesterday=False)
@@ -355,6 +351,7 @@ def readSettings(fname):
             config.update(loadedSettings)
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))
+
         config["filename"] = fname
         config["basename"] = os.path.basename(fname)
         config["dirname"] = os.path.dirname(fname)

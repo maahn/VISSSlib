@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 from loguru import logger as log
 
-from . import __version__, files, tools
+from .. import __version__, files, tools
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -779,7 +779,7 @@ def getRadarDataARMarsclkazr1kollias(case, config, fn):
     return dat1, frq
 
 
-def downloadPangaea1(config, path, type):
+def _downloadPangaea1(config, path, type):
     """
     Download data from Pangaea for a specific type and save it locally.
 
@@ -852,7 +852,7 @@ def downloadPangaea(config, path, type):
 
     ds = PanDataSet(config.aux.meteo.doi)
     for doi in ds.collection_members:
-        fname = downloadPangaea1(config, path, type)
+        fname = _downloadPangaea1(config, path, type)
     return
 
 

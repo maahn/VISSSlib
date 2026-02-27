@@ -5,7 +5,6 @@ import sys
 from loguru import logger as log
 
 from . import (
-    aux,
     av,
     detection,
     distributions,

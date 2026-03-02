@@ -208,7 +208,8 @@ def loopify_with_camera(func=None, *, endYesterday=True):
             else:
                 cameras = [camera]
             cases = getCaseRange(case, config, endYesterday=endYesterday)
-            log.info(f"Converted case string '{case}' to case range: {cases}")
+            if len(cases) >1:
+                log.info(f"Converted case string '{case}' to case range: {cases}")
             returns = list()
             for case1 in cases:
                 for camera1 in cameras:
@@ -263,7 +264,8 @@ def loopify(func=None, *, endYesterday=True):
         def loopify_(case, settings, *args, **kwargs):
             config = readSettings(settings)
             cases = getCaseRange(case, config, endYesterday=endYesterday)
-            log.info(f"Converted case string '{case}' to case range: {cases}")
+            if len(cases) >1:
+                log.info(f"Converted case string '{case}' to case range: {cases}")
             returns = list()
             for case1 in cases:
                 log.info(f"Processing {case1} with {f.__name__} at {config.basename}")

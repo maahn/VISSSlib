@@ -10,11 +10,13 @@ import xarray as xr
 from loguru import logger as log
 
 from . import __version__, files, matching, metadata, quicklooks, tools
-from .tools import runCommandInQueue
+from .tools import ipython_debug, runCommandInQueue
+
+DEBUG_MODE = os.getenv("DEBUG") is not None
 
 
 class DataProduct(object):
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def __init__(
         self,
         level,
@@ -214,7 +216,7 @@ class DataProduct(object):
             self.parents.update(self.parents[parentCam].parents)
             self.childrensRelatives.update(self.parents)
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
         Generate all commands for processing this product and its dependencies.
@@ -287,7 +289,7 @@ class DataProduct(object):
             )
         return self.commands
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
         """
         Generate commands for processing this product.
@@ -526,7 +528,7 @@ class DataProduct(object):
             command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
         return [(command, outFile)]
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def process(
         self,
         skipExisting=True,
@@ -558,7 +560,7 @@ class DataProduct(object):
 
         self.runWorkers()
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def submitCommands(
         self,
         skipExisting=True,
@@ -608,7 +610,7 @@ class DataProduct(object):
 
         return
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def runWorkers(self, nJobs=os.cpu_count(), waitTime=1):
         """
         Run worker processes.
@@ -1121,7 +1123,7 @@ class level0(DataProduct):
 
 
 class DataProductRange(object):
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def __init__(
         self,
         level,
@@ -1184,7 +1186,7 @@ class DataProductRange(object):
                 ),  # not sure why this is requried, bugs appear otehrwise
             )
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
         Generate all commands for the range of products.
@@ -1208,7 +1210,7 @@ class DataProductRange(object):
             )
         return self.allCommands
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def process(
         self,
         skipExisting=True,
@@ -1237,7 +1239,7 @@ class DataProductRange(object):
 
         self.runWorkers()
 
-    @log.catch
+    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
     def submitCommands(
         self,
         skipExisting=True,
@@ -1351,7 +1353,7 @@ class DataProductRange(object):
             self.dailies[dd].cleanUpDuplicates(withParents=withParents)
 
 
-@log.catch
+@log.catch(onerror=ipython_debug if DEBUG_MODE else None)
 def submitAll(
     case,
     settings,
@@ -1524,7 +1526,7 @@ def processAll(
     return
 
 
-@log.catch
+@log.catch(onerror=ipython_debug if DEBUG_MODE else None)
 def processRealtime(case, settings, skipExisting=True):
     """
     Process VISSS data products that do not require significant computing

@@ -16,6 +16,7 @@ from loguru import logger as log
 from . import __version__, detection, files, fixes, quicklooks, tools
 
 warnings.filterwarnings("ignore", category=UserWarning)
+DEBUG_MODE = os.getenv("DEBUG") is not None
 
 """
 Mosaic problems with metadata:
@@ -37,7 +38,7 @@ Mosaic problems with metadata:
 """
 
 
-@log.catch
+@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
 def getMetaData(
     fnames,
     camera,

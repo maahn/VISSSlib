@@ -16,6 +16,7 @@ from loguru import logger as log
 from . import __version__, av, files, metadata, tools
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+DEBUG_MODE = os.getenv("DEBUG") is not None
 
 
 """
@@ -1685,7 +1686,7 @@ def _getTrainingFrames(fnamesV, trainingSize, config):
     return trainingFrames
 
 
-@log.catch
+@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
 def detectParticles(
     fname,
     config,

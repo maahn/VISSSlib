@@ -19,8 +19,10 @@ from . import (
     tracking,
 )
 
+DEBUG_MODE = os.getenv("DEBUG") is not None
 
-@log.catch
+
+@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
 def main():
     """Main entry point for the VISSS processing pipeline."""
 

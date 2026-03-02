@@ -26,6 +26,8 @@ from loguru import logger as log
 
 from . import __version__, __versionFull__, files, fixes
 
+DEBUG_MODE = os.getenv("DEBUG") is not None
+
 DEFAULT_SETTINGS = {
     # settings that must be provided in YAML file
     "computers": None,
@@ -196,7 +198,9 @@ def loopify_with_camera(func=None, *, endYesterday=True):
 
     def decorator(f):
         @wraps(f)
-        @log.catch  # catches exceptions from the wrapped function
+        @log.catch(
+            onerror=ipython_debug if DEBUG_MODE else None
+        )  # catches exceptions from the wrapped function
         def loopify_with_camera_(case, camera, settings, *args, **kwargs):
             config = readSettings(settings)
             if camera == "all":
@@ -208,7 +212,7 @@ def loopify_with_camera(func=None, *, endYesterday=True):
             else:
                 cameras = [camera]
             cases = getCaseRange(case, config, endYesterday=endYesterday)
-            if len(cases) >1:
+            if len(cases) > 1:
                 log.info(f"Converted case string '{case}' to case range: {cases}")
             returns = list()
             for case1 in cases:
@@ -260,11 +264,14 @@ def loopify(func=None, *, endYesterday=True):
 
     def decorator(f):
         @wraps(f)
-        @log.catch  # catches exceptions from the wrapped function
+        @log.catch(
+            onerror=ipython_debug if DEBUG_MODE else None
+        )  # catches exceptions from the wrapped function
+        # catches exceptions from the wrapped function
         def loopify_(case, settings, *args, **kwargs):
             config = readSettings(settings)
             cases = getCaseRange(case, config, endYesterday=endYesterday)
-            if len(cases) >1:
+            if len(cases) > 1:
                 log.info(f"Converted case string '{case}' to case range: {cases}")
             returns = list()
             for case1 in cases:
@@ -2154,6 +2161,11 @@ def to_netcdf2(dat, config, file, **kwargs):
     if os.path.isfile(file):
         tryRemovingFile(file)
 
+    #xarray bug
+    for var in list(dat.coords) + list(dat.data_vars):
+        if hasattr(dat[var].dtype, 'na_value'):
+            dat[var] = dat[var].astype(object)
+
     tmpFile = f"{file}.{np.random.randint(0, 99999 + 1)}.tmp.cdf"
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -2830,5 +2842,11 @@ For information about the commands, run
     p.add_argument(
         "--n-jobs", type=int, default=None, help="Number of jobs (default: CPU count)"
     )
-
     return parser
+
+
+def ipython_debug(exception):
+    from IPython.core.debugger import Pdb
+
+    # exception.__traceback__ is the map back to the actual error
+    Pdb().interaction(None, exception.__traceback__)

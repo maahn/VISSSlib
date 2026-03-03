@@ -1362,7 +1362,6 @@ def submitAll(
     submitJobs=True,
     skipExisting=True,
     checkForDuplicates=True,
-    runWorkers=False,
     cleanUpBroken=False,
     cleanUpDuplicates=False,
 ):
@@ -1386,8 +1385,6 @@ def submitAll(
         Whether to skip existing files
     checkForDuplicates : bool, default True
         Whether to check for duplicate commands in the queue
-    runWorkers : bool, default False
-        Whether to run workers immediately
     cleanUpBroken : bool, default False
         Whether to clean up broken files
     cleanUpDuplicates : bool, default False
@@ -1412,7 +1409,6 @@ def submitAll(
         prod.submitCommands(
             checkForDuplicates=checkForDuplicates,
             skipExisting=skipExisting,
-            runWorkers=runWorkers,
         )
 
     else:

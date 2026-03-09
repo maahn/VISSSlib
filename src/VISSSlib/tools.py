@@ -167,6 +167,7 @@ def readSettings(fname):
         if "resolution" in config.keys():
             print(f"ignoring config.resolution={config["resolution"]} and using {(1/config.calibration.slope)} instead")
         config["resolution"] = (1/config.calibration.slope)
+        config["instruments"] = [config.leader, config.follower]
         return config
     else:  # is already config
         return fname

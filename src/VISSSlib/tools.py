@@ -443,7 +443,7 @@ def getDateRange(nDays, config, endYesterday=True):
         else:
             end2 = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
     else:
-        end = end2 = config["end"]
+        end = end2 = pd.Timestamp(config["end"], tz="UTC")
 
     if (type(nDays) is int) or type(nDays) is float:
         if nDays > 1000:
@@ -456,7 +456,6 @@ def getDateRange(nDays, config, endYesterday=True):
             start=pd.Timestamp(config["start"], tz="UTC"),
             end=end2,
             freq="1D",
-            tz="UTC",
             normalize=True,
             name=None,
             inclusive="both",
@@ -494,7 +493,6 @@ def getDateRange(nDays, config, endYesterday=True):
             end=end2,
             periods=nDays,
             freq="1D",
-            tz="UTC",
             normalize=True,
             name=None,
             inclusive="both",

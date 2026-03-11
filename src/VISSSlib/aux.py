@@ -133,7 +133,7 @@ def getMeteoDataCloudnet(case, config):
 
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
-    print(f"Opening {fStr}")
+    log.info(f"Opening {fStr}")
     dat = xr.open_mfdataset(fnames)
     assert config.level2.freq == "1min"
 
@@ -168,7 +168,7 @@ def getMeteoDataARM(case, config):
 
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
-    print(f"Opening {fnames}")
+    log.info(f"Opening {fnames}")
     dat = xr.open_mfdataset(fStr)
     assert config.level2.freq == "1min"
     dat
@@ -317,7 +317,7 @@ def getRadarDataCloudnetCategorize(case, config, fn):
         log.warning(f"Did not find {fStr}")
         raise FileNotFoundError(f"Did not find {fStr}")
 
-    print(f"Opening {fStr}")
+    log.info(f"Opening {fStr}")
     dat = xr.open_mfdataset(
         fnames,
         preprocess=lambda dat: dat[
@@ -335,7 +335,9 @@ def getRadarDataCloudnetCategorize(case, config, fn):
 
     # fix Cloudnet bug - solid precipitation at the ground should never need a melting layer attenuation correction
     # https://github.com/actris-cloudnet/cloudnetpy/issues/121
-    dat1["Ze"] = dat1["Ze"] - dat.radar_melting_atten
+    dat1["Ze"] = dat1["Ze"] - dat.radar_melting_atten.fillna(0)
+    # The correction does not hurt becuase after bugfix, radar_melting_atten is zero!
+    # Could be only problematic for perip around 0°C
 
     try:
         altitude = dat.altitude.values[0]
@@ -364,7 +366,7 @@ def getRadarDataCloudnetFMCW94(case, config, fn):
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
 
-    print(f"Opening {fStr}")
+    log.info(f"Opening {fStr}")
     dat = xr.open_mfdataset(fnames, preprocess=lambda dat: dat[["v", "Zh"]])
 
     dat = dat.rename(v="MDV", Zh="Ze")
@@ -388,7 +390,7 @@ def getRadarDataARMwcloudradarcel(case, config, fn):
 
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
-    print(f"Opening {fStr}")
+    log.info(f"Opening {fStr}")
     with xr.open_mfdataset(
         fnames, preprocess=lambda dat: dat[["MeanVel", "ZE", "Elv", "Freq"]]
     ) as dat:
@@ -415,7 +417,7 @@ def getRadarDataARMarsclkazr1kollias(case, config, fn):
 
     if len(fnames) == 0:
         raise FileNotFoundError(f"Did not find {fStr}")
-    print(f"Opening {fStr}")
+    log.info(f"Opening {fStr}")
     with xr.open_mfdataset(
         fnames,
         preprocess=lambda dat: dat[
@@ -514,7 +516,7 @@ def getMeteoDataPangaea(case, config):
         print("No Pangaea meteo data yet")
         return None
 
-    print(f"Opening {fnames}")
+    log.info(f"Opening {fnames}")
     dat = xr.open_mfdataset(fStr)
     assert config.level2.freq == "1min"
     dat

@@ -416,7 +416,7 @@ def retrieveCombinedRiming(
         log.warning("isPrecip %i" % np.sum(isPrecip))
         log.warning("goodQuality %i" % np.sum(goodQuality))
         log.warning("enoughParticles %i" % np.sum(enoughParticles))
-        log.warning("written: %s.nodata" % lv3File)
+        log.warning("written : %s.nodata" % lv3File)
         return None, lv3File
 
     goodData = coldEnough & isPrecip & goodQuality & enoughParticles

@@ -4,6 +4,8 @@
 import datetime
 import functools
 import glob
+import inspect
+import json
 import logging
 import os
 import sys
@@ -17,9 +19,14 @@ from addict import Dict
 log = logging.getLogger(__name__)
 
 from . import __version__, metadata
-from .tools import DictNoDefault, getCaseRange, nicerNames, otherCamera, readSettings
-
-# to do merge to single class using different constructors with @classmethod?
+from .tools import (
+    DictNoDefault,
+    getCaseRange,
+    globList,
+    nicerNames,
+    otherCamera,
+    readSettings,
+)
 
 dailyLevels = [
     "metaEvents",
@@ -103,6 +110,7 @@ class FindFiles(object):
             self.case = pn.to_datetime(case).strftime("%Y%m%d-%H%M%S")
         else:
             self.case = case
+
         if camera in ["leader", "follower"]:
             self.camera = config[camera]
         else:
@@ -333,6 +341,9 @@ class FindFiles(object):
             )
         )
 
+    def __repr__(self):
+        return json.dumps(self.fnamesPattern, indent=4)
+
     @property
     def yesterday(self):
         return FindFiles(
@@ -393,41 +404,28 @@ class FindFiles(object):
             raise ValueError(
                 f"Level not found, level must be in {self.fnamesPattern.keys()}"
             )
-        return sorted(filter(os.path.isfile, glob.glob(self.fnamesPattern[level])))
+        return globList(self.fnamesPattern[level])
 
     @functools.cache
     def listFilesExt(self, level, ignoreBrokenFiles=False):
-        res = sorted(
-            filter(
-                os.path.isfile,
-                glob.glob(self.fnamesPatternExt[level])
-                + glob.glob(self.fnamesPattern[level]),
-            )
-        )
+        res = globList([self.fnamesPatternExt[level], self.fnamesPattern[level]])
+
         if ignoreBrokenFiles:
             res = [x for x in res if not x.endswith(".broken.txt")]
         return res
 
     @functools.cache
     def listBroken(self, level):
-        return sorted(
-            filter(
-                os.path.isfile,
-                glob.glob(
-                    self.fnamesPatternExt[level].replace(".[b,n][r,o]*", ".broken.txt")
-                ),
-            )
+        return globList(
+            self.fnamesPatternExt[level],
+            search=".[b,n][r,o]*",
+            replace=".broken.txt",
         )
 
     @functools.cache
     def listNoData(self, level):
-        return sorted(
-            filter(
-                os.path.isfile,
-                glob.glob(
-                    self.fnamesPatternExt[level].replace(".[b,n][r,o]*", ".nodata")
-                ),
-            )
+        return globList(
+            self.fnamesPatternExt[level], search=".[b,n][r,o]*", replace=".nodata"
         )
 
     @functools.cache
@@ -492,7 +490,12 @@ class FindFiles(object):
 
     def nMissing(self, level, ignoreBrokenFiles=False):
         if level in dailyLevels:
-            nMissing = 1 - len(
+            try:
+                nExpected = len(self.cases)
+            except AttributeError:
+                # in case we are in FindFiles, not FindFilesRange
+                nExpected = 1
+            nMissing = nExpected - len(
                 self.listFilesExt(level, ignoreBrokenFiles=ignoreBrokenFiles)
             )
         else:
@@ -530,6 +533,118 @@ class FindFiles(object):
     # @property
     # def isCompleteL3(self):
     #     return (len(self.listFiles("level2")) == len(self.listFilesExt("level3Ext")))
+
+
+def _aggregate(results):
+    """Aggregate results from multiple FindFiles instances based on return type."""
+    if not results:
+        return results
+    first = results[0]
+    if isinstance(first, bool):
+        return all(results)
+    elif isinstance(first, int):
+        return sum(results)
+    elif isinstance(first, list):
+        seen = set()
+        out = []
+        for lst in results:
+            for item in lst:
+                if item not in seen:
+                    seen.add(item)
+                    out.append(item)
+        return out
+    elif isinstance(first, dict):
+        return {key: _aggregate([r[key] for r in results]) for key in first}
+    elif isinstance(first, str):
+        return results  # ← always a list, even if len==1
+    else:
+        return results
+
+
+def range_aware(method):
+    """
+    Decorator that makes FindFiles methods work transparently over a range
+    of cases when the instance is a FindFilesRange.
+    Applied automatically by FindFilesRange via __getattr__.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if not isinstance(self, FindFilesRange):
+            return method(self, *args, **kwargs)
+        results = [method(ff, *args, **kwargs) for ff in self._instances]
+        return _aggregate(results)
+
+    return wrapper
+
+
+class FindFilesRange(FindFiles):
+    """
+    Wraps multiple FindFiles instances for a range of cases, delegating
+    all attribute access and method calls with automatic result aggregation.
+
+    Parameters
+    ----------
+    cases : list of str
+        List of case identifiers (YYYYMMDD format).
+    camera : str
+        Camera identifier.
+    config : dict or str
+        Configuration dictionary or path to configuration file.
+
+    Examples
+    --------
+    >>> ffr = FindFilesRange(["20230101", "20230102", "20230103"], "leader", config)
+    >>> ffr.listFiles("level1detect")   # returns concatenated list
+    >>> ffr.nMissing("level1detect")    # returns sum
+    >>> ffr.isComplete("level1detect")  # returns all(...)
+    """
+
+    def __init__(self, cases, camera, config, endYesterday=True, version=__version__):
+        # Deliberately skip FindFiles.__init__ - we manage instances instead
+        self.config = readSettings(config)
+        cases = getCaseRange(cases, self.config, endYesterday=endYesterday)
+        self._instances = [FindFiles(case, camera, config, version) for case in cases]
+        self.cases = cases
+        self.camera = camera
+
+    def __getattr__(self, name):
+        if not self._instances:
+            raise AttributeError(name)
+        attr = getattr(self._instances[0], name)
+        if callable(attr):
+
+            def multi_method(*args, **kwargs):
+                results = [getattr(ff, name)(*args, **kwargs) for ff in self._instances]
+                return _aggregate(results)
+
+            return multi_method
+        else:
+            results = [getattr(ff, name) for ff in self._instances]
+            return _aggregate(results)
+
+    def __dir__(self):
+        # Merge own attrs with FindFiles instance attrs for full tab completion
+        own = set(super().__dir__())
+        instance_attrs = set(dir(self._instances[0])) if self._instances else set()
+        return sorted(own | instance_attrs)
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            try:
+                return self._instances[self.cases.index(key)]
+            except ValueError:
+                raise KeyError(f"Case '{key}' not found. Available: {self.cases}")
+        return self._instances[key]
+
+    def __iter__(self):
+        return iter(self._instances)
+
+    def __len__(self):
+        return len(self._instances)
+
+    def __repr__(self):
+        return f"FindFilesRange({self.cases}, camera={self.camera})"
 
 
 class Filenames(object):
@@ -660,6 +775,9 @@ class Filenames(object):
             )
         )
         return
+
+    def __repr__(self):
+        return json.dumps(self.fname, indent=4)
 
     @property
     def yesterday(self):

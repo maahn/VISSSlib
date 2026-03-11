@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import glob
 import io
 import logging
 import multiprocessing
@@ -127,7 +128,7 @@ DEFAULT_SETTINGS = {
             "processRetrieval": False,
             "habit": "mean",  # SSRG particle habit
             "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
-            "maxTemp": 272.15,
+            "maxTemp": 275.15,
             "minZe": -10,
             "minNParticles": 100,
             "extraFileStr": "",
@@ -174,6 +175,8 @@ def readSettings(fname):
 
 
 def getCaseRange(nDays, config, endYesterday=True):
+    if isinstance(nDays, list):
+        return nDays
     days = getDateRange(nDays, config, endYesterday=endYesterday)
     cases = []
     for dd in days:
@@ -438,6 +441,18 @@ def open_mflevel1detect(
 
     dat.load()
     return dat
+
+def globList(fnames, search=None, replace=None):
+    if isinstance(fnames, list):
+        res = []
+        for fname in fnames:
+            res += globList(fname, search=search, replace=replace)
+    else:
+        if (search is not None) and (replace is not None):
+            fnames = fnames.replace(search, replace)
+        res = sorted(filter(os.path.isfile, glob.glob(fnames)))
+    return res
+
 
 
 def open_mflevel1match(fnamesExt, config, datVars="all"):

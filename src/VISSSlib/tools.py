@@ -572,6 +572,32 @@ def removeBlockedBlowingData(dat1D, events, config, threshold=0.1):
     else:
         return dat1D
 
+def _aggregate(results):
+    if not results:
+        return results
+    first = results[0]
+    if isinstance(first, bool):
+        return all(results)
+    elif isinstance(first, int):
+        return sum(results)
+    elif isinstance(first, list):
+        seen = set()
+        out = []
+        for lst in results:
+            for item in lst:
+                if item not in seen:
+                    seen.add(item)
+                    out.append(item)
+        return out
+    elif isinstance(first, dict):
+        return {key: _aggregate([r[key] for r in results]) for key in first}
+    elif isinstance(first, pd.DataFrame):
+        return pd.concat(results).sort_index()
+    elif isinstance(first, str):
+        return results  # ← always a list, even if len==1
+    else:
+        return results
+
 
 def estimateCaptureIdDiff(
     leaderFile,

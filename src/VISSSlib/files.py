@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 from . import __version__, metadata
 from .tools import (
     DictNoDefault,
+    _aggregate,
     getCaseRange,
     globList,
     nicerNames,
@@ -535,49 +536,6 @@ class FindFiles(object):
     #     return (len(self.listFiles("level2")) == len(self.listFilesExt("level3Ext")))
 
 
-def _aggregate(results):
-    """Aggregate results from multiple FindFiles instances based on return type."""
-    if not results:
-        return results
-    first = results[0]
-    if isinstance(first, bool):
-        return all(results)
-    elif isinstance(first, int):
-        return sum(results)
-    elif isinstance(first, list):
-        seen = set()
-        out = []
-        for lst in results:
-            for item in lst:
-                if item not in seen:
-                    seen.add(item)
-                    out.append(item)
-        return out
-    elif isinstance(first, dict):
-        return {key: _aggregate([r[key] for r in results]) for key in first}
-    elif isinstance(first, str):
-        return results  # ← always a list, even if len==1
-    else:
-        return results
-
-
-def range_aware(method):
-    """
-    Decorator that makes FindFiles methods work transparently over a range
-    of cases when the instance is a FindFilesRange.
-    Applied automatically by FindFilesRange via __getattr__.
-    """
-
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        if not isinstance(self, FindFilesRange):
-            return method(self, *args, **kwargs)
-        results = [method(ff, *args, **kwargs) for ff in self._instances]
-        return _aggregate(results)
-
-    return wrapper
-
-
 class FindFilesRange(FindFiles):
     """
     Wraps multiple FindFiles instances for a range of cases, delegating
@@ -609,6 +567,9 @@ class FindFilesRange(FindFiles):
         self.camera = camera
 
     def __getattr__(self, name):
+        # Guard against calls during __init__ before _instances is set
+        if name == "_instances" or "_instances" not in self.__dict__:
+            raise AttributeError(name)
         if not self._instances:
             raise AttributeError(name)
         attr = getattr(self._instances[0], name)
@@ -619,6 +580,8 @@ class FindFilesRange(FindFiles):
                 return _aggregate(results)
 
             return multi_method
+        elif name == "config":  # the config is the same for all cases
+            return getattr(self._instances[0], name)
         else:
             results = [getattr(ff, name) for ff in self._instances]
             return _aggregate(results)

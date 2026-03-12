@@ -31,7 +31,7 @@ class DataProduct(object):
         childrensRelatives=None,
     ):
         """
-        
+
         Class for processing VISSS data
         """
         log.info(f"created  {level} {camera} for {case} with {childrensRelatives}.")
@@ -53,8 +53,7 @@ class DataProduct(object):
         else:
             raise ValueError(f"do not understand camera: {camera}")
         self.camera = camera
-        self.cases = tools.getCaseRange(case, self.config)
-        self.casesStr = str(case)
+        self.case = case
 
         if fileQueue is None:
             fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
@@ -69,7 +68,7 @@ class DataProduct(object):
         self.commands = []
         self.allCommands = []
 
-        self.fn = files.FindFilesRange(self.cases, self.cameraFull, self.config)
+        self.fn = files.FindFiles(str(self.case), self.cameraFull, self.config)
         self.path = self.fn.fnamesPatternExt[self.level]
 
         self.parents = tools.DictNoDefault({})
@@ -150,29 +149,27 @@ class DataProduct(object):
 
         else:
             raise ValueError(f"Do not understand {level}")
-        if addRelatives:
-            self.addRelatives()
 
-    def addRelatives(self):
-        for parentCam in self.parentNames:
-            camera, parent = parentCam.split("_")
-            # save time by not adding a product more than once
-            if parentCam in self.childrensRelatives.keys():
-                #print(f"{self.relatives}, found {parentCam} from other relative")
-                self.parents[parentCam] = self.childrensRelatives[parentCam]
-                assert self.cases == self.childrensRelatives[parentCam].cases
-                continue
-            self.parents[parentCam] = DataProduct(
-                parent,
-                self.cases,
-                self.settings,
-                self.tq,
-                camera,
-                relatives=f"{self.relatives}",
-                childrensRelatives=self.parents,
-            )
-            self.parents.update(self.parents[parentCam].parents)
-            self.childrensRelatives.update(self.parents)
+        if addRelatives:
+            for parentCam in self.parentNames:
+                camera, parent = parentCam.split("_")
+                # save time by not adding a product more than once
+                if parentCam in self.childrensRelatives.keys():
+                    # print(f"{self.relatives}, found {parentCam} from other relative")
+                    self.parents[parentCam] = self.childrensRelatives[parentCam]
+                    assert self.case == self.childrensRelatives[parentCam].case
+                    continue
+                self.parents[parentCam] = DataProduct(
+                    parent,
+                    self.case,
+                    self.settings,
+                    self.tq,
+                    camera,
+                    relatives=f"{self.relatives}",
+                    childrensRelatives=self.parents,
+                )
+                self.parents.update(self.parents[parentCam].parents)
+                self.childrensRelatives.update(self.parents)
 
     def generateAllCommands(
         self, skipExisting=True, withParents=True, doNotWaitForMissingThreadFiles=False
@@ -182,7 +179,7 @@ class DataProduct(object):
 
         if not self.dataAvailable:
             log.warning(
-                f"{self.casesStr} {self.relatives}: no data found in {self.fn.fnamesPattern.level0txt}"
+                f"{self.case} {self.relatives}: no data found in {self.fn.fnamesPattern.level0txt}"
             )
             return []
 
@@ -193,13 +190,13 @@ class DataProduct(object):
             and self.parentsComplete
         ):
             if withParents:
-                log.warning(f"{self.casesStr} {self.relatives}: everything processed")
+                log.warning(f"{self.case} {self.relatives}: everything processed")
             return []
         if isComplete and (not self.youngerThanParents):
             for name, younger in self._youngerThanParentsDict.items():
                 if not younger:
                     log.warning(
-                        f"{self.casesStr} {self.relatives} redoing level, parent {name} is younger"
+                        f"{self.case} {self.relatives} redoing level, parent {name} is younger"
                     )
         if self.parentsComplete and self.parentsYoungerThanGrandparents:
             commands = self.generateCommands(
@@ -208,16 +205,16 @@ class DataProduct(object):
             )
             if len(commands) > 0:
                 log.warning(
-                    f"{self.casesStr} {self.relatives} generated commands for level {self.level} {self.camera}"
+                    f"{self.case} {self.relatives} generated commands for level {self.level} {self.camera}"
                 )
         elif not self.parentsComplete:
             log.info(
-                f"{self.casesStr} {self.relatives} no commands generated yet, parents not complete yet"
+                f"{self.case} {self.relatives} no commands generated yet, parents not complete yet"
             )
             commands = []
         else:
             log.info(
-                f"{self.casesStr} {self.relatives} no commands generated, grandparents older"
+                f"{self.case} {self.relatives} no commands generated, grandparents older"
             )
             commands = []
         if withParents:
@@ -231,15 +228,13 @@ class DataProduct(object):
         self.commands = list(set(commands))
         if (len(self.commands) == 0) and (withParents):
             log.warning(
-                f"{self.level} {self.camera} {self.casesStr} no commands created",
+                f"{self.level} {self.camera} {self.case} no commands created",
             )
         return self.commands
 
     def generateCommands(
         self, skipExisting=True, nCPU=1, bin=None, doNotWaitForMissingThreadFiles=False
     ):
-
-        assert len(self.cases) == 1, "logic for multiple cases does not exist yet!"
 
         if self.level == "level0":
             return []
@@ -330,12 +325,9 @@ class DataProduct(object):
                 bin=bin,
             )
         elif self.level == "allDone":
-            outFiles= self.fn.fnamesDaily["allDone"]
-            commands = []
-            for outFile in outFiles:
-                command = f"mkdir -p {os.path.dirname(outFile)} && touch {outFile}"
-                commands.append((command, outFile))
-            return commands
+            outFile = self.fn.fnamesDaily["allDone"]
+            command = f"mkdir -p {os.path.dirname(outFile)} && touch {outFile}"
+            return [(command, outFile)]
 
         else:
             raise ValueError(f"Do not understand {level}")
@@ -401,24 +393,21 @@ class DataProduct(object):
             or call.endswith("createEvent")
             or call.endswith("createLevel1detectQuicklook")
         ):
-            cases = [f"{self.camera}+{c}" for c in self.cases]
+            case = f"{self.camera}+{case}"
         else:
-            cases = self.cases
+            case = self.case
 
-        commands = []
-        for cc, case in enumerate(cases):
-            f1 = files.FindFiles(case, self.cameraFull, self.config)
-            outFile = f1.fnamesDaily[self.level]
+        outFile = self.fn.fnamesDaily[self.level]
 
-            exisiting = glob.glob(f"{outFile}*")
-            if skipExisting and (len(exisiting) >= 1) and (self.youngerThanParents):
-                log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
-                return []
+        exisiting = glob.glob(f"{outFile}*")
+        if skipExisting and (len(exisiting) >= 1) and (self.youngerThanParents):
+            log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
+            return []
 
-            command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
-            if nCPU is not None:
-                command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
-            commands.append((command, outFile))
+        command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
+        if nCPU is not None:
+            command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
+        commands = [(command, outFile)]
         return commands
 
     def submitCommands(
@@ -474,7 +463,7 @@ class DataProduct(object):
     def isComplete(self):
         nMissing = self.fn.nMissing(self.level)
         if nMissing > 0:
-            log.info(f"{self.casesStr} {self.relatives} {nMissing} files are missing")
+            log.info(f"{self.case} {self.relatives} {nMissing} files are missing")
         return nMissing == 0
 
     @cached_property
@@ -646,7 +635,7 @@ class DataProduct(object):
                     )
                 )
             df = pd.concat(df1)
-            #df = df.iloc[~df.index.duplicated()]
+            # df = df.iloc[~df.index.duplicated()]
             df = df.sort_index()
 
         if returnAllInformation:
@@ -723,27 +712,25 @@ class level0(DataProduct):
         super().__init__("level0", case, settings, fileQueue, camera)
 
 
-class DataProductRange(object):
+class DataProductRange(DataProduct):
+
     def __init__(
         self,
         level,
-        nDays,
+        cases,
         settings,
         fileQueue,
-        camera="leader",
+        camera,
+        relatives=None,
         addRelatives=True,
+        childrensRelatives=None,
     ):
-        self.settings = settings
-        self.config = tools.readSettings(settings)
-        self.cases = tools.getCaseRange(nDays, self.config, endYesterday=False)
-        self.dailies = {}
-        self.level = level
-        self.camera = camera
-        self.allCommands = []
+        import taskqueue
+
+        self.cases = tools.getCaseRange(cases, settings)
 
         if fileQueue is None:
             fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
-
         if type(fileQueue) is str:
             self.fileQueue = fileQueue
             self.tq = taskqueue.TaskQueue(f"fq://{self.fileQueue}")
@@ -751,38 +738,98 @@ class DataProductRange(object):
             self.tq = fileQueue
             self.fileQueue = self.tq.path.path
 
-        for case in self.cases:
-            self.dailies[case] = DataProduct(
+        self._instances = [
+            DataProduct(
                 level,
                 case,
                 settings,
                 self.tq,
                 camera,
-                addRelatives=addRelatives,
-
+                relatives=relatives,
+                addRelatives=False,
             )
+            for case in self.cases
+        ]
+        self.level = level
+        self.camera = camera
+        self.casesStr = str(cases)
+        self.commands = []
+
+        if childrensRelatives is None:
+            self.childrensRelatives = tools.DictNoDefault({})
+        else:
+            self.childrensRelatives = childrensRelatives
+        self.parents = tools.DictNoDefault({})
+
+        if addRelatives:
+            for name in self._instances[0].parentNames:
+                cam, parent_level = name.split("_")
+                if name in self.childrensRelatives.keys():
+                    self.parents[name] = self.childrensRelatives[name]
+                    continue
+                self.parents[name] = DataProductRange(
+                    parent_level,
+                    self.cases,
+                    self._instances[0].settings,
+                    self.tq,
+                    cam,
+                    addRelatives=True,
+                    childrensRelatives=self.childrensRelatives,
+                )
+                self.parents.update(self.parents[name].parents)
+                self.childrensRelatives.update(self.parents)
 
     def __getitem__(self, key):
-        if isinstance(key, int):
-            return self.dailies[self.cases[key]]
-        return self.dailies[key]
+        if isinstance(key, str):
+            try:
+                return self._instances[self.cases.index(key)]
+            except ValueError:
+                raise KeyError(f"Case '{key}' not found. Available: {self.cases}")
+        return self._instances[key]
 
     def __iter__(self):
-        return iter(self.dailies)
+        return iter(self._instances)
 
     def __len__(self):
-        return len(self.dailies)
+        return len(self._instances)
 
-    def generateAllCommands(
-        self, skipExisting=True, withParents=True, doNotWaitForMissingThreadFiles=False
-    ):
-        for dd in self.cases:
-            self.allCommands += self.dailies[dd].generateAllCommands(
-                skipExisting=skipExisting,
-                withParents=withParents,
-                doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
-            )
-        return self.allCommands
+    def __dir__(self):
+        own = set(super().__dir__())
+        instance_attrs = set(dir(self._instances[0])) if self._instances else set()
+        return sorted(own | instance_attrs)
+
+    def __getattr__(self, name):
+        # Guard against calls during __init__ before _instances is set
+        if name == "_instances" or "_instances" not in self.__dict__:
+            raise AttributeError(name)
+        if not self._instances:
+            raise AttributeError(name)
+        attr = getattr(self._instances[0], name)
+        if callable(attr):
+
+            def multi_method(*args, **kwargs):
+                results = [getattr(dp, name)(*args, **kwargs) for dp in self._instances]
+                return tools._aggregate(results)
+
+            return multi_method
+        elif name == "config":  # the config is the same for all cases
+            return getattr(self._instances[0], name)
+        else:
+            results = [getattr(dp, name) for dp in self._instances]
+            return tools._aggregate(results)
+
+    # overwrite some functions
+    def listBroken(self):
+        return tools._aggregate([dp.listBroken() for dp in self._instances])
+
+    def listFiles(self):
+        return tools._aggregate([dp.listFiles() for dp in self._instances])
+
+    def listFilesExt(self):
+        return tools._aggregate([dp.listFilesExt() for dp in self._instances])
+
+    def listNoData(self):
+        return tools._aggregate([dp.listNoData() for dp in self._instances])
 
     def submitCommands(
         self,
@@ -792,77 +839,23 @@ class DataProductRange(object):
         runWorkers=False,
         doNotWaitForMissingThreadFiles=False,
     ):
-        if len(self.allCommands) == 0:
-            self.generateAllCommands(
-                skipExisting=skipExisting,
-                withParents=withParents,
-                doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
-            )
-        if len(self.allCommands) == 0:
+
+        commands = self.generateAllCommands(
+            skipExisting=skipExisting,
+            withParents=withParents,
+            doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
+        )
+        if not commands:
             log.error("nothing to submit")
             return
-
         if checkForDuplicates:
-            running = [t.args[0][0] for t in self.tq.tasks()]
-            commands = []
-            for command in self.allCommands:
-                if command[0] in running:
-                    continue
-                else:
-                    commands.append(command)
-        else:
-            commands = self.allCommands
-        if len(commands) == 0:
-            log.error("nothing to submit after checking for duplicates")
-            return
-
-        log.warning(f"adding {len(commands)} commands to {self.fileQueue}")
-        # region is SQS specific, green means cooperative threading
+            running = [t.args[0] for t in self.tq.tasks()]
+            commands = [c for c in commands if c[0] not in running]
+        log.warning(f"sending {len(commands)} commands to {self.fileQueue}")
         self.tq.insert([partial(runCommandInQueue, c) for c in commands])
         log.warning(f"{self.tq.enqueued} tasks in Queue")
-
         if runWorkers:
             self.runWorkers()
-
-        return
-
-    def runWorkers(self, nJobs=os.cpu_count()):
-        tools.workers(self.fileQueue, nJobs=nJobs)
-
-    def deleteQueue(self):
-        log.info(f"Deleting {self.tq.enqueued} tasks")
-        [self.tq.delete(t) for t in self.tq.tasks()]
-        return
-
-    def cleanUpBroken(self, withParents=False, withNoData=False):
-        for dd in self.cases:
-            self.dailies[dd].cleanUpBroken(
-                withParents=withParents, withNoData=withNoData
-            )
-
-    def listBroken(self):
-        broken = []
-        for dd in self.cases:
-            broken += self.dailies[dd].listBroken()
-        return broken
-
-    def reportBroken(self, withParents=False, returnAllInformation=False):
-        import pandas as pd
-
-        df = []
-        for dd in self.cases:
-            #print(dd)
-            df.append(
-                self.dailies[dd].reportBroken(
-                    withParents=withParents, returnAllInformation=returnAllInformation
-                )
-            )
-        return pd.concat(df)
-
-
-    def cleanUpDuplicates(self, withParents=False):
-        for dd in self.cases:
-            self.dailies[dd].cleanUpDuplicates(withParents=withParents)
 
 
 def submitAll(

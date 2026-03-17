@@ -18,6 +18,45 @@ log = logging.getLogger(__name__)
 
 
 class DataProduct(object):
+    """Class for processing VISSS data.
+
+    This class handles the creation and management of data products at different
+    processing levels for VISSS data.
+
+    Attributes
+    ----------
+    level : str
+        The processing level of the data product
+    config : dict
+        Configuration settings for the processing
+    settings : str
+        Path to the settings file
+    relatives : str
+        Relative path information for the product
+    childrensRelatives : dict
+        Dictionary of child relatives
+    cameraFull : str
+        Full camera identifier
+    camera : str
+        Camera identifier (leader or follower)
+    case : str
+        Case identifier
+    fileQueue : str
+        File queue path
+    tq : taskqueue.TaskQueue
+        Task queue object
+    commands : list
+        List of commands to execute
+    fn : files.FindFiles
+        File finder object
+    path : str
+        Path pattern for the data
+    parents : dict
+        Parent data products
+    parentNames : list
+        Names of parent data products
+    """
+
     def __init__(
         self,
         level,
@@ -32,12 +71,32 @@ class DataProduct(object):
     ):
         """
 
-        Class for processing VISSS data
+        Initialize a DataProduct instance.
+
+        Parameters
+        ----------
+        level : str
+            Processing level (e.g., 'level0', 'level1detect')
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str
+            Camera identifier ('leader' or 'follower')
+        relatives : str, optional
+            Relative path information
+        addRelatives : bool, default True
+            Whether to add relatives
+        fileObject : object, optional
+            File object
+        childrensRelatives : dict, optional
+            Children relatives dictionary
         """
         log.info(f"created  {level} {camera} for {case} with {childrensRelatives}.")
         self.level = level
         self.config = tools.readSettings(settings)
-        self.settings = settings
         if relatives is not None:
             self.relatives = f"{relatives}.{level}"
         else:
@@ -66,7 +125,6 @@ class DataProduct(object):
             self.fileQueue = self.tq.path.path
 
         self.commands = []
-        self.allCommands = []
 
         self.fn = files.FindFiles(str(self.case), self.cameraFull, self.config)
         self.path = self.fn.fnamesPatternExt[self.level]
@@ -162,7 +220,7 @@ class DataProduct(object):
                 self.parents[parentCam] = DataProduct(
                     parent,
                     self.case,
-                    self.settings,
+                    self.config,
                     self.tq,
                     camera,
                     relatives=f"{self.relatives}",
@@ -174,12 +232,28 @@ class DataProduct(object):
     def generateAllCommands(
         self, skipExisting=True, withParents=True, doNotWaitForMissingThreadFiles=False
     ):
+        """Generate all commands for this data product and its parents.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        withParents : bool, default True
+            Whether to include parent commands
+        doNotWaitForMissingThreadFiles : bool, default False
+            Whether to wait for missing thread files
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         # cache for this function
         isComplete = self.isComplete
 
-        if not self.dataAvailable:
+        if (not self.dataAvailable) and (self.config.end == "today"):
             log.warning(
-                f"{self.case} {self.relatives}: no data found in {self.fn.fnamesPattern.level0txt}"
+                f"{self.case} {self.relatives}: no data found (yet?) in {self.fn.fnamesPattern.level0txt}"
             )
             return []
 
@@ -235,7 +309,24 @@ class DataProduct(object):
     def generateCommands(
         self, skipExisting=True, nCPU=1, bin=None, doNotWaitForMissingThreadFiles=False
     ):
+        """Generate commands for this data product.
 
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        nCPU : int, default 1
+            Number of CPU cores to use
+        bin : str, optional
+            Python binary path
+        doNotWaitForMissingThreadFiles : bool, default False
+            Whether to wait for missing thread files
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         if self.level == "level0":
             return []
         elif self.level == "level0txt":
@@ -330,7 +421,7 @@ class DataProduct(object):
             return [(command, outFile)]
 
         else:
-            raise ValueError(f"Do not understand {level}")
+            raise ValueError(f"Do not understand {self.level}")
 
     def commandTemplateL1(
         self,
@@ -342,6 +433,30 @@ class DataProduct(object):
         extraOrigin=None,
         extraStr="",
     ):
+        """Template for generating L1 commands.
+
+        Parameters
+        ----------
+        originLevel : str
+            Origin level for the command
+        call : str
+            Function to call
+        skipExisting : bool, default True
+            Whether to skip existing files
+        nCPU : int, default 1
+            Number of CPU cores to use
+        bin : str, optional
+            Python binary path
+        extraOrigin : str, optional
+            Extra origin level
+        extraStr : str, default ""
+            Extra string parameter
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         nCPU = 1
         skipExisitingInt = int(skipExisting)
         if bin is None:
@@ -376,13 +491,31 @@ class DataProduct(object):
                     os.remove(ex)
                     log.warning(f"too many files, removed {ex}")
 
-            command = f"{bin} -m VISSSlib {call}  {pName} {self.settings} {extraStr}"
+            command = f"{bin} -m VISSSlib {call}  {pName} {self.config.filename} {extraStr}"
             if nCPU is not None:
                 command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
             commands.append((command, outFile))
         return commands
 
     def commandTemplateDaily(self, call, skipExisting=True, nCPU=1, bin=None):
+        """Template for generating daily commands.
+
+        Parameters
+        ----------
+        call : str
+            Function to call
+        skipExisting : bool, default True
+            Whether to skip existing files
+        nCPU : int, default 1
+            Number of CPU cores to use
+        bin : str, optional
+            Python binary path
+
+        Returns
+        -------
+        list
+            List of commands to execute
+        """
         nCPU = 1
         skipExisitingInt = int(skipExisting)
         if bin is None:
@@ -393,7 +526,7 @@ class DataProduct(object):
             or call.endswith("createEvent")
             or call.endswith("createLevel1detectQuicklook")
         ):
-            case = f"{self.camera}+{case}"
+            case = f"{self.camera}+{self.case}"
         else:
             case = self.case
 
@@ -404,7 +537,7 @@ class DataProduct(object):
             log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
             return []
 
-        command = f"{bin} -m VISSSlib {call} {self.settings} {case} {skipExisitingInt}"
+        command = f"{bin} -m VISSSlib {call} {self.config.filename} {case} {skipExisitingInt}"
         if nCPU is not None:
             command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
         commands = [(command, outFile)]
@@ -418,6 +551,21 @@ class DataProduct(object):
         runWorkers=False,
         doNotWaitForMissingThreadFiles=False,
     ):
+        """Submit commands to the task queue.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        checkForDuplicates : bool, default False
+            Whether to check for duplicate commands
+        withParents : bool, default True
+            Whether to include parent commands
+        runWorkers : bool, default False
+            Whether to run workers immediately
+        doNotWaitForMissingThreadFiles : bool, default False
+            Whether to wait for missing thread files
+        """
         if len(self.commands) == 0:
             self.generateAllCommands(
                 skipExisting=skipExisting,
@@ -452,15 +600,30 @@ class DataProduct(object):
         return
 
     def runWorkers(self, nJobs=os.cpu_count()):
+        """Run worker processes.
+
+        Parameters
+        ----------
+        nJobs : int, default os.cpu_count()
+            Number of jobs to run
+        """
         tools.workers(self.fileQueue, nJobs=nJobs)
 
     def deleteQueue(self):
+        """Delete all tasks from the queue."""
         log.info(f"Deleting {self.tq.enqueued} tasks")
         [self.tq.delete(t) for t in self.tq.tasks()]
         return
 
     @cached_property
     def isComplete(self):
+        """Check if the data product is complete.
+
+        Returns
+        -------
+        bool
+            True if complete, False otherwise
+        """
         nMissing = self.fn.nMissing(self.level)
         if nMissing > 0:
             log.info(f"{self.case} {self.relatives} {nMissing} files are missing")
@@ -468,6 +631,13 @@ class DataProduct(object):
 
     @cached_property
     def _youngerThanParentsDict(self):
+        """Dictionary of whether this product is younger than its parents.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping parent names to boolean values
+        """
         youngerThanParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
             isYounger = parent.fileCreation < self.fileCreation
@@ -486,11 +656,25 @@ class DataProduct(object):
 
     @cached_property
     def youngerThanParents(self):
+        """Check if this product is younger than all parents.
+
+        Returns
+        -------
+        bool
+            True if younger than all parents, False otherwise
+        """
         youngerThanParents = np.all(list(self._youngerThanParentsDict.values()))
         return youngerThanParents
 
     @cached_property
     def parentsYoungerThanGrandparents(self):
+        """Check if parents are younger than grandparents.
+
+        Returns
+        -------
+        bool
+            True if parents are younger than grandparents, False otherwise
+        """
         parentsYoungerThanGrandparents = True
         for name, parent in self.parents.items():
             parentsYoungerThanGrandparents = (
@@ -502,6 +686,18 @@ class DataProduct(object):
         return parentsYoungerThanGrandparents
 
     def _fileCreation(self, files):
+        """Get the latest modification time of files.
+
+        Parameters
+        ----------
+        files : list
+            List of file paths
+
+        Returns
+        -------
+        float
+            Latest modification time
+        """
         if len(files) > 0:
             return np.max([os.path.getmtime(f) for f in files])
         else:
@@ -509,11 +705,25 @@ class DataProduct(object):
 
     @cached_property
     def fileCreation(self):
+        """Get the file creation time.
+
+        Returns
+        -------
+        float
+            File creation time
+        """
         files = self.listFilesExt()
         return self._fileCreation(files)
 
     @cached_property
     def parentsComplete(self):
+        """Check if all parents are complete.
+
+        Returns
+        -------
+        bool
+            True if all parents are complete, False otherwise
+        """
         parentsComplete = True
         for name, parent in self.parents.items():
             thisParentIsComplete = parent.isComplete
@@ -526,6 +736,13 @@ class DataProduct(object):
         return parentsComplete
 
     def report(self, withParents=True):
+        """Print a report about the data product.
+
+        Parameters
+        ----------
+        withParents : bool, default True
+            Whether to include parent reports
+        """
         nMissing = self.fn.nMissing(self.level)
         print(
             self.camera,
@@ -548,43 +765,123 @@ class DataProduct(object):
 
     @cached_property
     def dataAvailable(self):
+        """Check if data is available.
+
+        Returns
+        -------
+        bool
+            True if data is available, False otherwise
+        """
         return len(self.fn.listFiles("level0txt")) > 0
 
     @cached_property
     def allComplete(self):
+        """Check if all conditions are met for completion.
+
+        Returns
+        -------
+        bool
+            True if all conditions are met, False otherwise
+        """
         return self.isCompleteand and self.youngerThanParents and self.parentsComplete
 
     @cached_property
     def nFiles(self):
+        """Get the number of files.
+
+        Returns
+        -------
+        int
+            Number of files
+        """
         return len(self.fn.listFilesExt(self.level))
 
     def listFilesExt(self):
+        """List all files with extension.
+
+        Returns
+        -------
+        list
+            List of file paths
+        """
         return self.fn.listFilesExt(self.level)
 
     def listFiles(self):
+        """List all files.
+
+        Returns
+        -------
+        list
+            List of file paths
+        """
         return self.fn.listFiles(self.level)
 
     def listBroken(self):
+        """List broken files.
+
+        Returns
+        -------
+        list
+            List of broken file paths
+        """
         return self.fn.listBroken(self.level)
 
     def listNoData(self):
+        """List files with no data.
+
+        Returns
+        -------
+        list
+            List of no-data file paths
+        """
         return self.fn.listNoData(self.level)
 
     def cleanUpBroken(self, withParents=False, withNoData=False):
+        """Clean up broken files.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to clean up parents too
+        withNoData : bool, default False
+            Whether to clean up no-data files too
+        """
         for fname in self.listBroken():
             assert fname.endswith("broken.txt")
-            os.remove(fname)
-            log.warning(f"{fname} removed")
+            try:
+                os.remove(fname)
+            except FileNotFoundError: # usally caused by caching listBroken
+                log.warning(f"{fname} not found")
+            else:
+                log.warning(f"{fname} removed")
         if withNoData:
             for fname in self.listNoData():
                 assert fname.endswith("nodata")
-                os.remove(fname)
-                log.warning(f"{fname} removed")
+                try:
+                    os.remove(fname)
+                except FileNotFoundError: # usally caused by caching listNoData
+                    log.warning(f"{fname} not found")
+                else:
+                    log.warning(f"{fname} removed")
         if withParents:
             for name, parent in self.parents.items():
                 parent.cleanUpBroken(withParents=False, withNoData=withNoData)
 
     def reportBroken(self, withParents=False, returnAllInformation=True):
+        """Report broken files.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to include parent reports
+        returnAllInformation : bool, default True
+            Whether to return all information
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with broken file information
+        """
         import pandas as pd
 
         results_data = []
@@ -599,7 +896,7 @@ class DataProduct(object):
             else:
                 command = lines[1][9:].split(";")[-1].strip()
                 outfile = lines[2][9:].rstrip()
-                gist = lines[-1].rstrip()
+                gist = f"{lines[-2].rstrip(), lines[-1].rstrip()}"
                 fullError = "".join(lines[4:])
             ff = files.FilenamesFromLevel(brokenFile, self.config)
             index = f"{ff.camera.split("_")[0]}_{ff.case}_{self.level}"
@@ -644,6 +941,13 @@ class DataProduct(object):
             return df[["command", "gist"]]
 
     def cleanUpDuplicates(self, withParents=False):
+        """Clean up duplicate files.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to clean up parents too
+        """
         for fname in self.fn.reportDuplicates(self.level):
             os.remove(fname)
             log.warning(f"{fname} removed")
@@ -653,42 +957,162 @@ class DataProduct(object):
 
 
 class allDone(DataProduct):
+    """Data product for all-done status."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize allDone instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("allDone", case, settings, fileQueue, camera)
 
 
 class level2track(DataProduct):
+    """Data product for level 2 tracking."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level2track instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level2track", case, settings, fileQueue, camera)
 
 
 class level2match(DataProduct):
+    """Data product for level 2 matching."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level2match instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level2match", case, settings, fileQueue, camera)
 
 
 class level2detect(DataProduct):
+    """Data product for level 2 detection."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level2detect instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level2detect", case, settings, fileQueue, camera)
 
 
 class level1track(DataProduct):
+    """Data product for level 1 tracking."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level1track instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level1track", case, settings, fileQueue, camera)
 
 
 class level1match(DataProduct):
+    """Data product for level 1 matching."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level1match instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level1match", case, settings, fileQueue, camera)
 
 
 class metaRotation(DataProduct):
+    """Data product for metadata rotation."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize metaRotation instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("metaRotation", case, settings, fileQueue, camera)
 
 
 class level1detect(DataProduct):
+    """Data product for level 1 detection."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level1detect instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level1detect", case, settings, fileQueue, camera)
 
 
@@ -698,21 +1122,67 @@ class level1detect(DataProduct):
 
 
 class metaFrames(DataProduct):
+    """Data product for metadata frames."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize metaFrames instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("metaFrames", case, settings, fileQueue, camera)
 
 
 class metaEvents(DataProduct):
+    """Data product for metadata events."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize metaEvents instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("metaEvents", case, settings, fileQueue, camera)
 
 
 class level0(DataProduct):
+    """Data product for level 0."""
+
     def __init__(self, case, settings, fileQueue, camera="leader"):
+        """Initialize level0 instance.
+
+        Parameters
+        ----------
+        case : str
+            Case identifier
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str, default "leader"
+            Camera identifier
+        """
         super().__init__("level0", case, settings, fileQueue, camera)
 
 
 class DataProductRange(DataProduct):
+    """Range of data products for multiple cases."""
 
     def __init__(
         self,
@@ -725,9 +1195,31 @@ class DataProductRange(DataProduct):
         addRelatives=True,
         childrensRelatives=None,
     ):
+        """Initialize DataProductRange instance.
+
+        Parameters
+        ----------
+        level : str
+            Processing level
+        cases : str or list
+            Case identifiers
+        settings : str
+            Path to settings file
+        fileQueue : str or taskqueue.TaskQueue
+            File queue for task management
+        camera : str
+            Camera identifier
+        relatives : str, optional
+            Relative path information
+        addRelatives : bool, default True
+            Whether to add relatives
+        childrensRelatives : dict, optional
+            Children relatives dictionary
+        """
         import taskqueue
 
         self.cases = tools.getCaseRange(cases, settings)
+        self.config = tools.readSettings(settings)
 
         if fileQueue is None:
             fileQueue = f"/tmp/visss_{''.join(random.choice(string.ascii_uppercase) for _ in range(10))}"
@@ -742,7 +1234,7 @@ class DataProductRange(DataProduct):
             DataProduct(
                 level,
                 case,
-                settings,
+                self.config ,
                 self.tq,
                 camera,
                 relatives=relatives,
@@ -753,7 +1245,6 @@ class DataProductRange(DataProduct):
         self.level = level
         self.camera = camera
         self.casesStr = str(cases)
-        self.commands = []
 
         if childrensRelatives is None:
             self.childrensRelatives = tools.DictNoDefault({})
@@ -770,7 +1261,7 @@ class DataProductRange(DataProduct):
                 self.parents[name] = DataProductRange(
                     parent_level,
                     self.cases,
-                    self._instances[0].settings,
+                    self.config,
                     self.tq,
                     cam,
                     addRelatives=True,
@@ -780,6 +1271,18 @@ class DataProductRange(DataProduct):
                 self.childrensRelatives.update(self.parents)
 
     def __getitem__(self, key):
+        """Get item by key.
+
+        Parameters
+        ----------
+        key : str or int
+            Key to retrieve
+
+        Returns
+        -------
+        DataProduct
+            Data product instance
+        """
         if isinstance(key, str):
             try:
                 return self._instances[self.cases.index(key)]
@@ -788,17 +1291,50 @@ class DataProductRange(DataProduct):
         return self._instances[key]
 
     def __iter__(self):
+        """Iterate over instances.
+
+        Yields
+        ------
+        DataProduct
+            Data product instances
+        """
         return iter(self._instances)
 
     def __len__(self):
+        """Get length of instances.
+
+        Returns
+        -------
+        int
+            Number of instances
+        """
         return len(self._instances)
 
     def __dir__(self):
+        """Get directory of attributes.
+
+        Returns
+        -------
+        list
+            List of attribute names
+        """
         own = set(super().__dir__())
         instance_attrs = set(dir(self._instances[0])) if self._instances else set()
         return sorted(own | instance_attrs)
 
     def __getattr__(self, name):
+        """Get attribute value.
+
+        Parameters
+        ----------
+        name : str
+            Attribute name
+
+        Returns
+        -------
+        object
+            Attribute value
+        """
         # Guard against calls during __init__ before _instances is set
         if name == "_instances" or "_instances" not in self.__dict__:
             raise AttributeError(name)
@@ -820,15 +1356,43 @@ class DataProductRange(DataProduct):
 
     # overwrite some functions
     def listBroken(self):
+        """List broken files for all instances.
+
+        Returns
+        -------
+        list
+            List of broken file paths
+        """
         return tools._aggregate([dp.listBroken() for dp in self._instances])
 
     def listFiles(self):
+        """List files for all instances.
+
+        Returns
+        -------
+        list
+            List of file paths
+        """
         return tools._aggregate([dp.listFiles() for dp in self._instances])
 
     def listFilesExt(self):
+        """List files with extension for all instances.
+
+        Returns
+        -------
+        list
+            List of file paths
+        """
         return tools._aggregate([dp.listFilesExt() for dp in self._instances])
 
     def listNoData(self):
+        """List no-data files for all instances.
+
+        Returns
+        -------
+        list
+            List of no-data file paths
+        """
         return tools._aggregate([dp.listNoData() for dp in self._instances])
 
     def submitCommands(
@@ -839,12 +1403,27 @@ class DataProductRange(DataProduct):
         runWorkers=False,
         doNotWaitForMissingThreadFiles=False,
     ):
+        """Submit commands for all instances.
 
-        commands = self.generateAllCommands(
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        checkForDuplicates : bool, default False
+            Whether to check for duplicate commands
+        withParents : bool, default True
+            Whether to include parent commands
+        runWorkers : bool, default False
+            Whether to run workers immediately
+        doNotWaitForMissingThreadFiles : bool, default False
+            Whether to wait for missing thread files
+        """
+        commands = tools._aggregate([dp.generateAllCommands(
             skipExisting=skipExisting,
             withParents=withParents,
             doNotWaitForMissingThreadFiles=doNotWaitForMissingThreadFiles,
-        )
+        ) for dp in self._instances])
+
         if not commands:
             log.error("nothing to submit")
             return
@@ -870,6 +1449,36 @@ def submitAll(
     cleanUpBroken=False,
     cleanUpDuplicates=False,
 ):
+    """Submit all data processing jobs.
+
+    Parameters
+    ----------
+    nDays : int or str
+        Number of days or date range
+    settings : str
+        Path to settings file
+    fileQueue : str
+        File queue path
+    doMetaRot : bool, default True
+        Whether to do metadata rotation
+    submitJobs : bool, default True
+        Whether to submit jobs
+    skipExisting : bool, default True
+        Whether to skip existing files
+    checkForDuplicates : bool, default True
+        Whether to check for duplicates
+    runWorkers : bool, default False
+        Whether to run workers immediately
+    cleanUpBroken : bool, default False
+        Whether to clean up broken files
+    cleanUpDuplicates : bool, default False
+        Whether to clean up duplicate files
+
+    Returns
+    -------
+    DataProductRange or None
+        Data product range or None if not submitting jobs
+    """
     if submitJobs:
         tq = taskqueue.TaskQueue(f"fq://{fileQueue}")
         log.warning(f"{tq.enqueued} tasks in Queue")

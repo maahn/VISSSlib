@@ -271,6 +271,13 @@ def createLevel2(
     #        print(len(fL.listFiles("level0")), "of", len(fL.listFiles("metaFrames")), "transmitted")
     #        return None, None
 
+    noLevel0 = len(fL.listFilesExt(f"level0txt")) == 0
+    if noLevel0:
+        with tools.open2("%s.nodata" % lv2File, "w") as f:
+            f.write("no level 0 data for %s" % case)
+        log.warning("no level 0 data for %s" % case)
+        return None, None
+
     allBroken = np.all(
         [f.endswith("broken.txt") for f in fL.listFilesExt(f"level1{sublevel}")]
     )

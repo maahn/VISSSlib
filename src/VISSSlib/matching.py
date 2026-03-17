@@ -2105,6 +2105,10 @@ def createMetaRotation(
     # output file
     fnameMetaRotation = fflM.fname["metaRotation"]
 
+    isBad, reason = tools.isBadPeriod(case, config, product="metaRotation")
+    if isBad:
+        raise RuntimeError(f"metaRotation data marked as broken due to {reason}")
+
     # check whether output exists
     if skipExisting and tools.checkForExisting(
         fnameMetaRotation,

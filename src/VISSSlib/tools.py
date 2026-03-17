@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
     "dirMode": 0o775,  # 509
     "fileMode": 0o664,  # 436
     "goodFiles": ["None", "None"],
+    "badData": [],
     "level1detect": {
         "applyCanny2Particle": True,  # canny filter gets edges better
         "backSub": "cv2.createBackgroundSubtractorKNN",

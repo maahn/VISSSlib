@@ -9,7 +9,6 @@ from copy import deepcopy
 
 # import av
 import bottleneck as bn
-
 # import matplotlib.pyplot as plt
 import IPython.display
 import numpy as np
@@ -1304,6 +1303,10 @@ def detectParticles(
         log.warning("no movie files: " + fname)
         return 0
 
+    isBad, reason = tools.isBadPeriod(fn.case, config, product=f"{camera.split("_")[0]}_level1detect")
+    if isBad:
+        raise RuntimeError(f"data of {camera} marked as broken due to {reason}")
+
     # just in case it is not there yet
     metadata.createMetaFrames(fn.case, camera, config, skipExisting=True)
 
@@ -1521,7 +1524,7 @@ def detectParticles(
         inVid[nThread] = cv2.VideoCapture(fnameV)
         nFrames = int(inVid[nThread].get(cv2.CAP_PROP_FRAME_COUNT))
         log.info(f"opened {fnameV} with {nFrames} frames.")
-        assert nFrames > 0
+        assert nFrames > 0, f"too few frames: {nFrames}"
     frame = None
 
     if config.level1detect.writeImg:

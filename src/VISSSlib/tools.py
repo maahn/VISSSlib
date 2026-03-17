@@ -50,6 +50,7 @@ DEFAULT_SETTINGS = {
         "omitLabel4small": True,
     },
     "rotate": {},
+    "badData": [],
     "level1detect": {
         "maxMovingObjects": 1000,  # 60 until 18.9.24
         "minAspectRatio": None,  # testing only
@@ -166,7 +167,7 @@ def readSettings(fname):
         config = DictNoDefault(flatten_dict.unflatten(config))
         config["filename"] = fname
         if "resolution" in config.keys():
-            print(f"ignoring config.resolution={config["resolution"]} and using {(1/config.calibration.slope)} instead")
+            print(f"{config["site"]}: ignoring config.resolution={config["resolution"]} and using {(1/config.calibration.slope)} instead")
         config["resolution"] = (1/config.calibration.slope)
         config["instruments"] = [config.leader, config.follower]
         return config

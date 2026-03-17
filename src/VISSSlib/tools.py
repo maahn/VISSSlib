@@ -358,6 +358,7 @@ def readSettings(fname):
         config["filename"] = fname
         config["basename"] = os.path.basename(fname)
         config["dirname"] = os.path.dirname(fname)
+
         config["instruments"] = [config.leader, config.follower]
         # check for relative paths (with respect to the yaml file and make them absolute
         for key in ["path", "pathOut", "pathQuicklooks"]:

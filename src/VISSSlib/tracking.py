@@ -14,7 +14,7 @@ from loguru import logger as log
 from . import __version__, files, matching, tools
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-DEBUG_MODE = os.getenv("DEBUG") is not None
+
 
 _reference_slopes = {
     "area": {
@@ -1143,7 +1143,7 @@ class Tracker(object):
         return
 
 
-@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
+@log.catch(reraise=True)
 def trackParticles(
     fnameLv1Detect,
     config,

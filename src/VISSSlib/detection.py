@@ -16,7 +16,6 @@ from loguru import logger as log
 from . import __version__, av, files, metadata, tools
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-DEBUG_MODE = os.getenv("DEBUG") is not None
 
 
 """
@@ -1686,7 +1685,7 @@ def _getTrainingFrames(fnamesV, trainingSize, config):
     return trainingFrames
 
 
-@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
+@log.catch(reraise=True)
 def detectParticles(
     fname,
     config,
@@ -2008,7 +2007,8 @@ def detectParticles(
         inVid[nThread] = cv2.VideoCapture(fnameV)
         nFrames = int(inVid[nThread].get(cv2.CAP_PROP_FRAME_COUNT))
         log.info(f"opened {fnameV} with {nFrames} frames.")
-        assert nFrames > 0
+        assert nFrames > 0, f"too few frames: {nFrames}"
+
     frame = None
 
     if config.level1detect.writeImg:

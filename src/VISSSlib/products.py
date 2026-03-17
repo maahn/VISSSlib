@@ -12,11 +12,9 @@ from loguru import logger as log
 from . import __version__, files, matching, metadata, quicklooks, tools
 from .tools import ipython_debug, runCommandInQueue
 
-DEBUG_MODE = os.getenv("DEBUG") is not None
-
 
 class DataProduct(object):
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def __init__(
         self,
         level,
@@ -26,7 +24,7 @@ class DataProduct(object):
         camera,
         relatives=None,
         addRelatives=True,
-        childrensRelatives=tools.DictNoDefault({}),
+        childrensRelatives=None,
     ):
         """
         Initialize a DataProduct for processing VISSS data.
@@ -68,7 +66,10 @@ class DataProduct(object):
             self.relatives = f"{relatives}.{level}"
         else:
             self.relatives = level
-        self.childrensRelatives = childrensRelatives
+        if childrensRelatives is None:
+            self.childrensRelatives = tools.DictNoDefault({})
+        else:
+            self.childrensRelatives = childrensRelatives
         if camera == "leader":
             self.cameraFull = self.config.leader
         elif camera == "follower":
@@ -216,7 +217,7 @@ class DataProduct(object):
             self.parents.update(self.parents[parentCam].parents)
             self.childrensRelatives.update(self.parents)
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
         Generate all commands for processing this product and its dependencies.
@@ -289,7 +290,7 @@ class DataProduct(object):
             )
         return self.commands
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def generateCommands(self, skipExisting=True, nCPU=1, bin=None):
         """
         Generate commands for processing this product.
@@ -528,7 +529,7 @@ class DataProduct(object):
             command = f"export OPENBLAS_NUM_THREADS={nCPU}; export MKL_NUM_THREADS={nCPU}; export NUMEXPR_NUM_THREADS={nCPU}; export OMP_NUM_THREADS={nCPU}; {command}"
         return [(command, outFile)]
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def process(
         self,
         skipExisting=True,
@@ -560,7 +561,7 @@ class DataProduct(object):
 
         self.runWorkers()
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def submitCommands(
         self,
         skipExisting=True,
@@ -610,7 +611,7 @@ class DataProduct(object):
 
         return
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def runWorkers(self, nJobs=os.cpu_count(), waitTime=1):
         """
         Run worker processes.
@@ -1123,7 +1124,7 @@ class level0(DataProduct):
 
 
 class DataProductRange(object):
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def __init__(
         self,
         level,
@@ -1181,12 +1182,9 @@ class DataProductRange(object):
                 self.tq,
                 camera,
                 addRelatives=addRelatives,
-                childrensRelatives=tools.DictNoDefault(
-                    {}
-                ),  # not sure why this is requried, bugs appear otehrwise
             )
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
         Generate all commands for the range of products.
@@ -1210,7 +1208,7 @@ class DataProductRange(object):
             )
         return self.allCommands
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def process(
         self,
         skipExisting=True,
@@ -1239,7 +1237,7 @@ class DataProductRange(object):
 
         self.runWorkers()
 
-    @log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+    @log.catch(reraise=True)
     def submitCommands(
         self,
         skipExisting=True,
@@ -1340,6 +1338,67 @@ class DataProductRange(object):
                 withParents=withParents, withNoData=withNoData
             )
 
+
+    def reportBroken(self, withParents=False, returnAllInformation=False):
+        import pandas as pd
+
+        results_data = []
+        for brokenFile in self.listBroken():
+            with open(brokenFile) as f:
+                lines = f.readlines()
+            if len(lines) == 1:
+                command = "n/a"
+                outfile = "n/a"
+                gist = lines[0].rstrip()
+                fullError = "".join(lines)
+            else:
+                command = lines[1][9:].split(";")[-1].strip()
+                outfile = lines[2][9:].rstrip()
+                gist = f"{lines[-2].rstrip(), lines[-1].rstrip()}"
+                fullError = "".join(lines[4:])
+            ff = files.FilenamesFromLevel(brokenFile, self.config)
+            index = f"{ff.camera.split("_")[0]}_{ff.case}_{self.level}"
+
+            # Create a dict and append it to the list
+            row = {
+                "index": index,
+                "command": command,
+                "outfile": outfile,
+                "gist": gist,
+                "fullError": fullError,
+            }
+            results_data.append(row)
+
+        if len(results_data) == 0:
+            df = pd.DataFrame(
+                columns=["index", "command", "outfile", "gist", "fullError"]
+            )
+        else:
+            df = pd.DataFrame(
+                results_data,
+            )
+
+        df = df.set_index("index")
+
+        if withParents:
+            df1 = [df]
+            for name, parent in self.parents.items():
+                df1.append(
+                    parent.reportBroken(
+                        withParents=False,
+                        returnAllInformation=returnAllInformation,
+                    )
+                )
+            df = pd.concat(df1)
+            #df = df.iloc[~df.index.duplicated()]
+            df = df.sort_index()
+
+        if returnAllInformation:
+            return df
+        else:
+            return df[["command", "gist"]]
+
+
     def cleanUpDuplicates(self, withParents=False):
         """
         Clean up duplicate files for the range.
@@ -1352,8 +1411,22 @@ class DataProductRange(object):
         for dd in self.days:
             self.dailies[dd].cleanUpDuplicates(withParents=withParents)
 
+    def reportBroken(self, withParents=False, returnAllInformation=False):
+        import pandas as pd
 
-@log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+        df = []
+        for dd in self.days:
+            #print(dd)
+            df.append(
+                self.dailies[dd].reportBroken(
+                    withParents=withParents, returnAllInformation=returnAllInformation
+                )
+            )
+        return pd.concat(df)
+
+
+
+@log.catch(reraise=True)
 def submitAll(
     case,
     settings,
@@ -1522,7 +1595,7 @@ def processAll(
     return
 
 
-@log.catch(onerror=ipython_debug if DEBUG_MODE else None)
+@log.catch(reraise=True)
 def processRealtime(case, settings, skipExisting=True):
     """
     Process VISSS data products that do not require significant computing

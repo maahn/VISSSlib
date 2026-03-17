@@ -16,7 +16,6 @@ from . import __version__, files, fixes, metadata, quicklooks, tools
 # log = logger.bind(name=__name__)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-DEBUG_MODE = os.getenv("DEBUG") is not None
 
 
 deltaY = deltaH = deltaI = 1.0
@@ -1099,7 +1098,7 @@ def doMatchSlicer(
         return None, len(leader1D.fpid), len(follower1D.fpid), nMatched
 
 
-@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
+@log.catch(reraise=True)
 def matchParticles(
     fnameLv1Detect,
     config,
@@ -2353,7 +2352,7 @@ def createMetaRotation(
     return metaRotation, fnameMetaRotation
 
 
-@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
+@log.catch(reraise=True)
 def manualRotationEstimate(
     cases, settings, nPoints=1000, iterations=4, minSamples4rot=90
 ):
@@ -2498,4 +2497,4 @@ def manualRotationEstimate(
                 }
                 log.info(results[case])
 
-    return yaml.dump(results)
+    return results

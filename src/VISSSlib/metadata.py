@@ -16,7 +16,7 @@ from loguru import logger as log
 from . import __version__, detection, files, fixes, quicklooks, tools
 
 warnings.filterwarnings("ignore", category=UserWarning)
-DEBUG_MODE = os.getenv("DEBUG") is not None
+
 
 """
 Mosaic problems with metadata:
@@ -38,7 +38,7 @@ Mosaic problems with metadata:
 """
 
 
-@log.catch(onerror=tools.ipython_debug if DEBUG_MODE else None)
+@log.catch(reraise=True)
 def getMetaData(
     fnames,
     camera,
@@ -1318,16 +1318,16 @@ def createEvent(
     eventFile = fn.fnamesDaily.metaEvents
 
     if skipExisting and os.path.isfile(eventFile):
-        eventDat = xr.open_dataset(eventFile)
+        with xr.open_dataset(eventFile) as eventDat:
+            eventDat.load()
         if len(eventDat.data_vars) == 0:
             log.info("eventDat empty, redoing event file")
-            eventDat.close()
+
         # check whether status file is newer than event file, consider 6 hour buffer for data transfer
         elif (fname0status is not None) and (
             os.path.getmtime(eventFile) < (os.path.getmtime(fname0status) + 60 * 60 * 6)
         ):
             log.info("status file was recently updated, redoing event file")
-            eventDat.close()
 
         else:
             if "noLevel0Files" in eventDat.attrs:
@@ -1341,7 +1341,7 @@ def createEvent(
             if nFiles == len(fnames0):
                 if not quiet:
                     log.info(tools.concat("Skipping", case, eventFile))
-                eventDat.close()
+
                 return None
             else:
                 log.info(
@@ -1353,7 +1353,6 @@ def createEvent(
                         "files",
                     )
                 )
-                eventDat.close()
 
     log.info(tools.concat("Running", case, eventFile))
     metaDats = getEvents(fnames0, config, fname0status=fname0status)

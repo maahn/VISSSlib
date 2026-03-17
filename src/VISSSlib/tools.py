@@ -26,8 +26,6 @@ from loguru import logger as log
 
 from . import __version__, __versionFull__, files, fixes
 
-DEBUG_MODE = os.getenv("DEBUG") is not None
-
 DEFAULT_SETTINGS = {
     # settings that must be provided in YAML file
     "computers": None,
@@ -186,11 +184,6 @@ def loopify_with_camera(func=None, *, endYesterday=True):
     @loopify_with_camera
     def my_func(case, camera, config):
         pass
-
-    @loopify_with_camera()
-    def my_func(case, camera, config):
-        pass
-
     @loopify_with_camera(endYesterday=False)
     def my_func(case, camera, config):
         pass
@@ -199,7 +192,7 @@ def loopify_with_camera(func=None, *, endYesterday=True):
     def decorator(f):
         @wraps(f)
         @log.catch(
-            onerror=ipython_debug if DEBUG_MODE else None
+            reraise=True
         )  # catches exceptions from the wrapped function
         def loopify_with_camera_(case, camera, settings, *args, **kwargs):
             config = readSettings(settings)
@@ -265,7 +258,7 @@ def loopify(func=None, *, endYesterday=True):
     def decorator(f):
         @wraps(f)
         @log.catch(
-            onerror=ipython_debug if DEBUG_MODE else None
+            reraise=True
         )  # catches exceptions from the wrapped function
         # catches exceptions from the wrapped function
         def loopify_(case, settings, *args, **kwargs):

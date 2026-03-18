@@ -367,6 +367,61 @@ def readSettings(fname):
         return config
     else:  # is already config
         return fname
+        
+def isBadPeriod(case, config, product=None):
+    """
+    Check if a case falls within a bad data period.
+    
+    Parameters
+    ----------
+    case : str
+        Case identifier (YYYYMMDD or YYYYMMDD-HHMMSS)
+    config : dict
+        Configuration dictionary
+    product : str, optional
+        Product level to check. If None, returns True if case is bad for any product.
+    
+    Returns
+    -------
+    tuple(bool, str)
+        (is_bad, reason) where reason is empty string if not bad
+    """
+
+    config = readSettings(config)
+
+    if not hasattr(config, 'badData') or config.badData is None:
+        return False, ""
+    
+    #files.FindFiles(case, camera.leader, config).datetime
+    case_dt =  datetime.datetime.strptime(
+        case.ljust(15, "0"), "%Y%m%d-%H%M%S"
+    ) if '-' in case else datetime.datetime.strptime(case, "%Y%m%d")
+    
+    for period in config.badData:
+
+        if product in files.dailyLevels:
+            start = datetime.datetime.strptime(
+                str(period.start.split("-")[0]), "%Y%m%d"
+            )
+            end = datetime.datetime.strptime(
+                str(period.end.split("-")[0]), "%Y%m%d"
+            ) + datetime.timedelta(days=1)
+        else:
+            start = datetime.datetime.strptime(
+                str(period.start).ljust(15, "0"), "%Y%m%d-%H%M%S"
+            )
+            end = datetime.datetime.strptime(
+                str(period.end).ljust(15, "0"), "%Y%m%d-%H%M%S"
+            )
+
+
+        if not (start <= case_dt <= end):
+            continue
+        # Period matches time range - check product
+        if (period.products is None) or (product is None) or (product in period.products):
+            return True, period.reason
+    
+    return False, ""
 
 
 def getCaseRange(nDays, config, endYesterday=True):

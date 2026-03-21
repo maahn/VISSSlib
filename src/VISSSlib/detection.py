@@ -1303,7 +1303,7 @@ def detectParticles(
         log.warning("no movie files: " + fname)
         return 0
 
-    isBad, reason = tools.isBadPeriod(case, config, product=f"{camera.split("_")[0]}_level1detect")
+    isBad, reason = tools.isBadPeriod(fn.case, config, product=f"{camera.split("_")[0]}_level1detect")
     if isBad:
         raise RuntimeError(f"data of {camera} marked as broken due to {reason}")
 

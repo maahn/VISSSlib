@@ -1238,7 +1238,7 @@ class DataProductRange(DataProduct):
                 self.tq,
                 camera,
                 relatives=relatives,
-                addRelatives=False,
+                addRelatives=addRelatives,
             )
             for case in self.cases
         ]
@@ -1246,29 +1246,33 @@ class DataProductRange(DataProduct):
         self.camera = camera
         self.casesStr = str(cases)
 
-        if childrensRelatives is None:
-            self.childrensRelatives = tools.DictNoDefault({})
-        else:
-            self.childrensRelatives = childrensRelatives
-        self.parents = tools.DictNoDefault({})
+        # if childrensRelatives is None:
+        #     self.childrensRelatives = tools.DictNoDefault({})
+        # else:
+        #     self.childrensRelatives = childrensRelatives
+        #self.parents = tools.DictNoDefault({})
 
-        if addRelatives:
-            for name in self._instances[0].parentNames:
-                cam, parent_level = name.split("_")
-                if name in self.childrensRelatives.keys():
-                    self.parents[name] = self.childrensRelatives[name]
-                    continue
-                self.parents[name] = DataProductRange(
-                    parent_level,
-                    self.cases,
-                    self.config,
-                    self.tq,
-                    cam,
-                    addRelatives=True,
-                    childrensRelatives=self.childrensRelatives,
-                )
-                self.parents.update(self.parents[name].parents)
-                self.childrensRelatives.update(self.parents)
+        # if addRelatives:
+        #     for name in self._instances[0].parentNames:
+        #         cam, parent_level = name.split("_")
+        #         if name in self.childrensRelatives.keys():
+        #             self.parents[name] = self.childrensRelatives[name]
+        #         if name in self.childrensRelatives.keys():
+        #             print(name, 123)
+        #             continue
+        #         print(name, 234)
+
+        #         self.parents[name] = DataProductRange(
+        #             parent_level,
+        #             self.cases,
+        #             self.config,
+        #             self.tq,
+        #             cam,
+        #             addRelatives=True,
+        #             childrensRelatives=self.childrensRelatives,
+        #         )
+        #         self.parents.update(self.parents[name].parents)
+        #         self.childrensRelatives.update(self.parents)
 
     def __getitem__(self, key):
         """Get item by key.

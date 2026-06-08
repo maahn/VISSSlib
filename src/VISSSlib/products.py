@@ -865,7 +865,9 @@ class DataProduct(object):
                     log.warning(f"{fname} removed")
         if withParents:
             for name, parent in self.parents.items():
-                parent.cleanUpBroken(withParents=False, withNoData=withNoData)
+                if not isinstance(parent, list):
+                    parent = [parent]
+                [p.cleanUpBroken(withParents=False, withNoData=withNoData) for p in parent]
 
     def reportBroken(self, withParents=False, returnAllInformation=True):
         """Report broken files.

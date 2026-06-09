@@ -450,6 +450,9 @@ def createLevel2(
     lv2Dat.Dmax_std.attrs.update(
         dict(units="m", long_name="standard deviation maximum diameter")
     )
+    lv2Dat.Dmax_dist.attrs.update(
+        dict(units="m", long_name="maximum diameter distribution")
+    )
     lv2Dat.M1.attrs.update(
         dict(units="m", long_name="1st moment of the size distribution")
     )

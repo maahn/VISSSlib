@@ -39,6 +39,7 @@ from numba import jit
 
 # settings that stay mostly constant
 DEFAULT_SETTINGS = {
+    "movieExtension": "mkv",
     "correctForSmallOnes": False,
     "height_offset": 64,
     "minMovingPixels": [20, 10, 5, 2, 2, 2, 2],

@@ -1781,6 +1781,8 @@ def _statusText(fig, fnames, config, addLogo=True):
         thisDate = ""
     except FileNotFoundError:
         thisDate = ""
+    except TypeError:
+        thisDate = ""
     else:
         thisDate = timestamp2str(thisDate)
     string = f"VISSSlib {__version__}, created  "

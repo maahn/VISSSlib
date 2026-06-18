@@ -3,16 +3,19 @@
 import datetime
 import glob
 import io
+import json
 import logging
 import multiprocessing
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import tarfile
 import time
 import warnings
 import zipfile
+import zlib
 from copy import deepcopy
 
 import cv2
@@ -37,7 +40,7 @@ log = logging.getLogger(__name__)
 
 from numba import jit
 
-# settings that stay mostly constant
+# settings that stay mostly constant.
 DEFAULT_SETTINGS = {
     "movieExtension": "mkv",
     "correctForSmallOnes": False,
@@ -899,21 +902,15 @@ imageTarFile.extractimage = _extractimage
 import zipfile
 
 
-class imageZipFile(zipfile.ZipFile):
+class ZipFile(zipfile.ZipFile):
+    """
+    Extended zip file class with automatic parent directory creation.
+    Extra functions to store and retrieve images as numpy arrays
+    """
+
     def __init__(self, file, **kwargs):
         createParentDir(file)
         super().__init__(file, **kwargs)
-
-    def addimage(self, fname, img):
-        # encode
-        img = Image.fromarray(img)
-        buf1 = io.BytesIO()
-        img.save(buf1, format="PNG", compress_level=9)
-        # convert to uint8
-        buf2 = np.frombuffer(buf1.getbuffer(), dtype=np.uint8)
-
-        # add file
-        return self.writestr(fname, buf2)
 
     def addnpy(self, fname, array):
         # encode
@@ -921,14 +918,216 @@ class imageZipFile(zipfile.ZipFile):
         np.save(buf1, array)
         return self.writestr(fname, buf1.getbuffer())
 
-    def extractimage(self, fname):
-        image = self.read(fname)
-        image = np.array(Image.open(io.BytesIO(image)))
-        return image
-
     def extractnpy(self, fname):
         array = np.load(io.BytesIO(self.read(fname)))
         return array
+
+
+def imageZipFile(fname, **kwargs):
+    """
+    Create appropriate archive file handler.
+
+    Parameters
+    ----------
+    fname : str
+        File name.
+    **kwargs : dict
+        Additional arguments for archive creation.
+
+    Returns
+    -------
+    Archive handler
+        ZipFile or BlockImageArchive instance.
+    """
+    createParentDir(fname)
+
+    if fname.endswith("zip"):
+        return ZipFile(fname, **kwargs)
+    else:
+        return BlockImageArchive(fname, **kwargs)
+
+
+class BlockImageArchive:
+    """
+    A high-efficiency binary archive for storing thousands of small numpy arrays.
+
+    This class provides a single-file storage solution specifically optimized for
+    small, variable-sized uint8 arrays. It uses block compression to maximize the
+    compression ratio and maintains a JSON index for O(1) random access.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the archive file.
+    mode : {'a', 'w', 'r'}, optional
+        'a' : Append/Read mode. Loads existing index and allows adding more data.
+        'w' : Write mode. Overwrites any existing file.
+        'r' : Read-only mode. Prevents any modifications to the file.
+        Default is 'a'.
+    block_size : int, optional
+        Number of images to group into a single compressed block.
+        Default is 256.
+    level : int, optional
+        Zip compression level.
+        Default is 8.
+    """
+
+    def __init__(self, filepath, mode="r", block_size=256, level=8):
+        self.filepath = filepath
+        self.mode = mode
+        self.level = level
+        self.block_size = block_size
+        self.index = {}
+        self.buffer = []
+        self._f = None
+
+        file_exists = os.path.exists(filepath)
+
+        if mode == "r":
+            if not file_exists:
+                raise FileNotFoundError(f"Archive not found: {filepath}")
+            self._f = open(self.filepath, "rb")
+        elif mode == "w":
+            if file_exists:
+                os.remove(filepath)
+            self._f = open(self.filepath, "wb+")
+        elif mode == "a":
+            self._f = open(self.filepath, "rb+" if file_exists else "wb+")
+        else:
+            raise ValueError("Mode must be 'r', 'w', or 'a'")
+
+        # Load index if the file is not new
+        if file_exists and os.path.getsize(self.filepath) > 8:
+            self._read_index_from_disk()
+
+    def _read_index_from_disk(self):
+        """Reads the index pointer and loads the index dictionary."""
+
+        self._f.seek(-8, os.SEEK_END)
+        index_ptr = struct.unpack("<Q", self._f.read(8))[0]
+        self._f.seek(index_ptr)
+        data = self._f.read(os.path.getsize(self.filepath) - index_ptr - 8)
+        self.index = json.loads(data.decode("utf-8"))
+
+        # If appending, seek to the start of the old index to overwrite it.
+        # If reading, this seek doesn't hurt.
+        self._f.seek(index_ptr)
+
+    def _write_current_block(self):
+        """Compresses buffered images and appends them to the file."""
+        if self.mode == "r":
+            raise IOError("Cannot write to an archive opened in read-only mode.")
+
+        if not self.buffer:
+            return
+
+        raw_bytes_list = [img.tobytes() for _, img, _ in self.buffer]
+        raw_block = b"".join(raw_bytes_list)
+        compressed_block = zlib.compress(raw_block, level=self.level)
+
+        self._f.seek(0, os.SEEK_END)
+        block_offset = self._f.tell()
+        self._f.write(compressed_block)
+        block_len = self._f.tell() - block_offset
+
+        current_inner_offset = 0
+        for i, (image_id, array, shape) in enumerate(self.buffer):
+            img_len = len(raw_bytes_list[i])
+            self.index[str(image_id)] = [
+                block_offset,
+                block_len,
+                current_inner_offset,
+                img_len,
+                shape,
+            ]
+            current_inner_offset += img_len
+
+        self.buffer = []
+
+    def addnpy(self, image_id, array):
+        """
+        Add a numpy array to the archive.
+
+        The array is added to an internal buffer. When the buffer reaches
+        `block_size`, the images are compressed and written to disk.
+
+        Parameters
+        ----------
+        image_id : str or int
+            Unique identifier for the image.
+        array : numpy.ndarray
+            The uint8 array to store.
+        """
+        if self.mode == "r":
+            raise IOError("Archive is in read-only mode.")
+        self.buffer.append((image_id, array, list(array.shape)))
+        if len(self.buffer) >= self.block_size:
+            self._write_current_block()
+
+    def extractnpy(self, image_id):
+        """
+        Retrieve a numpy array by its ID.
+
+        This method reads only the required compressed block from disk,
+        decompresses it in memory, and returns the specific slice.
+
+        Parameters
+        ----------
+        image_id : str or int
+            The identifier of the image to retrieve.
+
+        Returns
+        -------
+        numpy.ndarray
+            The reconstructed uint8 array.
+
+        Raises
+        ------
+        KeyError
+            If the image_id is not found in the archive index.
+        """
+        if str(image_id) not in self.index:
+            raise KeyError(f"ID {image_id} not found.")
+
+        b_offset, b_len, inner_off, img_len, shape = self.index[str(image_id)]
+
+        self._f.seek(b_offset)
+        compressed_block = self._f.read(b_len)
+        raw_block = zlib.decompress(compressed_block)
+
+        img_bytes = raw_block[inner_off : inner_off + img_len]
+        return np.frombuffer(img_bytes, dtype=np.uint8).reshape(shape)
+
+    def close(self):
+        """
+        Closes the file handle. In 'w' or 'a' mode, finalizes the index.
+        In 'r' mode, simply closes the file.
+        """
+        if self._f and not self._f.closed:
+            # Only write metadata if we were in a writing mode
+            if self.mode in ("w", "a"):
+                self._write_current_block()
+                self._f.seek(0, os.SEEK_END)
+                ptr = self._f.tell()
+                self._f.write(json.dumps(self.index).encode("utf-8"))
+                self._f.write(struct.pack("<Q", ptr))
+
+            self._f.close()
+            self._f = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        try:
+            if hasattr(self, "_f") and self._f is not None:
+                if not self._f.closed:
+                    self.close()
+        except:
+            pass
 
 
 def createParentDir(file):

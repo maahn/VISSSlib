@@ -136,7 +136,6 @@ DEFAULT_SETTINGS = {
     "level3": {
         "combinedRiming": {
             "extraFileStr": "",
-            "habit": "mean",  # SSRG particle habit
             "maxTemp": 275.15,  # +2°C
             "minNParticles": 100,
             "minZe": -10,

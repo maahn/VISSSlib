@@ -3778,7 +3778,9 @@ def createLevel3RimingQuicklook(
 
         dat3.Ze_0.plot(ax=ax1, label="Ze_0")
         dat3.Ze_ground.plot(ax=ax1, label="Ze_ground")
-        dat3.Ze_combinedRetrieval.plot(ax=ax1, label="Ze_combinedRetrieval")
+        dat3.Ze_combinedRetrieval.sel(shape="mean").plot(
+            ax=ax1, label="Ze_combinedRetrieval"
+        )
         dat3.Ze_ground_fitResidual.where(dat3.Ze_0 > -10).plot(
             ax=ax1, label="Ze_ground_fitResidual"
         )
@@ -3788,10 +3790,16 @@ def createLevel3RimingQuicklook(
         ax1.legend()
         ax1.set_ylim(-20, 40)
 
-        dat3.combinedNormalizedRimeMass.plot(ax=ax2, label="M (combined)")
+        dat3.combinedNormalizedRimeMass.sel(shape="mean").plot(
+            ax=ax2, label="M (combined, shape: mean)"
+        )
+        for shape in ["column", "dendrite", "needle", "plate", "rosette"]:
+            dat3.combinedNormalizedRimeMass.sel(shape=shape).plot(
+                ax=ax2, c="C0", alpha=0.3
+            )
         dat2.normalizedRimeMass_mean.plot(ax=ax2, label="M (in situ weighted mean)")
-        dat2.normalizedRimeMass_dist.mean("D_bins").plot(
-            ax=ax2, label="M (in situ mean)"
+        dat2.normalizedRimeMass_dist.quantile(0.9, dim="D_bins").plot(
+            ax=ax2, label="M (in situ 90th percentile)"
         )
 
         ax2.set_ylabel("M [-]")
@@ -3799,13 +3807,22 @@ def createLevel3RimingQuicklook(
         ax2.legend()
         ax2.set_ylim(1e-3, 10)
 
-        dat3.IWC.plot(ax=ax3, label="IWC (combined)")
+        dat3.IWC.sel(shape="mean").plot(ax=ax3, label="IWC (combined, shape: mean)")
+        for shape in ["column", "dendrite", "needle", "plate", "rosette"]:
+            dat3.IWC.sel(shape=shape).plot(ax=ax3, c="C0", alpha=0.3)
         ax3.set_ylabel("IWC [kg/m$^3$]")
         ax3.set_yscale("log")
         ax3.legend()
 
-        dat3.SR_M.plot(ax=ax4, label="SR (combined with meas. fall vel.)")
-        dat3.SR_M_heymsfield10.plot(ax=ax4, label="SR (combined with param. fall vel.)")
+        dat3.SR_M.sel(shape="mean").plot(
+            ax=ax4, label="SR (combined with meas. fall vel., shape: mean)"
+        )
+        dat3.SR_M_heymsfield10.sel(shape="mean").plot(
+            ax=ax4, label="SR (combined with param. fall vel., shape: mean)"
+        )
+        for shape in ["column", "dendrite", "needle", "plate", "rosette"]:
+            dat3.SR_M.sel(shape=shape).plot(ax=ax4, c="C0", alpha=0.3)
+            dat3.SR_M_heymsfield10.sel(shape=shape).plot(ax=ax4, c="C1", alpha=0.3)
         ax4.set_ylabel("SR [mm/h w.e.]")
         ax4.set_yscale("log")
         ax4.legend()
@@ -3872,16 +3889,15 @@ def createLevel3RimingQuicklook(
                     alpha=0.25,
                     label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
                 )  # , hatch='///')
-            cond = quality.time.where(tracksTooShort)
-            if cond.notnull().any():
+            if tracksTooShort.sum() > 0:
                 ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
+                    quality.time.values,
+                    ylim[0],
+                    ylim[1],
+                    where=tracksTooShort.values,
                     color="blue",
                     alpha=0.2,
                     label=f"mean track length < {config.quality.trackLengthThreshold}",
-                    # hatch="X",
                 )
 
             ax.set_ylim(ylim)

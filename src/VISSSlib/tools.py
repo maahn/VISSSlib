@@ -131,7 +131,6 @@ DEFAULT_SETTINGS = {
     "level3": {
         "combinedRiming": {
             "processRetrieval": False,
-            "habit": "mean",  # SSRG particle habit
             "Zvar": "Ze_ground",  # extrapolated to surface using aux.radar.heightIndices
             "maxTemp": 275.15,
             "minZe": -10,

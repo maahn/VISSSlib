@@ -1971,13 +1971,6 @@ def detectParticles(
     # trainign files not needed any more
     del trainingFrames
 
-    # write background to PNG file
-    cv2.imwrite(
-        fn.fname.metaDetection.replace(".nc", ".png"),
-        snowParticles.backSub.getBackgroundImage(),
-        [cv2.IMWRITE_PNG_COMPRESSION, 9],
-    )
-
     # test motion
     # nMovingPixel missing in some mosaic data
     if np.all(metaData.nMovingPixel.values == -9999):

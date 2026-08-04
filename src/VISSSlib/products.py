@@ -779,6 +779,80 @@ class DataProduct(object):
             for name, parent in self.parents.items():
                 parent.report(withParents=False)
 
+    def reportBroken(self, withParents=False, returnAllInformation=True):
+        """Report broken files.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to include parent reports
+        returnAllInformation : bool, default True
+            Whether to return all information
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with broken file information
+        """
+        import pandas as pd
+
+        results_data = []
+        for brokenFile in self.listBroken():
+            with open(brokenFile) as f:
+                lines = f.readlines()
+            if len(lines) == 1:
+                command = "n/a"
+                outfile = "n/a"
+                gist = lines[0].rstrip()
+                fullError = "".join(lines)
+            else:
+                command = lines[1][9:].split(";")[-1].strip()
+                outfile = lines[2][9:].rstrip()
+                gist = f"{lines[-2].rstrip(), lines[-1].rstrip()}"
+                fullError = "".join(lines[4:])
+            ff = files.FilenamesFromLevel(brokenFile, self.config)
+            index = f"{ff.camera.split("_")[0]}_{ff.case}_{self.level}"
+
+            # Create a dict and append it to the list
+            row = {
+                "index": index,
+                "command": command,
+                "outfile": outfile,
+                "gist": gist,
+                "fullError": fullError,
+            }
+            results_data.append(row)
+
+        if len(results_data) == 0:
+            df = pd.DataFrame(
+                columns=["index", "command", "outfile", "gist", "fullError"]
+            )
+        else:
+            df = pd.DataFrame(
+                results_data,
+            )
+
+        df = df.set_index("index")
+
+        if withParents:
+            df1 = [df]
+            for name, parent in self.parents.items():
+                df1.append(
+                    parent.reportBroken(
+                        withParents=False,
+                        returnAllInformation=returnAllInformation,
+                    )
+                )
+            df = pd.concat(df1)
+            # df = df.iloc[~df.index.duplicated()]
+            df = df.sort_index()
+
+        if returnAllInformation:
+            return df
+        else:
+            return df[["command", "gist"]]
+
+
     @cached_property
     def dataAvailable(self):
         """

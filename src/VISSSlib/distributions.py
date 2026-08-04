@@ -401,7 +401,7 @@ def _createLevel2(
     # is that smart??
     noLevel0 = len(fL.listFilesExt(f"level0txt")) == 0
     if noLevel0:
-        with tools.open2("%s.nodata" % lv2File, "w") as f:
+        with tools.open2("%s.nodata" % lv2File, config, "w") as f:
             f.write("no level 0 data for %s" % case)
 
     if sublevel == "match":

@@ -7,6 +7,7 @@ import io
 import json
 import multiprocessing
 import os
+import re
 import shutil
 import socket
 import struct
@@ -2329,6 +2330,10 @@ def cart2pol(x, y):
     phi = np.arctan2(y, x)
     return (rho, phi)
 
+# Entfernt ANSI escape codes (Farben, Cursor-Steuerung etc.)
+ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE.sub("", text)
 
 @taskqueue.queueable
 def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
@@ -2373,7 +2378,7 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
             # Poll process for new output until finished
             if proc.stdout is not None:
                 for line in proc.stdout:
-                    line = line.decode()
+                    line = strip_ansi(line.decode())
                     log.info(line)
                     f.write(line)
                     f.flush()

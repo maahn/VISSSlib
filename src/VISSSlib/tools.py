@@ -2578,7 +2578,7 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
         return False
     if level0 is not None:
         if len(level0) == 0:
-            log.warning("fno level0 data {ffOut}")
+            log.warning(f"no level0 data {ffOut}")
             return True
     if events is not None:
         if np.any(

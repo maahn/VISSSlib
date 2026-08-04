@@ -403,6 +403,8 @@ def _createLevel2(
     if noLevel0:
         with tools.open2("%s.nodata" % lv2File, config, "w") as f:
             f.write("no level 0 data for %s" % case)
+        log.warning("no level 0 data for %s" % case)
+        return None, None
 
     if sublevel == "match":
         if not fL.isCompleteL1match:

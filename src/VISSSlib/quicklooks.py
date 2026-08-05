@@ -755,8 +755,7 @@ def createLevel1detectQuicklook(
                             # im = particleImages[fname][0].extractimage(imfname)
                             im = particleImages[fname].extractnpy(pidStr)
                         except KeyError:
-                            print("NOT FOUND ", pidStr)
-                            raise ValueError
+                            log.error(f"Particle image {pidStr} NOT FOUND ")
                             continue
                         # apply alpha channel
                         # im[...,0][im[...,1] == 0] = background

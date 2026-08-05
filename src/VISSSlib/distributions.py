@@ -2320,7 +2320,7 @@ def estimateObservationVolume(level1dat_time, config, DbinsPixel, timeIndex1):
         )
 
     else:
-        log.info("do NOT adjust observation volujme for smallest particles")
+        log.info("do NOT adjust observation volume for smallest particles")
         maxSharpnessSizes = tuple()
         maxSharpnessLeader = tuple()
         maxSharpnessFollower = tuple()

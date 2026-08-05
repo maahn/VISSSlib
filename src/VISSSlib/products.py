@@ -1,3 +1,4 @@
+import datetime
 import glob
 import os
 import random
@@ -228,7 +229,7 @@ class DataProduct(object):
         # cache for this function
         isComplete = self.isComplete
 
-        if (not self.dataAvailable) and (self.config.end == "today"):
+        if (not self.dataTransfered) and (self.config.end == "today"):
             log.warning(
                 f"{self.case} {self.relatives}: no data found (yet?) in {self.fn.fnamesPattern.level0txt}"
             )
@@ -854,7 +855,7 @@ class DataProduct(object):
 
 
     @cached_property
-    def dataAvailable(self):
+    def dataTransfered(self):
         """
         Check if data is available for this product.
 
@@ -863,7 +864,18 @@ class DataProduct(object):
         bool
             True if data is available, False otherwise
         """
-        return len(self.fn.listFiles("level0txt")) > 0
+        dataTransfered = len(self.fn.listFiles("level0txt")) > 0
+        if not dataTransfered:
+            foundLastFile, lastCase, lastFile, lastFileTime = files.findLastFile(
+                self.config, "level0", self.camera
+            )
+            if foundLastFile:
+                if lastFileTime > (self.fn.datetime + datetime.timedelta(1)):
+                    mes = f"Newer L0 files have been found, likely data gap on {self.fn.case}"
+                    log.warning(mes)
+                    dataTransfered = True
+
+        return dataTransfered
 
     @cached_property
     def allComplete(self):

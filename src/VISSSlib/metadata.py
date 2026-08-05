@@ -1339,10 +1339,19 @@ def createEvent(
                 nFiles = int(nFiles.values)
 
             if nFiles == len(fnames0):
-                if not quiet:
-                    log.info(tools.concat("Skipping", case, eventFile))
+                if np.any(
+                    os.path.getmtime(eventFile)
+                    < np.array([0] + [os.path.getmtime(f) for f in fnames0])
+                ):
+                    if not quiet:
+                        log.warning(
+                            f"file exists but older than lv0 files, redoing {eventFile}"
+                        )
+                else:
+                    if not quiet:
+                        log.info(tools.concat("Skipping", case, eventFile))
 
-                return None
+                    return None
             else:
                 log.info(
                     tools.concat(

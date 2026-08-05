@@ -1367,5 +1367,16 @@ def createEvent(
 
     except (ValueError, AssertionError):
         print("NO DATA", case, eventFile)
+        # Check whetehr there is newer L0 data avaiable then it is a data gap and
+        # a .nodata file is written.
+        foundLastFile, lastCase, lastFile, lastFileTime = files.findLastFile(
+            config, "level0", camera
+        )
+        if foundLastFile:
+            if lastFileTime > (fn.datetime + datetime.timedelta(1)):
+                mes = f"Newer L0 files have been found (e.g. {lastFile}), likely data gap on {fn.case}"
+                log.warning(mes)
+                with tools.open2(eventFile + ".nodata", config, "w") as f:
+                    f.write(mes)
 
     return metaDats

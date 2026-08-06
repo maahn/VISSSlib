@@ -1254,7 +1254,7 @@ def trackParticles(
         return None, fnameTracking
     elif doMatchIfRequired:
         log.info("need to create lv1match data")
-        _, lv1match, _, _ = matching.matchParticles(
+        _, lv1match, _, _, _, _, _, _ = matching.matchParticles(
             fnameLv1Detect, config, writeNc=False
         )
 

@@ -26,6 +26,7 @@ Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introduc
    tools
    files
    metadata
+   detection
    metaRotation
    matching
    config_files

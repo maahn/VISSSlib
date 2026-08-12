@@ -464,7 +464,7 @@ class detectedParticles(object):
             Foreground mask
         cnt : array
             Contour coordinates
-        **kwargs : dict
+        \*\*kwargs : dict
             Additional keyword arguments
 
         Returns

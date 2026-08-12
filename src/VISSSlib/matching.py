@@ -2548,14 +2548,12 @@ def manualRotationEstimate(
 
     Notes
     -----
-    The function performs these steps for each case:
-    1. Load level1 detection data
-    2. Calculate minimum particle size (minSize) for filtering
-    3. Run up to 4 iterations of particle matching:
-        - 1st iteration: Full parameter set with strict filters
-        - Subsequent iterations: Relaxed parameters using previous rotation estimate
-    4. Validate results at each iteration
-    5. Store final rotation parameters if all validations pass
+    The function performs these steps for each case: load level1 detection
+    data; calculate a minimum particle size (minSize) for filtering; run up
+    to 4 iterations of particle matching (the 1st with the full parameter
+    set and strict filters, subsequent ones with relaxed parameters using
+    the previous rotation estimate); validate results at each iteration;
+    and store the final rotation parameters once all validations pass.
     """
     import pandas as pd
     import yaml

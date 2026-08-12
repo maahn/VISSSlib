@@ -144,11 +144,12 @@ def createLevel2detect(
         4) if variable contains extra dimensions, which one to select, {} otherwise
 
         Example to get all particles > 10 pixels (using max of both cameras) with
-        aspectRatio >= 0.7 (using min of both cameras)
-        applyFilters = [
-            ("Dmax",">",10,"max",{}),
-            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-        ]
+        aspectRatio >= 0.7 (using min of both cameras)::
+
+            applyFilters = [
+                ("Dmax",">",10,"max",{}),
+                ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+            ]
     doPlot : bool, optional
         Create plots, defaults to True.
     doParticlePlot : bool, optional
@@ -231,11 +232,12 @@ def createLevel2match(
         4) if variable contains extra dimensions, which one to select, {} otherwise
 
         Example to get all particles > 10 pixels (using max of both cameras) with
-        aspectRatio >= 0.7 (using min of both cameras)
-        applyFilters = [
-            ("Dmax",">",10,"max",{}),
-            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-        ]
+        aspectRatio >= 0.7 (using min of both cameras)::
+
+            applyFilters = [
+                ("Dmax",">",10,"max",{}),
+                ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+            ]
     doPlot : bool, optional
         Create plots, defaults to True.
     doParticlePlot : bool, optional
@@ -314,11 +316,12 @@ def createLevel2track(
         4) if variable contains extra dimensions, which one to select, {} otherwise
 
         Example to get all particles > 10 pixels (using max of both cameras) with
-        aspectRatio >= 0.7 (using min of both cameras)
-        applyFilters = [
-            ("Dmax",">",10,"max",{}),
-            ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
-        ]
+        aspectRatio >= 0.7 (using min of both cameras)::
+
+            applyFilters = [
+                ("Dmax",">",10,"max",{}),
+                ("aspectRatio",">",0.7,"min",{"fitMethod":'cv2.fitEllipseDirect'}),
+            ]
     doPlot : bool, optional
         Create plots, defaults to True.
     doParticlePlot : bool, optional

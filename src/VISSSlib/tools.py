@@ -183,12 +183,15 @@ def loopify_with_camera(func=None, *, endYesterday=True):
 
     Examples
     --------
-    @loopify_with_camera
-    def my_func(case, camera, config):
-        pass
-    @loopify_with_camera(endYesterday=False)
-    def my_func(case, camera, config):
-        pass
+    ::
+
+        @loopify_with_camera
+        def my_func(case, camera, config):
+            pass
+
+        @loopify_with_camera(endYesterday=False)
+        def my_func(case, camera, config):
+            pass
     """
 
     def decorator(f):
@@ -248,13 +251,15 @@ def loopify(func=None, *, endYesterday=True):
 
     Examples
     --------
-    @loopify
-    def my_func(case, config):
-        pass
+    ::
 
-    @loopify(endYesterday=False)
-    def my_func(case, config):
-        pass
+        @loopify
+        def my_func(case, config):
+            pass
+
+        @loopify(endYesterday=False)
+        def my_func(case, config):
+            pass
     """
 
     def decorator(f):
@@ -1457,7 +1462,7 @@ def imageZipFile(fname, **kwargs):
     ----------
     fname : str
         File name.
-    **kwargs : dict
+    \*\*kwargs : dict
         Additional arguments for archive creation.
 
     Returns
@@ -1702,7 +1707,7 @@ def savefig(
         Width padding for tight layout. Default is None.
     h_pad : float, optional
         Height padding for tight layout. Default is None.
-    **kwargs : dict
+    \*\*kwargs : dict
         Additional keyword arguments passed to matplotlib's savefig function.
 
     Returns
@@ -2090,7 +2095,7 @@ def concat(*strs):
 
     Parameters
     ----------
-    *strs : str
+    \*strs : str
         Strings to concatenate.
 
     Returns
@@ -2179,7 +2184,7 @@ def open2(file, config, mode="r", cleanUp=True, **kwargs):
         File mode, by default "r".
     cleanUp : bool, optional
         Clean up temporary files, by default True.
-    **kwargs : dict
+    \*\*kwargs : dict
         Additional arguments for opening.
 
     Returns
@@ -2234,7 +2239,7 @@ def to_netcdf2(dat, config, file, **kwargs):
         Configuration settings.
     file : str
         Output file name.
-    **kwargs : dict
+    \*\*kwargs : dict
         Additional arguments for saving.
 
     Returns

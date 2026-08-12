@@ -2852,10 +2852,15 @@ For information about the commands, run
     _add_std_args(p)
 
     p = subparsers.add_parser(
-        "quicklooks.createMetaCoefQuicklook",
-        help="Create metadata coefficient quicklook",
+        "quicklooks.metaRotationQuicklook",
+        help="Create camera rotation coefficient quicklook",
     )
     _add_std_args(p)
+
+    p = subparsers.add_parser(
+        "quicklooks.metaFramesQuicklook", help="Create metaFrames quicklook"
+    )
+    _add_std_args(p, has_camera=True)
 
     p = subparsers.add_parser(
         "quicklooks.level0Quicklook", help="Create Level 0 quicklook"

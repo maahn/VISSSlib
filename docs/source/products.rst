@@ -91,6 +91,57 @@ Entry points
   acquisition/near-real-time side without the expensive Level 1/2/3
   processing.
 
+Typical deployment: two tiers
+-----------------------------------
+
+A production deployment typically splits processing into two independently
+scheduled tiers, matching the cheap/expensive split above:
+
+1. **Realtime tier** — run frequently (e.g. from cron), close to the data
+   acquisition side, with no cluster/queue involved. Loops over one
+   settings file per monitored site:
+
+   .. code:: console
+
+       python -m VISSSlib products.processRealtime <settings.yaml> <days> --skip-existing
+
+   This only ever runs :func:`VISSSlib.products.processRealtime`'s cheap
+   subset (metaEvents, level0 quicklook, metaFrames, last-file report) — it
+   deliberately never triggers Level 1/2/3 processing, so it stays fast
+   enough to run every few minutes without competing for cluster resources.
+
+2. **Batch tier** — run on a cluster for the expensive Level 1/2/3 work.
+   One job submits work into a task queue, a separate (typically
+   ``sbatch``-submitted, low-priority) job runs one or more
+   :func:`VISSSlib.tools.workers` processes to drain it:
+
+   .. code:: console
+
+       # submit currently-generatable commands into the queue
+       python -m VISSSlib products.submitAll <settings.yaml> <case> <task_queue_dir>
+
+       # separately, on the cluster, drain the queue (see also scripts/VISSSlib_slurm.sh)
+       python -m VISSSlib worker <task_queue_dir> --n-jobs <N>
+
+   Because :func:`~VISSSlib.products.submitAll` only submits whatever part
+   of the DAG is *currently* ready (see above), it is typically scheduled
+   to run repeatedly (e.g. once a day) rather than once, so that a level
+   whose parents weren't ready yet on one run gets picked up on the next.
+
+A useful, easy-to-miss operational detail: if
+``config.level3.combinedRiming.processRetrieval`` is enabled, workers need
+the ``PAMTRA_DATADIR`` environment variable set to PAMTRA's data directory
+(scattering databases etc.) *before* they start — this isn't validated or
+documented anywhere inside VISSSlib itself, so a missing/wrong value fails
+silently deep inside :mod:`VISSSlib.level3.combined_riming`'s retrieval
+rather than at startup.
+
+It is also common to run two separate environments for the two tiers — a
+"current/dev" environment for the realtime tier and a separate, pinned
+environment for the batch tier — so that a bug introduced on the
+development branch can't affect an in-progress campaign's batch processing
+until it has been vetted.
+
 ``VISSSlib.products`` API
 -----------------------------
 

@@ -104,6 +104,16 @@ account for :math:`D_\text{max}`-dependent partial-particle exclusion, per
 the paper's ``effective observation volume reduced by`` :math:`D_\text{max}/2`
 description.
 
+``tests/test_distributions.py::TestVolume`` is a good sanity check to know
+about if you're touching this geometry: ``test_volumeEstimate`` asserts
+that with **zero** rotation/offset, the intersection volume collapses to
+exactly ``width * width * height`` (the cameras observe the same cuboid
+directly), and ``test_VolumeInterpolation`` asserts that
+``_estimateVolumes``' size-bin interpolation (computing the expensive
+mesh intersection at only ``nSteps`` bins and interpolating the rest, for
+performance) stays within 1% of computing every bin exactly — i.e. the
+interpolation shortcut is verified numerically, not just assumed safe.
+
 ``VISSSlib.distributions`` API
 ----------------------------------
 

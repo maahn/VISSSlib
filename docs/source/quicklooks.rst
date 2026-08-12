@@ -22,22 +22,24 @@ rather than through the DAG's own dependency mechanism — quicklooks are a
 side effect of running the corresponding processing function, not a
 separate DAG level.
 
-``generate()`` — a dispatcher with a latent bug, and unreachable
------------------------------------------------------------------------
+``generate()`` — a dispatcher with a latent bug
+-----------------------------------------------------
 
 :func:`VISSSlib.quicklooks.generate` is a ``level`` → quicklook-function
 dispatcher, structurally identical to :func:`VISSSlib.distributions._createLevel2`'s
 ``sublevel`` dispatch. It is not wired into the CLI (there's no
-``quicklooks.generate`` entry in ``tools._create_parser()``) and nothing
-in the codebase calls it — a ``grep`` for ``quicklooks.generate(`` outside
-this file's own definition returns nothing. It also has a copy-paste bug:
-its ``level == "level2track"`` branch calls
-:func:`~VISSSlib.quicklooks.createLevel2matchQuicklook` instead of
-:func:`~VISSSlib.quicklooks.createLevel2trackQuicklook` (the correct
-function, and the one :func:`VISSSlib.distributions.createLevel2track`
-itself calls directly). Currently harmless since the function is
-unreachable, but worth fixing (or removing) before anything starts calling
-it.
+``quicklooks.generate`` entry in ``tools._create_parser()``), and no
+processing module calls it either — only ``tests/test_quicklooks.py``
+exercises it directly. It has a copy-paste bug: its ``level == "level2track"``
+branch calls :func:`~VISSSlib.quicklooks.createLevel2matchQuicklook`
+instead of :func:`~VISSSlib.quicklooks.createLevel2trackQuicklook` (the
+correct function, and the one
+:func:`VISSSlib.distributions.createLevel2track` itself calls directly).
+The existing test doesn't catch this: it only asserts the returned figure
+object is not ``None``, not which quicklook function actually produced it,
+so the wrong-but-still-non-``None`` result passes silently — a good
+reminder that "the test passes" and "the test would catch this bug" are
+different claims.
 
 Particle image montages (``Packer_patched``)
 --------------------------------------------------

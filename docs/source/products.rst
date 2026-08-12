@@ -142,6 +142,14 @@ environment for the batch tier — so that a bug introduced on the
 development branch can't affect an in-progress campaign's batch processing
 until it has been vetted.
 
+``tests/test_products.py::TestProducts::test_processAll`` is the closest
+thing this repo has to a true end-to-end integration test: it runs
+:func:`VISSSlib.products.processAll` for a whole case against the
+downloaded sample dataset, exercising every level from ``level0`` through
+``allDone`` in one go (cited in ``CLAUDE.md`` as the reference single-test
+invocation). An older, disabled version of the same test class is left
+commented out directly above it in the file.
+
 ``VISSSlib.products`` API
 -----------------------------
 

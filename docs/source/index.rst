@@ -29,6 +29,7 @@ Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introduc
    detection
    metaRotation
    matching
+   tracking
    config_files
    api
    command_line

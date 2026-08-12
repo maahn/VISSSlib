@@ -5,7 +5,8 @@ Motivation
 ----------
 
 ``detection.py`` implements the CV pipeline described in the "Particle
-Detection" section of :doc:`visss_paper_r2`: turning raw per-camera video
+Detection" section of `Maahn et al. (2024) <https://amt.copernicus.org/articles/17/899/2024/>`_:
+turning raw per-camera video
 frames into the ``level1detect`` product (per-particle geometric/brightness
 properties in pixel units, one camera at a time — stereo combination
 happens later in :doc:`matching`). Two classes do the work:

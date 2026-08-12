@@ -44,7 +44,8 @@ different claims.
 Particle image montages (``Packer_patched``)
 --------------------------------------------------
 
-The random-particle-pair grid figures (like Fig. 7 in :doc:`visss_paper_r2`)
+The random-particle-pair grid figures (like Fig. 7 in
+`Maahn et al. 2024 <https://amt.copernicus.org/articles/17/899/2024/>`_)
 are built with :class:`VISSSlib.quicklooks.Packer_patched`, a small patch
 of the third-party ``image_packer`` library's bin-packing (bottom-left-fill)
 layout algorithm — patched specifically to accept in-memory ``PIL.Image``

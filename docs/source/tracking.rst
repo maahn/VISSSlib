@@ -5,7 +5,8 @@ Motivation
 ----------
 
 ``tracking.py`` implements the "Particle Tracking" step from
-:doc:`visss_paper_r2`: linking matched (``level1match``) particle
+`Maahn et al. (2024) <https://amt.copernicus.org/articles/17/899/2024/>`_:
+linking matched (``level1match``) particle
 observations across consecutive frames into ``level1track`` tracks, from
 which sedimentation velocity is derived and per-particle property estimates
 can be improved by combining multiple observations of the same particle. As

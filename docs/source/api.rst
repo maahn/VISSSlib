@@ -69,12 +69,6 @@ The VISSSlib processing library provides tools for analyzing Video In Situ Snowf
     :show-inheritance:
     :member-order: bysource
 
-.. automodule:: VISSSlib.scripts
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 .. automodule:: VISSSlib.tools
     :members:
     :undoc-members:

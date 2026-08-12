@@ -96,17 +96,19 @@ difference (:math:`\Delta h`) alone, ignoring vertical offset
 Run metaRotation
 ----------------
 
-Run metaRotation with 
+Run metaRotation with
 
-.. autofunction:: VISSSlib.scripts.loopCreateMetaRotation
+.. autofunction:: VISSSlib.matching.createMetaRotation
 
-Or in a shell script with
+``createMetaRotation`` is decorated with :func:`VISSSlib.tools.loopify`, which turns
+the per-case function into one that loops over a case range, or in a shell script with
 
 .. code:: console
 
-    python3 -m VISSSlib scripts.loopCreateMetaRotation  $config_files.yaml $nDays $skipExisiting
+    python3 -m VISSSlib matching.createMetaRotation $config_file.yaml $case --skip-existing
 
-The script is **not** parallelized because previous results are typically required.
+where ``$case`` is either a number of days to look back, or ``YYYYMMDD``/``YYYYMMDD-YYYYMMDD``.
+The command is **not** parallelized because previous results are typically required.
 
 Manual adjustments
 ------------------

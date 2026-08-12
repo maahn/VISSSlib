@@ -71,9 +71,9 @@ not just in this module:
   ``os.path.isfile(f"{fname}.nodata")`` rather than a shared helper, so the
   convention is implicit rather than enforced by a type.
 - :func:`VISSSlib.tools.to_netcdf2` — writes to a randomly-suffixed temp
-  file and ``os.rename``s it into place, to avoid partial files being picked
-  up by a concurrent reader or another worker process; also clears any
-  stale sentinel files for the same output on success.
+  file and renames it into place with ``os.rename``, to avoid partial files
+  being picked up by a concurrent reader or another worker process; also
+  clears any stale sentinel files for the same output on success.
 - :func:`VISSSlib.tools.finishNc` — the common last step before writing any
   product: attaches standard attributes (:func:`VISSSlib.tools.ncAttrs`,
   including the paper citation and the exact command line that produced the

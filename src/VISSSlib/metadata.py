@@ -1330,8 +1330,12 @@ def createEvent(
             log.info(
                 "txt status file was more recent than nc event file, redoing event file"
             )
-            log.info(f"{eventFile} {os.path.getmtime(eventFile)}")
-            log.info(f"{fname0status} {os.path.getmtime(fname0status)}")
+            log.info(
+                f"{eventFile} {datetime.fromtimestamp(os.path.getmtime(eventFile))}"
+            )
+            log.info(
+                f"{fname0status} {datetime.fromtimestamp(os.path.getmtime(fname0status))}"
+            )
         else:
             if "noLevel0Files" in eventDat.attrs:
                 nFiles = eventDat.attrs["noLevel0Files"]

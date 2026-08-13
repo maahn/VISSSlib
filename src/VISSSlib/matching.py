@@ -1871,7 +1871,7 @@ def matchParticles(
         )
 
     lEvents = ffl1.fname.metaEvents
-    lEvents = xr.open_dataset(lEvents)
+    lEvents = xr.open_dataset(lEvents).load()
 
     fEvents = np.unique([f.fname.metaEvents for f in fClass])
     fEvents = xr.open_mfdataset(fEvents).load()

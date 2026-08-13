@@ -1,8 +1,10 @@
+import types
+
 import numpy as np
 import pytest
 from VISSSlib.detection import *
 
-from helpers import get_test_data_path, get_test_path, readTestSettings
+from helpers import get_test_data_path, get_test_path, makeSyntheticConfig, readTestSettings
 
 
 class TestRoi(object):
@@ -123,6 +125,188 @@ class TestSplitUpContours:
         cnts, cntChildren = splitUpConours(cntsTmp, hierarchy)
         assert cnts == ["A"]
         assert cntChildren == [["B", "C"]]
+
+
+def _makeFrame(shape=(80, 80), background=200, particleValue=50):
+    """Bright background with a dark filled region -- matches VISSS's
+    shadowgraph/silhouette imaging (particles are dark against a bright
+    background), so particleContrast (background - pixMin) stays
+    positive and doesn't hit uint8 wraparound.
+    """
+    frame = np.full(shape, background, dtype=np.uint8)
+    frame[15:45, 15:55] = particleValue
+    return frame
+
+
+def _rectCnt(x0=20, y0=20, x1=50, y1=40):
+    return np.array(
+        [[[x0, y0]], [[x1, y0]], [[x1, y1]], [[x0, y1]]], dtype=np.int32
+    )
+
+
+class TestSingleParticle:
+    """Unit tests for detection.singleParticle, the per-particle geometry
+    class. Contours here are hand-built polygons (not the output of
+    cv2.findContours on a real video frame), so these exercise VISSSlib's
+    own downstream math (contourArea/arcLength/moments/minEnclosingCircle
+    -- all stable, version-independent computational geometry) without
+    depending on cv2's contour-tracing algorithm, which changed across
+    OpenCV releases (see distributions.py/detection.py findContours
+    changelog investigation) and is not expected to be bit-reproducible
+    across versions.
+    """
+
+    @pytest.fixture
+    def config(self, tmp_path):
+        return makeSyntheticConfig(tmp_path)
+
+    @pytest.fixture
+    def parent(self):
+        return types.SimpleNamespace(testing=[], brightnessBackground=200)
+
+    def _makeParticle(self, config, parent, cnt, cntChild=[], frame=None, pp1=0):
+        frame = _makeFrame() if frame is None else frame
+        return singleParticle(
+            parent,
+            config,
+            capture_id=1,
+            record_id=1,
+            capture_time=np.datetime64("2026-01-01"),
+            record_time=np.datetime64("2026-01-01"),
+            nThread=0,
+            pp1=pp1,
+            frame1=frame.copy(),
+            mask1=None,
+            cnt=cnt.copy(),
+            cntChild=[c.copy() for c in cntChild],
+            xOffset=0,
+            yOffset=0,
+            testing=[],
+        )
+
+    @pytest.mark.unit
+    def test_rectangle_geometry_matches_analytic_values(self, config, parent):
+        # 30x20 axis-aligned rectangle at (20,20)-(50,40)
+        cnt = _rectCnt()
+        sp = self._makeParticle(config, parent, cnt)
+
+        assert sp.success
+        assert sp.area == pytest.approx(30 * 20)
+        assert sp.perimeter == pytest.approx(2 * (30 + 20))
+        # cv2.boundingRect is pixel-inclusive, hence the +1 on each dim
+        assert list(sp.roi) == [20, 20, 31, 21]
+        # min enclosing circle of a rectangle's diagonal
+        assert sp.Dmax == pytest.approx((30**2 + 20**2) ** 0.5, rel=1e-3)
+        assert sp.position_centroid == (35, 30)
+        # rect-based aspect ratio (short side / long side)
+        assert sp.aspectRatio[-1] == pytest.approx(20 / 30)
+        assert sp.extent == pytest.approx(sp.area / (sp.roi[2] * sp.roi[3]))
+        assert sp.solidity == pytest.approx(1.0)  # convex hull of a rectangle is itself
+        assert sp.pixMin == sp.pixMax == sp.pixMean == 50
+        assert sp.blur == 0.0  # uniform fill -> zero-variance Laplacian
+        assert sp.particleContrast == pytest.approx(200 - 50)
+
+    @pytest.mark.unit
+    def test_hole_is_subtracted_from_area_and_added_to_perimeter(self, config, parent):
+        cnt = _rectCnt()
+        hole = _rectCnt(30, 25, 40, 35)  # 10x10 hole inside the particle
+        sp = self._makeParticle(config, parent, cnt, cntChild=[hole])
+
+        assert sp.area == pytest.approx(600)  # unaffected by the hole
+        assert sp.areaConsideringHoles == pytest.approx(600 - 100)
+        assert sp.perimeterConsideringHoles == pytest.approx(100 + 40)
+        assert len(sp.cntChild) == 1
+
+    @pytest.mark.unit
+    def test_tiny_hole_ignored_when_check4childCntLength(self, config, parent):
+        # holes with area <= 4 are discarded regardless of check4childCntLength
+        config.level1detect.check4childCntLength = True
+        cnt = _rectCnt()
+        tinyHole = _rectCnt(30, 25, 32, 27)  # 2x2 -> area 4
+        sp = self._makeParticle(config, parent, cnt, cntChild=[tinyHole])
+
+        assert sp.areaConsideringHoles == pytest.approx(sp.area)
+        assert len(sp.cntChild) == 0
+
+    @pytest.mark.unit
+    def test_ellipse_fits_require_more_than_four_points(self, config, parent):
+        # a 4-point rectangle can't be ellipse-fit -- NaN by design
+        sp4 = self._makeParticle(config, parent, _rectCnt())
+        assert np.isnan(sp4.angle_ellipse)
+        assert np.isnan(sp4.angle_ellipseDirect)
+
+        # a 5+ point contour does get fit
+        pentagon = np.array(
+            [[[35, 15]], [[55, 25]], [[47, 42]], [[23, 42]], [[15, 25]]],
+            dtype=np.int32,
+        )
+        sp5 = self._makeParticle(config, parent, pentagon)
+        assert not np.isnan(sp5.angle_ellipse)
+        assert not np.isnan(sp5.angle_ellipseDirect)
+
+
+class TestDetectedParticlesAdd:
+    """Unit tests for detectedParticles.add()'s bookkeeping and rejection
+    logic, with applyCanny2Particle disabled so the given contour is used
+    directly (bypassing detectedParticles' internal cv2.findContours
+    call, keeping this test independent of cv2's contour-tracing
+    version/algorithm).
+    """
+
+    @pytest.fixture
+    def dp(self, tmp_path):
+        config = makeSyntheticConfig(tmp_path)
+        config.level1detect.applyCanny2Particle = False
+        config.level1detect.minBlur = -999
+        config.level1detect.minContrast = -999
+        config.level1detect.erosionTestThreshold = -1
+
+        dp = detectedParticles(config, testing=[])
+        dp.capture_id, dp.record_id = 1, 1
+        dp.capture_time = np.datetime64("2026-01-01")
+        dp.record_time = np.datetime64("2026-01-01")
+        dp.nThread = 0
+        dp.brightnessBackground = 200
+        dp.frame4drawing = None
+        return dp
+
+    @pytest.fixture
+    def frame(self):
+        return _makeFrame()
+
+    @pytest.fixture
+    def fgMask(self):
+        return np.zeros((80, 80), dtype=np.uint8)
+
+    @pytest.mark.unit
+    def test_accepts_valid_particle_and_tracks_it(self, dp, frame, fgMask):
+        added = dp.add(frame.copy(), fgMask.copy(), _rectCnt())
+        assert added is True
+        assert dp.N == 1
+        assert dp.pids == [0]
+        assert dp.pp == 1
+
+    @pytest.mark.unit
+    def test_rejects_particle_touching_border(self, dp, frame, fgMask):
+        cntBorder = _rectCnt(0, 20, 20, 40)  # x0=0 touches the left edge
+        added = dp.add(frame.copy(), fgMask.copy(), cntBorder)
+        assert added is False
+        assert dp.N == 0
+        assert dp.pp == 0
+
+    @pytest.mark.unit
+    def test_rejects_particle_below_minDmax(self, dp, frame, fgMask):
+        dp.config.level1detect.minDmax = 9999
+        added = dp.add(frame.copy(), fgMask.copy(), _rectCnt())
+        assert added is False
+        assert dp.N == 0
+
+    @pytest.mark.unit
+    def test_skips_contour_below_minCntSize(self, dp, frame, fgMask):
+        tinyCnt = np.array([[[5, 5]], [[6, 5]]], dtype=np.int32)  # 2 points
+        added = dp.add(frame.copy(), fgMask.copy(), tinyCnt)
+        assert added is False
+        assert dp.N == 0
 
 
 class TestDetection(object):

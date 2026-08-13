@@ -1685,7 +1685,7 @@ def _createLevel2part(
             tmpXr = xr.concat(tmpXr, dim="size_definition")
             tmpXr["size_definition"] = sizeDefinitions
 
-            res[interv.left] = xr.Dataset(tmpXr)
+            res[interv.left] = tmpXr.copy()
 
         # clean up
         del tmpXr, tmpXr1
@@ -1753,7 +1753,7 @@ def _createLevel2part(
                 tmpXr = xr.concat(tmpXr, dim="size_definition")
                 tmpXr["size_definition"] = sizeDefinitions
 
-                tmp.append(xr.Dataset(tmpXr))
+                tmp.append(tmpXr.copy())
             # merge camera/min/max/mean reults
             res[interv.left] = xr.concat(tmp, dim=coordVar)
             # add camera/min/max/mean information

@@ -14,6 +14,124 @@ from . import __version__, files, matching, metadata, quicklooks, tools
 from .tools import ipython_debug, runCommandInQueue
 
 
+def _allDoneParents(self):
+    parents = [
+        "leader_metaEvents",
+        "follower_metaEvents",
+    ]
+    if self.config.level1match.processL1match:
+        parents += ["leader_level2track", "leader_level2match"]
+    if self.config.level2.processL2detect:
+        parents += ["leader_level2detect", "follower_level2detect"]
+    if self.config.level3.combinedRiming.processRetrieval:
+        parents += ["leader_level3combinedRiming"]
+    return parents
+
+
+# Single source of truth for "what depends on what" and "how is it built"
+# for every processing level. `parents` is a callable(self) -> list of
+# f"{camera}_{level}" parent names (a callable because a few levels'
+# parents depend on the camera or on config flags, e.g. allDone).
+# `leaderOnly=True` means the level only ever exists for camera="leader".
+# `command` describes how generateCommands() builds the shell command:
+#   ("none",)                                  no command (raw input levels)
+#   ("daily", call)                             one command for the whole day
+#   ("l1", originLevel, call, extraOrigin)      one command per level0/L1 file
+#   ("touch",)                                  the allDone sentinel file
+LEVEL_REGISTRY = {
+    "level0": {
+        "parents": lambda self: [],
+        "command": ("none",),
+    },
+    "level0txt": {
+        "parents": lambda self: [],
+        "command": ("none",),
+    },
+    "metaEvents": {
+        "parents": lambda self: [f"{self.camera}_level0txt"],
+        "command": ("daily", "metadata.createEvent"),
+    },
+    "metaFrames": {
+        "parents": lambda self: [f"{self.camera}_level0txt"],
+        "command": ("daily", "metadata.createMetaFrames"),
+    },
+    "level1detect": {
+        "parents": lambda self: [],
+        "command": ("l1", "level0txt", "detection.detectParticles", None),
+    },
+    "metaRotation": {
+        "parents": lambda self: [
+            "leader_level1detect",
+            "follower_level1detect",
+            # metaEvents are added to all the L2 products to force
+            # regeneration when event file is updated (ie more data is
+            # transferred)
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "matching.createMetaRotation"),
+        "leaderOnly": True,
+    },
+    "level1match": {
+        "parents": lambda self: [f"{self.camera}_metaRotation"],
+        "command": (
+            "l1",
+            "level1detect",
+            "matching.matchParticles",
+            "metaRotation",
+        ),
+        "leaderOnly": True,
+    },
+    "level1track": {
+        "parents": lambda self: [f"{self.camera}_level1match"],
+        "command": ("l1", "level1match", "tracking.trackParticles", None),
+        "leaderOnly": True,
+    },
+    "level2detect": {
+        "parents": lambda self: [
+            f"{self.camera}_level1detect",
+            f"{self.camera}_metaEvents",
+        ],
+        "command": ("daily", "distributions.createLevel2detect"),
+    },
+    "level2match": {
+        "parents": lambda self: [
+            f"{self.camera}_level1match",
+            # metaEvents are added to all the L2 products to force
+            # regeneration when events file is updated (ie more data is
+            # transferred)
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "distributions.createLevel2match"),
+        "leaderOnly": True,
+    },
+    "level2track": {
+        "parents": lambda self: [
+            f"{self.camera}_level1track",
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "distributions.createLevel2track"),
+        "leaderOnly": True,
+    },
+    "level3combinedRiming": {
+        "parents": lambda self: [
+            f"{self.camera}_level2track",
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "level3.retrieveCombinedRiming"),
+        "leaderOnly": True,
+    },
+    "allDone": {
+        "parents": _allDoneParents,
+        "command": ("touch",),
+        "leaderOnly": True,
+    },
+}
+
+
 class DataProduct(object):
     @log.catch(reraise=True)
     def __init__(
@@ -111,82 +229,13 @@ class DataProduct(object):
                 f"DataProduct) if this is an intentional one-off."
             )
 
-        if self.level == "level0":
-            self.parentNames = []
-        elif self.level == "level0txt":
-            self.parentNames = []
-        elif level == "metaEvents":
-            self.parentNames = [f"{camera}_level0txt"]
-        elif level == "metaFrames":
-            self.parentNames = [f"{camera}_level0txt"]
-        elif level == "level1detect":
-            self.parentNames = [
-                # f"{camera}_metaFrames", # done by level1detect
-                # f"{camera}_metaEvents", # done by metaRotation
-            ]
-        elif level == "metaRotation":
-            assert camera == "leader"
-            self.parentNames = [
-                f"leader_level1detect",
-                f"follower_level1detect",
-                f"leader_metaEvents",  # metaEvents are added to all the L2 products to force regenration when event file is updated (ie more data is transferred)
-                f"follower_metaEvents",
-            ]
-        elif level == "level1match":
-            assert camera == "leader"
-            self.parentNames = [f"{camera}_metaRotation"]
-        elif level == "level1track":
-            assert camera == "leader"
-            self.parentNames = [f"{camera}_level1match"]
-        # elif level == "level1shape":
-        #     assert camera == "leader"
-        #     self.parentNames = [f"{camera}_level1track"]
-        elif level == "level2detect":
-            self.parentNames = [f"{camera}_level1detect", f"{camera}_metaEvents"]
-        elif level == "level2match":
-            assert camera == "leader"
-            self.parentNames = [
-                f"{camera}_level1match",
-                f"leader_metaEvents",  # metaEvents are aded to all the L2 products to force regenration when events file is updated (ie more data is transferred)
-                f"follower_metaEvents",
-            ]
-        elif level == "level2track":
-            assert camera == "leader"
-            self.parentNames = [
-                f"{camera}_level1track",
-                f"leader_metaEvents",
-                f"follower_metaEvents",
-            ]
-        elif level == "level3combinedRiming":
-            assert camera == "leader"
-            self.parentNames = [
-                f"{camera}_level2track",
-                f"leader_metaEvents",
-                f"follower_metaEvents",
-            ]
-        elif level == "allDone":
-            assert camera == "leader"
-            self.parentNames = [
-                f"leader_metaEvents",
-                f"follower_metaEvents",
-            ]
-            if self.config.level1match.processL1match:
-                self.parentNames += [
-                    "leader_level2track",
-                    "leader_level2match",
-                ]
-            if self.config.level2.processL2detect:
-                self.parentNames += [
-                    "leader_level2detect",
-                    "follower_level2detect",
-                ]
-            if self.config.level3.combinedRiming.processRetrieval:
-                self.parentNames += [
-                    "leader_level3combinedRiming",
-                ]
-
-        else:
+        try:
+            levelSpec = LEVEL_REGISTRY[level]
+        except KeyError:
             raise ValueError(f"Do not understand {level}")
+        if levelSpec.get("leaderOnly", False):
+            assert camera == "leader"
+        self.parentNames = levelSpec["parents"](self)
         if addRelatives:
             for parentCam in self.parentNames:
                 # save time by not adding a product more than once
@@ -320,95 +369,35 @@ class DataProduct(object):
         ValueError
             If the level is not recognized
         """
-        if self.level == "level0":
+        try:
+            command = LEVEL_REGISTRY[self.level]["command"]
+        except KeyError:
+            raise ValueError(f"Do not understand {self.level}")
+
+        kind = command[0]
+        if kind == "none":
             return []
-        elif self.level == "level0txt":
-            return []
-        elif self.level == "metaEvents":
+        elif kind == "daily":
+            _, call = command
             return self._commandTemplateDaily(
-                "metadata.createEvent", skipExisting=skipExisting, nCPU=nCPU, bin=bin
+                call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
             )
-        elif self.level == "metaFrames":
-            return self._commandTemplateDaily(
-                "metadata.createMetaFrames",
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-            )
-        elif self.level == "level1detect":
-            originLevel = "level0txt"
-            call = "detection.detectParticles"
+        elif kind == "l1":
+            _, originLevel, call, extraOrigin = command
             return self._commandTemplateL1(
                 originLevel,
                 call,
                 skipExisting=skipExisting,
                 nCPU=nCPU,
                 bin=bin,
+                extraOrigin=extraOrigin,
             )
-        elif self.level == "metaRotation":
-            return self._commandTemplateDaily(
-                "matching.createMetaRotation",
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-            )
-        elif self.level == "level1match":
-            originLevel = "level1detect"
-            call = "matching.matchParticles"
-            return self._commandTemplateL1(
-                originLevel,
-                call,
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-                extraOrigin="metaRotation",
-            )
-        elif self.level == "level1track":
-            originLevel = "level1match"
-            call = "tracking.trackParticles"
-            return self._commandTemplateL1(
-                originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
-            )
-        # elif self.level == "level1shape":
-        #     originLevel = "level1track"
-        #     call = "particleshape.classifyParticles"
-        #     return self._commandTemplateL1(
-        #         originLevel, call, skipExisting=skipExisting, nCPU=nCPU, bin=bin
-        #     )
-        elif self.level == "level2detect":
-            return self._commandTemplateDaily(
-                "distributions.createLevel2detect",
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-            )
-        elif self.level == "level2match":
-            return self._commandTemplateDaily(
-                "distributions.createLevel2match",
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-            )
-        elif self.level == "level2track":
-            return self._commandTemplateDaily(
-                "distributions.createLevel2track",
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-            )
-        elif self.level == "level3combinedRiming":
-            return self._commandTemplateDaily(
-                "level3.retrieveCombinedRiming",
-                skipExisting=skipExisting,
-                nCPU=nCPU,
-                bin=bin,
-            )
-        elif self.level == "allDone":
+        elif kind == "touch":
             outFile = self.fn.fnamesDaily["allDone"]
             command = f"mkdir -p {os.path.dirname(outFile)} && touch {outFile}"
             return [(command, outFile)]
         else:
-            raise ValueError(f"Do not understand {self.level}")
+            raise ValueError(f"Do not understand command kind {kind} for {self.level}")
 
     def _commandTemplateL1(
         self,
@@ -521,12 +510,32 @@ class DataProduct(object):
         else:
             case = self.case
 
-        outFile = self.fn.fnamesDaily[self.level]
-
-        exisiting = glob.glob(f"{outFile}*")
-        if skipExisting and (len(exisiting) >= 1) and (self._youngerThanParents):
-            log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
-            return []
+        if self.level in files.dailyLevels:
+            outFile = self.fn.fnamesDaily[self.level]
+            exisiting = glob.glob(f"{outFile}*")
+            if skipExisting and (len(exisiting) >= 1) and (self._youngerThanParents):
+                log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
+                return []
+        else:
+            # levels like metaFrames: one CLI call covers a whole day (via
+            # tools.loopify_with_camera) but produces one output file per
+            # level0 input file, so there is no single fnamesDaily entry to
+            # check against (only files.dailyLevels have exactly one output
+            # file per day). Use nMissing instead, and build a synthetic
+            # per-day marker path -- matching fnamesPatternExt's naming
+            # scheme so it is still picked up by the broken/nodata glob --
+            # purely for runCommandInQueue's locking/broken-file bookkeeping.
+            outFile = os.path.join(
+                self.fn.outpath[self.level],
+                f"{self.level}_V{self.fn.version}_{self.fn.camera}_{self.fn.case}.nc",
+            )
+            if (
+                skipExisting
+                and (self.fn.nMissing(self.level) == 0)
+                and (self._youngerThanParents)
+            ):
+                log.info(f"{self.relatives} skip exisiting {outFile}")
+                return []
 
         command = (
             f"{bin} -m VISSSlib {call} {self.config.filename} {case} {skipExistingStr}"
@@ -1020,220 +1029,6 @@ class DataProduct(object):
                 if not isinstance(parent, list):
                     parent = [parent]
                 [p.cleanUpDuplicates(withParents=False) for p in parent]
-
-
-class allDone(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize an allDone product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("allDone", case, settings, fileQueue, camera)
-
-
-class level2track(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level2track product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level2track", case, settings, fileQueue, camera)
-
-
-class level2match(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level2match product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level2match", case, settings, fileQueue, camera)
-
-
-class level2detect(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level2detect product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level2detect", case, settings, fileQueue, camera)
-
-
-class level1track(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level1track product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level1track", case, settings, fileQueue, camera)
-
-
-class level1match(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level1match product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level1match", case, settings, fileQueue, camera)
-
-
-class metaRotation(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a metaRotation product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("metaRotation", case, settings, fileQueue, camera)
-
-
-class level1detect(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level1detect product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level1detect", case, settings, fileQueue, camera)
-
-
-# class level1shape(DataProduct):
-#     def __init__(self, case, settings, fileQueue, camera="leader"):
-#         super().__init__("level1shape", case, settings, fileQueue, camera)
-
-
-class metaFrames(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a metaFrames product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("metaFrames", case, settings, fileQueue, camera)
-
-
-class metaEvents(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a metaEvents product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("metaEvents", case, settings, fileQueue, camera)
-
-
-class level0(DataProduct):
-    def __init__(self, case, settings, fileQueue, camera="leader"):
-        """
-        Initialize a level0 product.
-
-        Parameters
-        ----------
-        case : str
-            Case identifier
-        settings : str
-            Path to settings file
-        fileQueue : str or taskqueue.TaskQueue
-            File queue for task management. If None, a temporary queue will be created.
-        camera : str, default "leader"
-            Camera identifier
-        """
-        super().__init__("level0", case, settings, fileQueue, camera)
 
 
 class DataProductRange(DataProduct):

@@ -190,3 +190,37 @@ class TestDataProductDAG:
             DataProduct(
                 "level1detect", "20260101", config, queue, "sideways", addRelatives=False
             )
+
+    @pytest.mark.unit
+    def test_generateCommands_metaFrames_no_level0_files(self, config, queue):
+        # metaFrames is a files.fileLevel (one output per level0 input, not
+        # one per day) but is invoked via a daily/looping CLI call, so it
+        # has no files.fnamesDaily entry. With zero level0 files nMissing
+        # is trivially 0, so this should just skip, not raise KeyError.
+        p = DataProduct(
+            "metaFrames", "20260101", config, queue, "leader", addRelatives=False
+        )
+        assert p.generateCommands(skipExisting=True) == []
+
+    @pytest.mark.unit
+    def test_generateCommands_metaFrames_with_pending_level0_file(self, config, queue):
+        p = DataProduct(
+            "metaFrames", "20260101", config, queue, "leader", addRelatives=False
+        )
+        l0dir = os.path.dirname(p.fn.fnamesPattern.level0txt)
+        os.makedirs(l0dir, exist_ok=True)
+        open(
+            os.path.join(l0dir, "testcomputer_visss_leader_test_20260101-000000_0.txt"),
+            "w",
+        ).close()
+
+        # re-create so nL0/nMissing pick up the new file (cached_property)
+        p = DataProduct(
+            "metaFrames", "20260101", config, queue, "leader", addRelatives=False
+        )
+        commands = p.generateCommands(skipExisting=True)
+        assert len(commands) == 1
+        command, outFile = commands[0]
+        assert "metadata.createMetaFrames" in command
+        assert "--camera=leader" in command
+        assert outFile.endswith(".nc")

@@ -17,20 +17,22 @@ center of gravity; everything else (the per-level subclasses,
 The dependency graph lives in code, not config
 ----------------------------------------------------
 
-:meth:`VISSSlib.products.DataProduct.__init__` contains an explicit
-``if/elif`` chain (keyed on ``level``) that is the single authoritative
-statement of "what depends on what" for the whole library — e.g.
-``level1match``'s only parent is ``{camera}_metaRotation``,
-``level2match``'s parents are ``{camera}_level1match`` plus **both**
-cameras' ``metaEvents`` (added explicitly so a Level 2 product regenerates
-whenever *more level0 data has been transferred*, since ``metaEvents`` is
-the record of that, not just to satisfy a strict data dependency).
-**Adding a new level requires editing this block** (and
-:data:`VISSSlib.files.fileLevels`/``dailyLevels``, and
-:meth:`VISSSlib.products.DataProduct.generateCommands`'s matching
-``if/elif`` chain, and usually a small level-pinning subclass at the bottom
-of the file like :class:`VISSSlib.products.level2track`) — there is no
-single declarative place, three call sites have to stay in sync by hand.
+:data:`VISSSlib.products.LEVEL_REGISTRY` is the single authoritative
+statement of "what depends on what, and how is it built" for the whole
+library — one dict entry per level, keyed on ``level``, used by both
+:meth:`VISSSlib.products.DataProduct.__init__` (to resolve ``parentNames``)
+and :meth:`VISSSlib.products.DataProduct.generateCommands` (to build the
+shell command). E.g. ``level1match``'s only parent is
+``{camera}_metaRotation``, ``level2match``'s parents are
+``{camera}_level1match`` plus **both** cameras' ``metaEvents`` (added
+explicitly so a Level 2 product regenerates whenever *more level0 data has
+been transferred*, since ``metaEvents`` is the record of that, not just to
+satisfy a strict data dependency).
+**Adding a new level requires editing this registry** (and
+:data:`VISSSlib.files.fileLevels`/``dailyLevels``) — there is no single
+declarative place spanning the whole library, but within ``products.py``
+itself it is now one dict entry, not several call sites kept in sync by
+hand.
 
 ``level1match.processL1match: false`` (see :doc:`config_files`) disables
 the whole stereo-matching branch, but only at the ``allDone``/

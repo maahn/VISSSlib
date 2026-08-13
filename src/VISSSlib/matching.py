@@ -2211,16 +2211,21 @@ def createMetaRotation(
 
     # get events
     eventFile, eventDat = fl.getEvents()
-
     # get all the other file names
     try:
-        fflM = files.FilenamesFromLevel(fl.listFiles("metaEvents")[0], config)
+        fflM = files.FilenamesFromLevel(eventFile, config)
     except IndexError:
         log.error("NO EVENT DATA %s" % case)
         return None, None
 
     # output file
     fnameMetaRotation = fflM.fname["metaRotation"]
+
+    if eventFile.endswith("nodata"):
+        log.warning(f"No data available for {case}: {eventFile}")
+        with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
+            f.write(f"No data available for {case}: {eventFile}")
+        return None, None
 
     isBad, reason = tools.isBadPeriod(case, config, product="metaRotation")
 
@@ -2283,13 +2288,6 @@ def createMetaRotation(
             deltaT = fflM.datetime64 - prevTime
 
             if deltaT > np.timedelta64(2, "D"):
-                (
-                    foundLastFile,
-                    lastCase,
-                    lastFile,
-                    lastFileTime,
-                ) = files.findLastFile(config, "metaRotation", config.leader)
-
                 log.warning(
                     f"no previous data found for {fnameMetaRotation}"
                     f"! data in config file "
@@ -2299,6 +2297,21 @@ def createMetaRotation(
                 yesterdayEventFileMissing = not os.path.isfile(
                     fflM.yesterdayObject.fnamesDaily.metaEvents
                 )
+
+                (
+                    foundLastFile,
+                    lastCase,
+                    lastFile,
+                    lastFileTime,
+                ) = files.findLastFile(config, "metaRotation", config.leader)
+                if lastFileTime == "n/a":
+                    log.error(
+                        f"Did not find previous metaRotation. "
+                        f"Try running '{sys.executable} -m VISSSlib tools.copyLastMetaRotation "
+                        f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
+                    )
+                    return None, None
+
                 dataGapSmallEnough = (
                     fflM.datetime64 - np.datetime64(lastFileTime)
                 ) < np.timedelta64(8, "D")

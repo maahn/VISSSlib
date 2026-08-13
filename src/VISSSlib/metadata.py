@@ -1327,8 +1327,15 @@ def createEvent(
         elif (fname0status is not None) and (
             os.path.getmtime(eventFile) < (os.path.getmtime(fname0status) + 60 * 60 * 6)
         ):
-            log.info("status file was recently updated, redoing event file")
-
+            log.info(
+                "txt status file was more recent than nc event file, redoing event file"
+            )
+            log.info(
+                f"{eventFile} {datetime.datetime.fromtimestamp(os.path.getmtime(eventFile))}"
+            )
+            log.info(
+                f"{fname0status} {datetime.datetime.fromtimestamp(os.path.getmtime(fname0status))}"
+            )
         else:
             if "noLevel0Files" in eventDat.attrs:
                 nFiles = eventDat.attrs["noLevel0Files"]

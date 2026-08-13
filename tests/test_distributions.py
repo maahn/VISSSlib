@@ -1,11 +1,90 @@
+import types
+
 import numpy as np
+import pytest
 import VISSSlib
+import xarray as xr
 from VISSSlib.distributions import *
+from VISSSlib.distributions import _applyBlurThreshold, _blurThreshold
 
 from helpers import get_test_data_path, get_test_path, readTestSettings
 
 nSample = 100
 seed = 0
+
+
+class TestBlurThreshold:
+    """Unit tests for distributions._blurThreshold/_applyBlurThreshold,
+    split out of _createLevel2part so this filtering logic (pure function
+    of an already-loaded level1dat) can be tested without real
+    level1detect files.
+    """
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("visssGen", ["visss", "visss2", "visss3"])
+    def test_blurThreshold_known_generations(self, visssGen):
+        thresh = _blurThreshold(visssGen)
+        assert np.isnan(thresh[0])
+        assert len(thresh) > 350  # must cover the Dmax<=350 filter range
+        assert np.all(np.isfinite(thresh[1:]))
+
+    @pytest.mark.unit
+    def test_blurThreshold_unknown_generation_raises(self):
+        with pytest.raises(ValueError, match="not supported"):
+            _blurThreshold("visss99")
+
+    def _makeLevel1dat(self, dmax, blur):
+        n = len(dmax)
+        return xr.Dataset(
+            {
+                "Dmax": ("pair_id", np.asarray(dmax, dtype=float)),
+                "blur": ("pair_id", np.asarray(blur, dtype=float)),
+            },
+            coords={"pair_id": np.arange(n)},
+        )
+
+    @pytest.mark.unit
+    def test_applyBlurThreshold_keeps_sharp_particles(self):
+        config = types.SimpleNamespace(visssGen="visss")
+        thresh = _blurThreshold("visss")
+        # Dmax=10 -> threshold from the table; well above it is "sharp"
+        level1dat = self._makeLevel1dat(
+            dmax=[10, 10], blur=[thresh[10] + 100, thresh[10] + 200]
+        )
+        result = _applyBlurThreshold(level1dat, config, "dummy.nc")
+        assert result is not None
+        assert len(result.pair_id) == 2
+        assert "blur" not in result.data_vars
+
+    @pytest.mark.unit
+    def test_applyBlurThreshold_drops_blurry_particles(self):
+        config = types.SimpleNamespace(visssGen="visss")
+        thresh = _blurThreshold("visss")
+        level1dat = self._makeLevel1dat(
+            dmax=[10, 10], blur=[thresh[10] - 100, thresh[10] + 100]
+        )
+        result = _applyBlurThreshold(level1dat, config, "dummy.nc")
+        assert len(result.pair_id) == 1
+
+    @pytest.mark.unit
+    def test_applyBlurThreshold_drops_oversized_particles(self):
+        config = types.SimpleNamespace(visssGen="visss")
+        thresh = _blurThreshold("visss")
+        # Dmax > 350 is dropped outright, regardless of blur
+        level1dat = self._makeLevel1dat(
+            dmax=[10, 400], blur=[thresh[10] + 100, 1e9]
+        )
+        result = _applyBlurThreshold(level1dat, config, "dummy.nc")
+        assert len(result.pair_id) == 1
+        assert result.Dmax.item() == 10
+
+    @pytest.mark.unit
+    def test_applyBlurThreshold_returns_none_when_all_filtered(self):
+        config = types.SimpleNamespace(visssGen="visss")
+        thresh = _blurThreshold("visss")
+        level1dat = self._makeLevel1dat(dmax=[10], blur=[thresh[10] - 100])
+        result = _applyBlurThreshold(level1dat, config, "dummy.nc")
+        assert result is None
 
 
 import numpy as np

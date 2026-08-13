@@ -788,6 +788,409 @@ def _createLevel2(
     return lv2Dat, lv2File
 
 
+def _blurThreshold(visssGen):
+    """
+    Empirically-derived per-Dmax-pixel blur threshold lookup table used by
+    _applyBlurThreshold, one per VISSS generation. Index i of the returned
+    array is the threshold for a particle with Dmax rounded to i pixels;
+    entries beyond the tabulated range repeat the last value.
+
+    The coefficients estimate the cumulated total PSD for detect and match
+    data and find a blur threshold so that both distributions agree (see
+    match_analyze_blur_vs_size.ipynb), after selecting only detect files
+    where match is present, removing blocked data via VISSSlib quality
+    control, and correcting for match data's smaller sampling volume.
+
+    Parameters
+    ----------
+    visssGen : str
+        VISSS hardware generation ("visss", "visss2", or "visss3").
+
+    Returns
+    -------
+    numpy.ndarray
+        Blur threshold lookup table indexed by rounded Dmax (pixels).
+    """
+    if visssGen == "visss":
+        # coefficients developed from winer 2021/22 in Hyytiälä
+        blurThresh = np.array(
+            [
+                np.nan,
+                800.0,
+                773.0,
+                360.0,
+                363.0,
+                436.0,
+                523.0,
+                568.0,
+                633.0,
+                621.0,
+                607.0,
+                574.0,
+                556.0,
+                534.0,
+                506.0,
+                477.0,
+                465.0,
+                435.0,
+                416.0,
+                394.0,
+                374.0,
+                356.0,
+                327.0,
+                314.0,
+                300.0,
+                292.0,
+                275.0,
+                263.0,
+                256.0,
+                248.0,
+                237.0,
+                232.0,
+                226.0,
+                220.0,
+                207.0,
+                202.0,
+                196.0,
+                191.0,
+                183.0,
+                176.0,
+                172.0,
+                170.0,
+                161.0,
+                158.0,
+                153.0,
+                151.0,
+                148.0,
+                144.0,
+                141.0,
+                138.0,
+                140.0,
+                132.0,
+                132.0,
+                131.0,
+                130.0,
+                129.0,
+                125.0,
+                126.0,
+                124.0,
+                123.0,
+                119.0,
+                119.0,
+                120.0,
+                120.0,
+                119.0,
+                117.0,
+                117.0,
+                117.0,
+                118.0,
+                117.0,
+                115.0,
+                114.0,
+                115.0,
+                115.0,
+                115.0,
+                118.0,
+                113.0,
+                114.0,
+                116.0,
+                113.0,
+                112.0,
+                114.0,
+                112.0,
+                112.0,
+                116.0,
+                115.0,
+                112.0,
+                113.0,
+                114.0,
+                111.0,
+                111.0,
+                113.0,
+                112.0,
+            ]
+            + 400 * [110.0]
+        )  # by using 2000 we make sure even huge particles are treated and do not raise an error
+    elif visssGen == "visss2":
+        # coefficients developed from early 2023 in NYA cases with low wind speed
+        # "20230213", "20230223", "20230409", "20230429",
+        blurThresh = np.array(
+            [
+                np.nan,
+                323.0,
+                450.0,
+                282.0,
+                330.0,
+                351.0,
+                378.0,
+                363.0,
+                370.0,
+                352.0,
+                339.0,
+                322.0,
+                305.0,
+                291.0,
+                275.0,
+                259.0,
+                252.0,
+                234.0,
+                225.0,
+                214.0,
+                206.0,
+                196.0,
+                188.0,
+                181.0,
+                173.0,
+                167.0,
+                159.0,
+                154.0,
+                149.0,
+                142.0,
+                137.0,
+                133.0,
+                130.0,
+                124.0,
+                120.0,
+                117.0,
+                114.0,
+                111.0,
+                107.0,
+                105.0,
+                102.0,
+                99.0,
+                97.0,
+                95.0,
+                93.0,
+                91.0,
+                89.0,
+                88.0,
+                85.0,
+                83.0,
+                82.0,
+                81.0,
+                79.0,
+                78.0,
+                77.0,
+                76.0,
+                75.0,
+                74.0,
+                73.0,
+                72.0,
+                72.0,
+                70.0,
+                69.0,
+                69.0,
+                68.0,
+                67.0,
+                66.0,
+                66.0,
+                66.0,
+                64.0,
+                64.0,
+                63.0,
+                63.0,
+                62.0,
+                62.0,
+                61.0,
+                60.0,
+            ]
+            + 400 * [60.0]
+        )
+
+    elif visssGen == "visss3":
+        # coefficients developed from winer 2023/24 in Hyytiälä
+        blurThresh = np.array(
+            [
+                np.nan,
+                584.0,
+                1005.0,
+                1181.0,
+                1537.0,
+                1587.0,
+                1397.0,
+                1312.0,
+                1261.0,
+                1181.0,
+                1107.0,
+                1054.0,
+                986.0,
+                931.0,
+                875.0,
+                818.0,
+                788.0,
+                735.0,
+                704.0,
+                668.0,
+                641.0,
+                611.0,
+                585.0,
+                567.0,
+                545.0,
+                525.0,
+                501.0,
+                487.0,
+                472.0,
+                455.0,
+                441.0,
+                427.0,
+                419.0,
+                404.0,
+                391.0,
+                384.0,
+                373.0,
+                366.0,
+                354.0,
+                348.0,
+                342.0,
+                335.0,
+                327.0,
+                320.0,
+                315.0,
+                309.0,
+                303.0,
+                297.0,
+                292.0,
+                289.0,
+                283.0,
+                278.0,
+                275.0,
+                271.0,
+                266.0,
+                263.0,
+                259.0,
+                257.0,
+                253.0,
+                251.0,
+                247.0,
+                244.0,
+                242.0,
+                238.0,
+                235.0,
+                232.0,
+                229.0,
+                228.0,
+                226.0,
+                224.0,
+                221.0,
+                220.0,
+                219.0,
+                216.0,
+                214.0,
+                211.0,
+                209.0,
+                207.0,
+                205.0,
+                203.0,
+                201.0,
+                203.0,
+                199.0,
+                200.0,
+                198.0,
+                198.0,
+                195.0,
+                194.0,
+                194.0,
+                192.0,
+                192.0,
+                190.0,
+                192.0,
+                189.0,
+                187.0,
+                188.0,
+                187.0,
+                184.0,
+                184.0,
+                187.0,
+                179.0,
+                181.0,
+                183.0,
+                183.0,
+                183.0,
+                184.0,
+                181.0,
+                177.0,
+                181.0,
+                180.0,
+                176.0,
+                175.0,
+                175.0,
+                177.0,
+                172.0,
+                173.0,
+                174.0,
+                175.0,
+                172.0,
+                174.0,
+                174.0,
+                176.0,
+                176.0,
+                174.0,
+                171.0,
+            ]
+            + 400 * [170.0]
+        )
+
+    else:
+        raise ValueError(f"VISSS Generation {visssGen} not supported")
+
+    return blurThresh
+
+
+def _applyBlurThreshold(level1dat, config, lv2File):
+    """
+    Apply the empirical blur-vs-size threshold filter used for level1detect
+    data (see _blurThreshold), and drop particles above Dmax=350px for
+    which the lookup table isn't meaningful.
+
+    Split out of _createLevel2part so this filtering logic (pure function
+    of an already-loaded level1dat) can be unit tested without real
+    level1detect files.
+
+    Parameters
+    ----------
+    level1dat : xarray.Dataset
+        Level1detect data with Dmax and blur variables, indexed by pair_id.
+    config : dict
+        Configuration dictionary; only visssGen is used here.
+    lv2File : str
+        Output filename, used only for the diagnostic log message when no
+        data remains.
+
+    Returns
+    -------
+    xarray.Dataset or None
+        Filtered level1dat with the blur variable removed, or None if no
+        particles remain after filtering.
+    """
+    blurThresh = _blurThreshold(config.visssGen)
+
+    # discard huge ones so that the trick with the look up table works
+    sizeCond = (level1dat.Dmax <= 350).values
+    level1dat = level1dat.isel(pair_id=sizeCond)
+
+    # this works liek a lookup table. We use the Dmax rounded to next
+    # integer as an index for blurThresh
+    appliedblurThresh = blurThresh[np.around(level1dat.Dmax.values).astype(int)]
+
+    blurCond = (level1dat.blur >= appliedblurThresh).values
+    log.info(
+        tools.concat(
+            "blurCond applies to",
+            (blurCond.sum() / len(blurCond)) * 100,
+            "% of data",
+        )
+    )
+    level1dat = level1dat.isel(pair_id=blurCond)
+
+    del level1dat["blur"]
+
+    if len(level1dat.pair_id) == 0:
+        log.warning("no data remains after blurCond filtering %s" % lv2File)
+        return None
+
+    return level1dat
+
+
 def _createLevel2part(
     case,
     config,
@@ -857,361 +1260,8 @@ def _createLevel2part(
     # level1dat = level1dat.chunk(pair_id=10000)
 
     if sublevel == "detect":
-        # apply blur threshold
-        if config.visssGen == "visss":
-            """
-            # coefficients developed from winer 2021/22 in Hyytiälä
-            The idea is to estimate the cummulated total PSD for detect and match data
-            and find a blur threshold so that both distributions agree. See
-            match_analyze_blur_vs_size.ipynb Filters are applied:
-
-                processing failed by selecting only detect files where match is present
-                blocked data by VISSSlib quality control
-                smaller sampling volume of matched data is considered by estimatign correction factor
-
-            """
-            blurThresh = np.array(
-                [
-                    np.nan,
-                    800.0,
-                    773.0,
-                    360.0,
-                    363.0,
-                    436.0,
-                    523.0,
-                    568.0,
-                    633.0,
-                    621.0,
-                    607.0,
-                    574.0,
-                    556.0,
-                    534.0,
-                    506.0,
-                    477.0,
-                    465.0,
-                    435.0,
-                    416.0,
-                    394.0,
-                    374.0,
-                    356.0,
-                    327.0,
-                    314.0,
-                    300.0,
-                    292.0,
-                    275.0,
-                    263.0,
-                    256.0,
-                    248.0,
-                    237.0,
-                    232.0,
-                    226.0,
-                    220.0,
-                    207.0,
-                    202.0,
-                    196.0,
-                    191.0,
-                    183.0,
-                    176.0,
-                    172.0,
-                    170.0,
-                    161.0,
-                    158.0,
-                    153.0,
-                    151.0,
-                    148.0,
-                    144.0,
-                    141.0,
-                    138.0,
-                    140.0,
-                    132.0,
-                    132.0,
-                    131.0,
-                    130.0,
-                    129.0,
-                    125.0,
-                    126.0,
-                    124.0,
-                    123.0,
-                    119.0,
-                    119.0,
-                    120.0,
-                    120.0,
-                    119.0,
-                    117.0,
-                    117.0,
-                    117.0,
-                    118.0,
-                    117.0,
-                    115.0,
-                    114.0,
-                    115.0,
-                    115.0,
-                    115.0,
-                    118.0,
-                    113.0,
-                    114.0,
-                    116.0,
-                    113.0,
-                    112.0,
-                    114.0,
-                    112.0,
-                    112.0,
-                    116.0,
-                    115.0,
-                    112.0,
-                    113.0,
-                    114.0,
-                    111.0,
-                    111.0,
-                    113.0,
-                    112.0,
-                ]
-                + 400 * [110.0]
-            )  # by using 2000 we make sure even huge particles are treated and do not raise an error
-        elif config.visssGen == "visss2":
-            # coefficients developed from early 2023 in NYA cases with low wind speed
-            # "20230213", "20230223", "20230409", "20230429",
-            blurThresh = np.array(
-                [
-                    np.nan,
-                    323.0,
-                    450.0,
-                    282.0,
-                    330.0,
-                    351.0,
-                    378.0,
-                    363.0,
-                    370.0,
-                    352.0,
-                    339.0,
-                    322.0,
-                    305.0,
-                    291.0,
-                    275.0,
-                    259.0,
-                    252.0,
-                    234.0,
-                    225.0,
-                    214.0,
-                    206.0,
-                    196.0,
-                    188.0,
-                    181.0,
-                    173.0,
-                    167.0,
-                    159.0,
-                    154.0,
-                    149.0,
-                    142.0,
-                    137.0,
-                    133.0,
-                    130.0,
-                    124.0,
-                    120.0,
-                    117.0,
-                    114.0,
-                    111.0,
-                    107.0,
-                    105.0,
-                    102.0,
-                    99.0,
-                    97.0,
-                    95.0,
-                    93.0,
-                    91.0,
-                    89.0,
-                    88.0,
-                    85.0,
-                    83.0,
-                    82.0,
-                    81.0,
-                    79.0,
-                    78.0,
-                    77.0,
-                    76.0,
-                    75.0,
-                    74.0,
-                    73.0,
-                    72.0,
-                    72.0,
-                    70.0,
-                    69.0,
-                    69.0,
-                    68.0,
-                    67.0,
-                    66.0,
-                    66.0,
-                    66.0,
-                    64.0,
-                    64.0,
-                    63.0,
-                    63.0,
-                    62.0,
-                    62.0,
-                    61.0,
-                    60.0,
-                ]
-                + 400 * [60.0]
-            )
-
-        elif config.visssGen == "visss3":
-            # coefficients developed from winer 2023/24 in Hyytiälä
-            blurThresh = np.array(
-                [
-                    np.nan,
-                    584.0,
-                    1005.0,
-                    1181.0,
-                    1537.0,
-                    1587.0,
-                    1397.0,
-                    1312.0,
-                    1261.0,
-                    1181.0,
-                    1107.0,
-                    1054.0,
-                    986.0,
-                    931.0,
-                    875.0,
-                    818.0,
-                    788.0,
-                    735.0,
-                    704.0,
-                    668.0,
-                    641.0,
-                    611.0,
-                    585.0,
-                    567.0,
-                    545.0,
-                    525.0,
-                    501.0,
-                    487.0,
-                    472.0,
-                    455.0,
-                    441.0,
-                    427.0,
-                    419.0,
-                    404.0,
-                    391.0,
-                    384.0,
-                    373.0,
-                    366.0,
-                    354.0,
-                    348.0,
-                    342.0,
-                    335.0,
-                    327.0,
-                    320.0,
-                    315.0,
-                    309.0,
-                    303.0,
-                    297.0,
-                    292.0,
-                    289.0,
-                    283.0,
-                    278.0,
-                    275.0,
-                    271.0,
-                    266.0,
-                    263.0,
-                    259.0,
-                    257.0,
-                    253.0,
-                    251.0,
-                    247.0,
-                    244.0,
-                    242.0,
-                    238.0,
-                    235.0,
-                    232.0,
-                    229.0,
-                    228.0,
-                    226.0,
-                    224.0,
-                    221.0,
-                    220.0,
-                    219.0,
-                    216.0,
-                    214.0,
-                    211.0,
-                    209.0,
-                    207.0,
-                    205.0,
-                    203.0,
-                    201.0,
-                    203.0,
-                    199.0,
-                    200.0,
-                    198.0,
-                    198.0,
-                    195.0,
-                    194.0,
-                    194.0,
-                    192.0,
-                    192.0,
-                    190.0,
-                    192.0,
-                    189.0,
-                    187.0,
-                    188.0,
-                    187.0,
-                    184.0,
-                    184.0,
-                    187.0,
-                    179.0,
-                    181.0,
-                    183.0,
-                    183.0,
-                    183.0,
-                    184.0,
-                    181.0,
-                    177.0,
-                    181.0,
-                    180.0,
-                    176.0,
-                    175.0,
-                    175.0,
-                    177.0,
-                    172.0,
-                    173.0,
-                    174.0,
-                    175.0,
-                    172.0,
-                    174.0,
-                    174.0,
-                    176.0,
-                    176.0,
-                    174.0,
-                    171.0,
-                ]
-                + 400 * [170.0]
-            )
-
-        else:
-            raise ValueError(f"VISSS Generation {config.visssGen} not supported")
-
-        # discard huge ones so that the trick with the look up table works
-        sizeCond = (level1dat.Dmax <= 350).values
-        level1dat = level1dat.isel(pair_id=sizeCond)
-
-        # this works liek a lookup table. We use the Dmax rounded to next
-        # integer as an index for blurThresh
-        appliedblurThresh = blurThresh[np.around(level1dat.Dmax.values).astype(int)]
-
-        blurCond = (level1dat.blur >= appliedblurThresh).values
-        log.info(
-            tools.concat(
-                "blurCond applies to",
-                (blurCond.sum() / len(blurCond)) * 100,
-                "% of data",
-            )
-        )
-        level1dat = level1dat.isel(pair_id=blurCond)
-
-        del level1dat["blur"]
-
-        if len(level1dat.pair_id) == 0:
-            log.warning("no data remains after blurCond filtering %s" % lv2File)
+        level1dat = _applyBlurThreshold(level1dat, config, lv2File)
+        if level1dat is None:
             return None
 
     else:  # match or track

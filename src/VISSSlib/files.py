@@ -503,7 +503,7 @@ class FindFiles(object):
     @functools.cache
     def getEvents(self, skipExisting=True):
         """
-        Retrieve and optionally create the event dataset for this case and camera.
+        Retrieve the event dataset for this case and camera.
 
         Parameters
         ----------
@@ -516,18 +516,14 @@ class FindFiles(object):
             Tuple of (event_filename, event_dataset) or (None, None) if not found
         """
         # just in case it is missing
-        metadata.createEvent(
-            self.case,
-            self.camera,
-            self.config,
-            skipExisting=skipExisting,
-            quiet=True,
-        )
         try:
-            eventFile = self.listFiles("metaEvents")[0]
+            eventFile = self.listFilesExt("metaEvents")[0]
         except IndexError:
             print("no event file")
             return None, None
+
+        if eventFile.endswith("nodata"):
+            return eventFile, None
 
         eventDat = xr.open_dataset(eventFile).load()
         # opening it several times can cause segfaults
@@ -1679,7 +1675,7 @@ class Filenames(object):
     @functools.cache
     def getEvents(self, skipExisting=True):
         """
-        Get (and create if necessary) event dataset for this case and camera.
+        Get event dataset for this case and camera.
 
         Parameters
         ----------
@@ -1698,14 +1694,7 @@ class Filenames(object):
         """
 
         eventFile = self.fname.metaEvents
-        # # just in case it is missing
-        # metadata.createEvent(
-        #     self.case,
-        #     self.camera,
-        #     self.config,
-        #     skipExisting=skipExisting,
-        #     quiet=True,
-        # )
+
         eventDat = xr.open_dataset(eventFile).load()
         # opening it several times can cause segfaults
         eventDat.close()

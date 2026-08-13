@@ -32,6 +32,17 @@ the record of that, not just to satisfy a strict data dependency).
 of the file like :class:`VISSSlib.products.level2track`) — there is no
 single declarative place, three call sites have to stay in sync by hand.
 
+``level1match.processL1match: false`` (see :doc:`config_files`) disables
+the whole stereo-matching branch, but only at the ``allDone``/
+:func:`~VISSSlib.products.processAll` entry points — constructing a
+``DataProduct``/``DataProductRange`` for ``metaRotation``, ``level1match``,
+``level1track``, ``level2match``, or ``level2track`` **directly** checks
+the same flag and raises ``ValueError`` rather than silently proceeding as
+if matching were enabled. If you need to run one of these levels
+one-off despite the deployment having matching disabled, call the
+underlying :mod:`VISSSlib.matching`/:mod:`VISSSlib.tracking` function
+directly instead of going through ``DataProduct``.
+
 Construction is recursive and eager
 -----------------------------------------
 

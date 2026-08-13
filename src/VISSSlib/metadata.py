@@ -126,41 +126,8 @@ def getMetaData(
 
         droppedFrames = 0
 
-        # fix time stamps are jumping around
-        jumps = np.diff(metaDat.capture_time.astype(int)) < 0
-        nJumps = np.sum(jumps)
-        droppedIndices = []
-        if nJumps > 0:
-            # At mosaic, it looks like frames are sometimes swapped when caption_id overflows
-            # dont try to fix but remove meta data
-            if config.visssGen == "visss":
-                ss = np.where(jumps)[0]
-                assert nJumps < 20, "more than 20 is very fishy..."
-                if len(ss) > 1:
-                    assert np.all(np.diff(ss) == 1), (
-                        "if there is more than one "
-                        "time index going backwards, they must be in a group"
-                    )
-                for s1 in ss:
-                    print(fnames, "TIME JUMPED, DROPPING FRAMES around %i " % (s1))
-                    droppedIndices.append(s1 - 1)
-                    droppedIndices.append(s1)
-                    droppedIndices.append(s1 + 1)
-                droppedIndices = np.unique(droppedIndices)
-                metaDat = metaDat.drop_isel(capture_time=droppedIndices)
-            elif config.visssGen == "visss2":
-                if nJumps == 1:  # teh usual at the beginnign of the file
-                    raise RuntimeError("develop fix!!!")
-                    ss = np.where(jumps)[0][0]
-                    droppedIndices = list(range(ss + 1))
-                    metaDat = metaDat.drop_isel(capture_time=droppedIndices)
-                else:
-                    raise NotImplementedError
-            else:
-                raise RuntimeError("unknown VISSS generation %s" % config.visssGen)
-
-        droppedFrames += len(droppedIndices)
-        # end fix time stamps are jumping around
+        metaDat, nDropped = _repairTimeJumps(metaDat, fnames, config)
+        droppedFrames += nDropped
 
         # unclear whether it works, MX oct 2023
         # if "removeGhostFrames" in config.dataFixes:
@@ -176,6 +143,65 @@ def getMetaData(
         #         metaDat = makeCaptureTimeEven(metaDat, config)
 
     return metaDat, droppedFrames, beyondRepair
+
+
+def _repairTimeJumps(metaDat, fnames, config):
+    """
+    Drop frames around backwards jumps in capture_time.
+
+    Split out of getMetaData() so the repair logic (pure function of an
+    already-concatenated metaDat, no file I/O) can be unit tested without
+    real video/csv files.
+
+    Parameters
+    ----------
+    metaDat : xarray.Dataset
+        Concatenated, capture_time-sorted metadata, as produced by
+        getMetaData() before this repair step.
+    fnames : list
+        Source filenames, used only for the diagnostic print.
+    config : dict
+        Configuration dictionary; only visssGen is used here.
+
+    Returns
+    -------
+    tuple
+        (metaDat, droppedFrames) with the frames around each backwards
+        jump removed and the count of dropped frames.
+    """
+    jumps = np.diff(metaDat.capture_time.astype(int)) < 0
+    nJumps = np.sum(jumps)
+    droppedIndices = []
+    if nJumps > 0:
+        # At mosaic, it looks like frames are sometimes swapped when caption_id overflows
+        # dont try to fix but remove meta data
+        if config.visssGen == "visss":
+            ss = np.where(jumps)[0]
+            assert nJumps < 20, "more than 20 is very fishy..."
+            if len(ss) > 1:
+                assert np.all(np.diff(ss) == 1), (
+                    "if there is more than one "
+                    "time index going backwards, they must be in a group"
+                )
+            for s1 in ss:
+                print(fnames, "TIME JUMPED, DROPPING FRAMES around %i " % (s1))
+                droppedIndices.append(s1 - 1)
+                droppedIndices.append(s1)
+                droppedIndices.append(s1 + 1)
+            droppedIndices = np.unique(droppedIndices)
+            metaDat = metaDat.drop_isel(capture_time=droppedIndices)
+        elif config.visssGen == "visss2":
+            if nJumps == 1:  # teh usual at the beginnign of the file
+                raise RuntimeError("develop fix!!!")
+                ss = np.where(jumps)[0][0]
+                droppedIndices = list(range(ss + 1))
+                metaDat = metaDat.drop_isel(capture_time=droppedIndices)
+            else:
+                raise NotImplementedError
+        else:
+            raise RuntimeError("unknown VISSS generation %s" % config.visssGen)
+
+    return metaDat, len(droppedIndices)
 
 
 def _readHeaderData(fname, returnLasttime=False):

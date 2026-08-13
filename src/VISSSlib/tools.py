@@ -1455,7 +1455,7 @@ class ZipFile(zipfile.ZipFile):
 
 
 def imageZipFile(fname, **kwargs):
-    """
+    r"""
     Create appropriate archive file handler.
 
     Parameters
@@ -1683,7 +1683,7 @@ def createParentDir(file, mode=None):
 def savefig(
     fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=None, **kwargs
 ):
-    """
+    r"""
     Save a matplotlib Figure to `filename` with proper permissions.
 
     This function saves a matplotlib figure to a file with appropriate directory
@@ -2090,7 +2090,7 @@ def execute_stdout(command):
 
 
 def concat(*strs):
-    """
+    r"""
     Concatenate strings with spaces.
 
     Parameters
@@ -2171,7 +2171,7 @@ def concatImgX(im1, im2, background=0):
 
 
 def open2(file, config, mode="r", cleanUp=True, **kwargs):
-    """
+    r"""
     Open file with directory creation and permissions.
 
     Parameters
@@ -2226,7 +2226,7 @@ def tryRemovingFile(file):
 
 
 def to_netcdf2(dat, config, file, **kwargs):
-    """
+    r"""
     Save dataset to NetCDF with directory creation.
     Write to random file and move to final file to
     avoid errors due to race conditions or exisiting files

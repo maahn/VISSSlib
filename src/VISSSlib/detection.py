@@ -453,7 +453,7 @@ class detectedParticles(object):
         return fgMaskCanny
 
     def add(self, frame1, fgMask, cnt, **kwargs):
-        """
+        r"""
         Add a new particle to the detection results.
 
         Parameters

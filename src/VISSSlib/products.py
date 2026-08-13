@@ -97,6 +97,20 @@ class DataProduct(object):
 
         self.parents = tools.DictNoDefault({})
 
+        if (
+            level in ("metaRotation", "level1match", "level1track", "level2match", "level2track")
+            and not self.config.level1match.processL1match
+        ):
+            raise ValueError(
+                f"{level} was requested, but level1match.processL1match is "
+                f"False in {self.config.filename}. This deployment has the "
+                f"stereo-matching branch disabled; set "
+                f"level1match.processL1match: true in the settings file to "
+                f"process this level, or call the underlying "
+                f"matching.*/tracking.* function directly (bypassing "
+                f"DataProduct) if this is an intentional one-off."
+            )
+
         if self.level == "level0":
             self.parentNames = []
         elif self.level == "level0txt":

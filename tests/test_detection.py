@@ -207,6 +207,20 @@ class TestSingleParticle:
         assert sp.particleContrast == pytest.approx(200 - 50)
 
     @pytest.mark.unit
+    def test_particleContrast_goes_negative_for_reflective_particles(
+        self, config, parent
+    ):
+        # a particle brighter than the background (e.g. a sunlight
+        # reflection) must give a negative contrast, not wrap around
+        # under uint8 arithmetic
+        frame = _makeFrame(background=50, particleValue=200)
+        parent.brightnessBackground = 50
+        sp = self._makeParticle(config, parent, _rectCnt(), frame=frame)
+
+        assert sp.pixMin == 200
+        assert sp.particleContrast == pytest.approx(50 - 200)
+
+    @pytest.mark.unit
     def test_hole_is_subtracted_from_area_and_added_to_perimeter(self, config, parent):
         cnt = _rectCnt()
         hole = _rectCnt(30, 25, 40, 35)  # 10x10 hole inside the particle
@@ -300,6 +314,20 @@ class TestDetectedParticlesAdd:
         added = dp.add(frame.copy(), fgMask.copy(), _rectCnt())
         assert added is False
         assert dp.N == 0
+
+    @pytest.mark.unit
+    def test_reflective_particle_survives_abs_contrast_filter(self, dp, fgMask):
+        # a particle brighter than the background (e.g. a sunlight
+        # reflection) must still pass the minContrast filter, which
+        # compares abs(particleContrast) against the threshold -- not
+        # just particleContrast, which would always be negative here
+        dp.config.level1detect.minContrast = 20  # the real default
+        dp.brightnessBackground = 50  # dark background
+        reflectiveFrame = _makeFrame(background=50, particleValue=200)
+
+        added = dp.add(reflectiveFrame.copy(), fgMask.copy(), _rectCnt())
+        assert added is True
+        assert dp.N == 1
 
     @pytest.mark.unit
     def test_skips_contour_below_minCntSize(self, dp, frame, fgMask):

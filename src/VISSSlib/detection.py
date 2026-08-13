@@ -579,7 +579,7 @@ class detectedParticles(object):
                         )
 
                 elif (
-                    self.lastParticle.particleContrast
+                    np.abs(self.lastParticle.particleContrast)
                     < self.config.level1detect.minContrast
                 ):
                     if self.verbosity > 2:
@@ -589,8 +589,8 @@ class detectedParticles(object):
                                     "particles.add",
                                     "PID",
                                     "%i" % self.lastParticle.pid,
-                                    "too small minContrast",
-                                    "%.2f" % self.lastParticle.particleContrast,
+                                    "too small abs minContrast",
+                                    "%.2f" % np.abs(self.lastParticle.particleContrast),
                                 ]
                             )
                         )
@@ -1186,8 +1186,11 @@ class singleParticle(object):
             self.success = False
             return
 
-        self.pixMin = particleBoxData.min()
-        self.pixMax = particleBoxData.max()
+        # cast off uint8 so particleContrast (brightnessBackground - pixMin)
+        # doesn't wrap around instead of going negative for particles
+        # brighter than the background (e.g. sunlight reflections)
+        self.pixMin = int(particleBoxData.min())
+        self.pixMax = int(particleBoxData.max())
         self.pixMean = particleBoxData.mean()
         self.pixPercentiles = np.percentile(
             particleBoxData, range(10, 100, 10)

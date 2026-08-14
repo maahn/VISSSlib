@@ -1349,9 +1349,15 @@ def createEvent(
         if len(eventDat.data_vars) == 0:
             log.info("eventDat empty, redoing event file")
 
-        # check whether status file is newer than event file, consider 6 hour buffer for data transfer
+        # redo only if the status file is *meaningfully* newer than the
+        # event file (more than the 6h data-transfer buffer) -- the
+        # buffer must be subtracted, not added, otherwise this is true
+        # for basically every eventFile created within 6h of its status
+        # file, which is the normal case for near-real-time processing,
+        # so this branch fired on every single call regardless of
+        # whether anything had actually changed
         elif (fname0status is not None) and (
-            os.path.getmtime(eventFile) < (os.path.getmtime(fname0status) + 60 * 60 * 6)
+            os.path.getmtime(fname0status) > (os.path.getmtime(eventFile) + 60 * 60 * 6)
         ):
             log.info(
                 "txt status file was more recent than nc event file, redoing event file"

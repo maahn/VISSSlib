@@ -159,7 +159,7 @@ until it has been vetted.
 thing this repo has to a true end-to-end integration test: it runs
 :func:`VISSSlib.products.processAll` for a whole case against the
 downloaded sample dataset, exercising every level from ``level0`` through
-``allDone`` in one go (cited in ``CLAUDE.md`` as the reference single-test
+``allDone`` in one go (cited in ``AI.md`` as the reference single-test
 invocation). ``tests/test_products.py::TestDataProductDAG`` covers the same
 class's dependency-graph wiring (``parentNames`` per level, the
 ``processL1match`` guard, ``isComplete``) as fast, network-free unit tests

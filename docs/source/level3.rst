@@ -8,7 +8,7 @@ Motivation
 the only part of the processing chain with an optional dependency: PAMTRA
 (https://github.com/igmk/pamtra, imported as ``pyPamtra``), which is not a
 pip dependency and must be installed separately (see the top-level
-``CLAUDE.md``). ``level3/__init__.py`` registers available products in a
+``AI.md``). ``level3/__init__.py`` registers available products in a
 single dict:
 
 .. code:: python

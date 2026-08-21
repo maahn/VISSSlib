@@ -437,6 +437,13 @@ class DataProduct(object):
             skipExistingStr = ""
         if bin is None:
             bin = os.path.join(sys.exec_prefix, "bin", "python")
+
+            log.warning(
+                f"{self.relatives} {extraOrigin} is nodata, "
+                f"not generating {self.level} commands"
+            )
+            return []
+
         commands = []
         for pName in self.fn.listFilesExt(originLevel):
             if originLevel.startswith("level0"):

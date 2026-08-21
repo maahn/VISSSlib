@@ -2814,7 +2814,7 @@ For information about the commands, run
         p, has_fname=False, has_case=True, has_camera=False, has_skip=True
     ):
         """Add standard arguments to a subparser."""
-        skip_default = True
+        skip_default = False
         p.add_argument("settings", help="Settings YAML file")
         if has_fname:
             p.add_argument("fname", help="Input file path")
@@ -2829,10 +2829,9 @@ For information about the commands, run
         if has_skip:
             p.add_argument(
                 "--skip-existing",
-                action=argparse.BooleanOptionalAction,
+                action="store_true",
                 default=skip_default,
-                help=f"Skip if exists (default: {skip_default}); use "
-                "--no-skip-existing to force reprocessing",
+                help=f"Skip if output already exists (default: {skip_default})",
             )
 
     # Metadata commands

@@ -1772,8 +1772,19 @@ def matchParticles(
         # get rotation estimates and add to config instead of estimating them
         fnameMetaRotation = ffl1.fname["metaRotation"]
 
-        if os.path.isfile(f"{fnameMetaRotation}.broken.txt"):
+        if ffl1.isBroken("metaRotation"):
             raise RuntimeError(f"{fnameMetaRotation}.broken.txt is broken")
+
+        if ffl1.isNoData("metaRotation"):
+            # metaRotation is a confirmed data gap (see
+            # matching.createMetaRotation), not just "not created yet":
+            # nothing will ever be available here, so propagate nodata
+            # the same way as every other failure mode in this function
+            if not rotationOnly:
+                ffl1.propagateNoData("metaRotation", "level1match")
+            log.error(f"metaRotation is nodata: {fnameMetaRotation}")
+            errors["noMetaRot"] = True
+            return fname1Match, None, None, None, None, None, None, errors
 
         try:
             metaRotationDat = xr.open_dataset(fnameMetaRotation)

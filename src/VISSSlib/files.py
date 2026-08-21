@@ -21,6 +21,7 @@ from .tools import (
     getCaseRange,
     globList,
     nicerNames,
+    open2,
     otherCamera,
     readSettings,
 )
@@ -739,8 +740,9 @@ class FindFiles(object):
         Check whether the absence of data for this case is a genuine data
         gap rather than data that simply has not arrived/been processed
         yet, by checking whether newer data of `level` has already been
-        found for this camera (see also the "Newer L0 files have been
-        found, likely data gap" check in products.DataProduct.dataTransfered).
+        found for this camera. See also isDataTransferPending, which
+        combines this with a presence check into the single question
+        callers usually actually want to ask.
 
         Parameters
         ----------
@@ -759,6 +761,41 @@ class FindFiles(object):
         return foundLastFile and (
             lastFileTime > (self.datetime + datetime.timedelta(days=1))
         )
+
+    def isDataTransferPending(self, level="level0txt"):
+        """
+        Check whether this case's data status is still unresolved: no
+        `level` data has arrived yet, and that absence has not been
+        confirmed as a genuine gap (see isGenuineDataGap). This is the
+        distinction between "no data (yet?)" and "no data (confirmed)"
+        that callers need before deciding whether it is safe to treat a
+        case as final -- e.g. write a nodata sentinel, or skip generating
+        commands for it -- versus simply waiting and retrying later.
+
+        Parameters
+        ----------
+        level : str, optional
+            Processing level to check for presence, and (via
+            isGenuineDataGap) for a confirmed gap (default is
+            'level0txt').
+
+        Returns
+        -------
+        bool
+            True if still pending (caller should wait and retry later).
+            False if resolved: either data is already here, or the gap
+            has been confirmed (newer data exists elsewhere for this
+            camera).
+        """
+        if len(self.listFiles(level)) > 0:
+            return False
+        if self.isGenuineDataGap(level):
+            log.warning(
+                f"Newer {level} files have been found for {self.case}, "
+                "likely a genuine data gap rather than a pending transfer"
+            )
+            return False
+        return True
 
     @property
     def nL0(self):
@@ -1181,6 +1218,90 @@ class Filenames(object):
 
     def __repr__(self):
         return json.dumps(self.fname, indent=4)
+
+    def isNoData(self, level):
+        """
+        Check whether this file's output at `level` is marked nodata.
+
+        Parameters
+        ----------
+        level : str
+            Processing level (e.g. 'metaRotation', 'level1match').
+
+        Returns
+        -------
+        bool
+            True if a `.nodata` sentinel exists for this level's output.
+        """
+        return os.path.isfile(f"{self.fname[level]}.nodata")
+
+    def isBroken(self, level):
+        """
+        Check whether this file's output at `level` is marked broken.
+
+        Parameters
+        ----------
+        level : str
+            Processing level (e.g. 'metaRotation', 'level1match').
+
+        Returns
+        -------
+        bool
+            True if a `.broken.txt` sentinel exists for this level's output.
+        """
+        return os.path.isfile(f"{self.fname[level]}.broken.txt")
+
+    def writeStatus(self, level, status, message):
+        """
+        Write a `.nodata`/`.broken.txt`/`.notenoughframes` sentinel for
+        this file's `level` output.
+
+        Parameters
+        ----------
+        level : str
+            Processing level whose output should be marked.
+        status : str
+            "nodata", "broken.txt", or "notenoughframes".
+        message : str
+            Human-readable reason, written into the sentinel file.
+        """
+        assert status in ("nodata", "broken.txt", "notenoughframes")
+        with open2(f"{self.fname[level]}.{status}", self.config, "w") as f:
+            f.write(message)
+
+    def propagateNoData(self, fromLevel, toLevel, message=None):
+        """
+        If `fromLevel`'s output for this file is marked nodata, mark
+        `toLevel`'s output nodata too (same reasoning: nothing will ever
+        be produced downstream of a confirmed-empty input).
+
+        Only nodata is propagated this way -- a broken parent is
+        deliberately not auto-propagated here, since "broken" usually
+        means a human should look at it, and callers differ on whether
+        that should raise or propagate (see matching.matchParticles vs.
+        tracking.trackParticles).
+
+        Parameters
+        ----------
+        fromLevel : str
+            Processing level to check.
+        toLevel : str
+            Processing level to mark nodata if fromLevel is nodata.
+        message : str, optional
+            Reason written into the sentinel file. Defaults to a message
+            naming fromLevel.
+
+        Returns
+        -------
+        bool
+            True if toLevel was marked nodata (caller should stop here).
+        """
+        if not self.isNoData(fromLevel):
+            return False
+        self.writeStatus(
+            toLevel, "nodata", message or f"{fromLevel} is nodata: {self.fname[fromLevel]}"
+        )
+        return True
 
     @property
     def yesterday(self):

@@ -869,14 +869,13 @@ def createMetaFrames1(fname0, camera, config, skipExisting=True, writeNc=True):
         log.info("%s exists" % fn.fname.metaFrames)
         return None
 
-    if os.path.isfile(f"{fn.fname.metaFrames}.nodata") and skipExisting:
+    if fn.isNoData("metaFrames") and skipExisting:
         log.info("%s.nodata exists" % fn.fname.metaFrames)
         return None
 
     if os.path.getsize(fname0.replace(config.movieExtension, "txt")) == 0:
         log.error("%s has size 0!" % fname0)
-        with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
-            f.write("%s has size 0!" % fname0)
+        fn.writeStatus("metaFrames", "nodata", "%s has size 0!" % fname0)
         return None
 
     # sometimes one thread file is missing. carefully check whether it migth be stuck in transfer
@@ -886,8 +885,9 @@ def createMetaFrames1(fname0, camera, config, skipExisting=True, writeNc=True):
     campaignEnded = config.end != "today"
     if tooFewThreads and (nextDayAvailable or campaignEnded):
         log.error("%s file of second thread missing!" % fname0)
-        with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
-            f.write("%s file of second thread missing!" % fname0)
+        fn.writeStatus(
+            "metaFrames", "nodata", "%s file of second thread missing!" % fname0
+        )
         return None
 
     metaDat, droppedFrames, beyondRepair = getMetaData(
@@ -904,8 +904,7 @@ def createMetaFrames1(fname0, camera, config, skipExisting=True, writeNc=True):
         if writeNc:
             tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
     else:
-        with tools.open2(fn.fname.metaFrames + ".nodata", config, "w") as f:
-            f.write("no data recorded")
+        fn.writeStatus("metaFrames", "nodata", "no data recorded")
 
     return metaDat
 
@@ -1415,16 +1414,12 @@ def createEvent(
 
     except (ValueError, AssertionError):
         print("NO DATA", case, eventFile)
-        # Check whetehr there is newer L0 data avaiable then it is a data gap and
-        # a .nodata file is written.
-        foundLastFile, lastCase, lastFile, lastFileTime = files.findLastFile(
-            config, "level0", camera
-        )
-        if foundLastFile:
-            if lastFileTime > (fn.datetime + datetime.timedelta(1)):
-                mes = f"Newer L0 files have been found (e.g. {lastFile}), likely data gap on {fn.case}"
-                log.warning(mes)
-                with tools.open2(eventFile + ".nodata", config, "w") as f:
-                    f.write(mes)
+        # Check whether there is newer L0 data available; if so it is a
+        # data gap and a .nodata file is written.
+        if fn.isGenuineDataGap("level0"):
+            mes = f"Newer L0 files have been found, likely data gap on {fn.case}"
+            log.warning(mes)
+            with tools.open2(eventFile + ".nodata", config, "w") as f:
+                f.write(mes)
 
     return metaDats

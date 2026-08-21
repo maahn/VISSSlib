@@ -1756,6 +1756,10 @@ def detectParticles(
     log.info(f"running {fn.fname.level1detect}")
     camera = fn.camera
 
+    def _noData(message):
+        fn.writeStatus("metaDetection", "nodata", message)
+        fn.writeStatus("level1detect", "nodata", message)
+
     # check whether output exists
     if skipExisting and tools.checkForExisting(
         fn.fname.level1detect,
@@ -1783,10 +1787,7 @@ def detectParticles(
 
     # txt data is transmitted first
     if len(fnamesT) == 0:
-        with tools.open2("%s.nodata" % fn.fname.metaDetection, config, "w") as f:
-            f.write("no data in %s" % fn.fname.metaFrames)
-        with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-            f.write("no data in %s" % fn.fname.metaFrames)
+        _noData("no data in %s" % fn.fname.metaFrames)
         log.warning("no movie files: " + fname)
         return 0
 
@@ -1806,10 +1807,7 @@ def detectParticles(
     if tooFewThreads:
         if nextDayAvailable or campaignEnded:
             log.warning("movie files of other threads not found, no data " + fname)
-            with tools.open2("%s.nodata" % fn.fname.metaDetection, config, "w") as f:
-                f.write("movie files of other threads not found, no data")
-            with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-                f.write("movie files of other threads not found, no data")
+            _noData("movie files of other threads not found, no data")
         else:
             log.warning("movie files not found (yet?) " + fname)
         return 0
@@ -1817,11 +1815,8 @@ def detectParticles(
     try:
         metaData = xr.open_dataset(fn.fname.metaFrames)
     except FileNotFoundError:
-        if os.path.isfile(f"{fn.fname.metaFrames}.nodata"):
-            with tools.open2("%s.nodata" % fn.fname.metaDetection, config, "w") as f:
-                f.write("no data in %s" % fn.fname.metaFrames)
-            with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-                f.write("no data in %s" % fn.fname.metaFrames)
+        if fn.isNoData("metaFrames"):
+            _noData("no data in %s" % fn.fname.metaFrames)
             log.warning("metaFrames contains no data: " + fn.fname.metaFrames)
         else:
             log.warning("metaFrames data not found: " + fn.fname.metaFrames)
@@ -1831,8 +1826,7 @@ def detectParticles(
     # otherwise discard data
     nFramesPerThread = np.unique(metaData.nThread.values, return_counts=True)[1]
     if np.any(nFramesPerThread <= 1):
-        with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-            f.write("no data in %s" % fn.fname.metaFrames)
+        fn.writeStatus("level1detect", "nodata", "no data in %s" % fn.fname.metaFrames)
         log.warning(
             "metaFrames contains not enough frames " + str(list(nFramesPerThread))
         )
@@ -1843,11 +1837,7 @@ def detectParticles(
     #     raise RuntimeError('ERROR Unable to get meta data: ' + fname)
     if len(metaData.capture_time) == 0:
         log.info("nothing moves: " + fname)
-
-        with tools.open2("%s.nodata" % fn.fname.metaDetection, config, "w") as f:
-            f.write("no data")
-        with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-            f.write("no data")
+        _noData("no data")
         return 0
 
     if (
@@ -1933,14 +1923,12 @@ def detectParticles(
         fname11 = files.Filenames(fname1, config, version=version).prevFile()
 
         if (ii > 20) or (fname11 is None):
-            with tools.open2(
-                "%s.notenoughframes" % fn.fname.level1detect, config, "w"
-            ) as f:
-                f.write(
-                    "too few frames %i %i %s \r" % (len(trainingFrames), ii, fname11)
-                )
-                f.write(str(fnamesV))
-                f.write(str(fnamesT))
+            fn.writeStatus(
+                "level1detect",
+                "notenoughframes",
+                "too few frames %i %i %s \r%s%s"
+                % (len(trainingFrames), ii, fname11, fnamesV, fnamesT),
+            )
             log.error(
                 "%s too few frames %i " % (fn.fname.level1detect, len(trainingFrames))
             )
@@ -2061,8 +2049,9 @@ def detectParticles(
                 log.warning(
                     "detected single frame issue %s thread %i" % (fname, nThread)
                 )
-                with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-                    f.write("no data (single frame problem)")
+                fn.writeStatus(
+                    "level1detect", "nodata", "no data (single frame problem)"
+                )
                 continue
             else:
                 raise ValueError(
@@ -2182,8 +2171,7 @@ def detectParticles(
             snowParticlesXR.close()
         return snowParticlesXR
     else:
-        with tools.open2("%s.nodata" % fn.fname.level1detect, config, "w") as f:
-            f.write("no data")
+        fn.writeStatus("level1detect", "nodata", "no data")
         log.info("no data %s" % fn.fname.level1detect)
         return None
 

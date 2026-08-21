@@ -506,9 +506,10 @@ def createLevel1detectQuicklook(
         return None, None
 
     if site != "mosaic":
-        if (len(ff.listFiles("level0")) == 0) and (
+        noLevel0Yet = (len(ff.listFiles("level0")) == 0) and (
             len(ff.listFiles("level0status")) == 0
-        ):
+        )
+        if noLevel0Yet and ff.isDataTransferPending("level0"):
             print("NO DATA YET (TRANSFERRED?)", ffOut)
             return None, None
 
@@ -1503,7 +1504,10 @@ def createLevel1matchQuicklook(
     ):
         return None, None
 
-    if (len(fl.listFiles("level0")) == 0) and (len(fl.listFiles("level0status")) == 0):
+    noLevel0Yet = (len(fl.listFiles("level0")) == 0) and (
+        len(fl.listFiles("level0status")) == 0
+    )
+    if noLevel0Yet and fl.isDataTransferPending("level0"):
         print(
             "NO DATA YET (TRANSFERRED?)",
             fl.fnamesPattern["level0"],
@@ -3251,9 +3255,10 @@ def createLevel1matchParticlesQuicklook(
         return None, None
 
     if site != "mosaic":
-        if (len(ff.listFiles("level0")) == 0) and (
+        noLevel0Yet = (len(ff.listFiles("level0")) == 0) and (
             len(ff.listFiles("level0status")) == 0
-        ):
+        )
+        if noLevel0Yet and ff.isDataTransferPending("level0"):
             print("NO DATA YET (TRANSFERRED?)", ffOut)
             return None, None
 

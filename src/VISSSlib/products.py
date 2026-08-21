@@ -439,10 +439,28 @@ class DataProduct(object):
             bin = os.path.join(sys.exec_prefix, "bin", "python")
 
         if (extraOrigin is not None) and (len(self.fn.listNoData(extraOrigin)) > 0):
+            # extraOrigin (e.g. metaRotation) is marked nodata for this day:
+            # nothing will ever be produced here. Rather than spawning a
+            # doomed subprocess per origin file (matchParticles would just
+            # hit the same nodata file and write its own .nodata marker),
+            # write those markers directly -- same filenames matchParticles
+            # itself would use -- so this level gets real files with real
+            # mtimes and the normal nMissing/isComplete/freshness machinery
+            # resolves it without any special-casing.
             log.warning(
-                f"{self.relatives} {extraOrigin} is nodata, "
-                f"not generating {self.level} commands"
+                f"{self.relatives} {extraOrigin} is nodata: writing {self.level} "
+                f"nodata markers directly instead of spawning doomed commands"
             )
+            for pName in self.fn.listFilesExt(originLevel):
+                if originLevel.startswith("level0"):
+                    f1 = files.Filenames(pName, self.config)
+                else:
+                    f1 = files.FilenamesFromLevel(pName, self.config)
+                outFile = f1.fname[self.level]
+                if len(glob.glob(f"{outFile}*")) == 0:
+                    f1.writeStatus(
+                        self.level, "nodata", f"{extraOrigin} is nodata for {pName}"
+                    )
             return []
 
         commands = []
@@ -659,39 +677,11 @@ class DataProduct(object):
         """
         Check if all required files for this level exist.
 
-        For "l1" levels (one output per origin file), a day is also
-        considered complete -- with nothing missing -- if there is
-        nothing left it could ever produce: either its extraOrigin
-        parent (e.g. metaRotation for level1match) is marked nodata for
-        this day, or its origin level's own product is complete but
-        produced zero files (propagating the same reasoning one level
-        further down the chain, e.g. level1track once level1match is
-        vacuously complete). Without this, a level1detect/level1match
-        gap caused by a confirmed data gap upstream would otherwise
-        leave every level depending on it -- and ultimately allDone --
-        permanently "incomplete", even though nothing more will ever be
-        produced for that day.
-
         Returns
         -------
         bool
             True if all files are complete, False otherwise
         """
-        command = LEVEL_REGISTRY.get(self.level, {}).get("command", (None,))
-        if command[0] == "l1":
-            _, originLevel, _, extraOrigin = command
-            if (extraOrigin is not None) and (
-                len(self.fn.listNoData(extraOrigin)) > 0
-            ):
-                return True
-            originParent = self.parents.get(f"{self.camera}_{originLevel}")
-            if (
-                (originParent is not None)
-                and originParent.isComplete
-                and (len(originParent.fn.listFilesExt(originLevel)) == 0)
-            ):
-                return True
-
         nMissing = self.fn.nMissing(self.level)
         if nMissing > 0:
             log.info(f"{self.case} {self.relatives} {nMissing} files are missing")
@@ -702,15 +692,25 @@ class DataProduct(object):
         """
         Check if this product is younger than its parents.
 
+        A product that is complete but has zero real files (e.g. a day
+        with a confirmed data gap upstream, so nothing was ever expected
+        here) has no meaningful fileCreation (0/epoch) to compare against
+        its parents' mtimes. Without an exception, that 0 looks
+        "infinitely stale" against any real parent mtime and would block
+        every descendant -- and ultimately allDone -- from ever being
+        marked up to date. Such a product is treated as vacuously
+        younger than all of its parents instead.
+
         Returns
         -------
         dict
             Dictionary mapping parent names to boolean values indicating
             whether this product is younger than each parent
         """
+        vacuouslyFresh = (self.fileCreation == 0) and self.isComplete
         youngerThanParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
-            isYounger = parent.fileCreation < self.fileCreation
+            isYounger = vacuouslyFresh or (parent.fileCreation < self.fileCreation)
             if (self.level == "level1detect") and (parent.level == "metaEvents"):
                 # special case: no need to do level1detect again due to updated metaEvents
                 youngerThanParentsDict[name] = True
@@ -916,25 +916,17 @@ class DataProduct(object):
     @cached_property
     def dataTransfered(self):
         """
-        Check if data is available for this product.
+        Check if data is available for this product, or -- if not --
+        whether its absence has been confirmed as a genuine gap rather
+        than data that simply has not synced yet.
 
         Returns
         -------
         bool
-            True if data is available, False otherwise
+            True if data is available or the gap is confirmed, False if
+            still pending (data may yet arrive).
         """
-        dataTransfered = len(self.fn.listFiles("level0txt")) > 0
-        if not dataTransfered:
-            foundLastFile, lastCase, lastFile, lastFileTime = files.findLastFile(
-                self.config, "level0", self.camera
-            )
-            if foundLastFile:
-                if lastFileTime > (self.fn.datetime + datetime.timedelta(1)):
-                    mes = f"Newer L0 files have been found, likely data gap on {self.fn.case}"
-                    log.warning(mes)
-                    dataTransfered = True
-
-        return dataTransfered
+        return not self.fn.isDataTransferPending("level0txt")
 
     @cached_property
     def allComplete(self):
@@ -1377,7 +1369,7 @@ def processAll(
     case,
     config,
     ignoreErrors=False,
-    nJobs=os.cpu_count,
+    nJobs=os.cpu_count(),
     fileQueue=None,
     skipExisting=True,
 ):
@@ -1398,9 +1390,9 @@ def processAll(
         or a configuration object
     ignoreErrors : bool, default False
         If True, continue processing even if errors occur in individual steps
-    nJobs : int or callable, default os.cpu_count
-        Number of parallel jobs to run. If callable, it will be called to get
-        the number of jobs. This parameter is passed to the workers function.
+    nJobs : int, default os.cpu_count()
+        Number of parallel jobs to run. This parameter is passed to the
+        workers function.
     fileQueue : str, optional
         File queue for task management. If None, a temporary queue will be created.
     skipExisting : bool, default True

@@ -734,6 +734,32 @@ class FindFiles(object):
             == 0
         )
 
+    def isGenuineDataGap(self, level="level0"):
+        """
+        Check whether the absence of data for this case is a genuine data
+        gap rather than data that simply has not arrived/been processed
+        yet, by checking whether newer data of `level` has already been
+        found for this camera (see also the "Newer L0 files have been
+        found, likely data gap" check in products.DataProduct.dataTransfered).
+
+        Parameters
+        ----------
+        level : str, optional
+            Processing level to check for newer data (default is 'level0').
+
+        Returns
+        -------
+        bool
+            True if data newer than this case (by more than a day) has
+            been found, confirming this case's missing data is a gap.
+        """
+        foundLastFile, _, _, lastFileTime = findLastFile(
+            self.config, level, self.camera
+        )
+        return foundLastFile and (
+            lastFileTime > (self.datetime + datetime.timedelta(days=1))
+        )
+
     @property
     def nL0(self):
         """

@@ -2241,7 +2241,16 @@ def createMetaRotation(
         return None, None
 
     # figure out whether all level1detect data has been processed
-    if completeDaysOnly and not fl.isCompleteL1detect:
+    # (requireL0Files=True so a day with zero level0 files is not
+    # mistaken for "complete" just because 0 of 0 expected files exist)
+    if completeDaysOnly and not fl.isComplete("level1detect", requireL0Files=True):
+        if fl.isGenuineDataGap():
+            log.warning(
+                f"Newer leader L0 files have been found, likely data gap on {case}"
+            )
+            with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
+                f.write(f"No leader level 0 data available for {case}")
+            return None, None
         log.warning(
             "L1 LEADER NOT COMPLETE YET %i of %i "
             % (len(fl.listFilesExt("level1detect")), len(fl.listFiles("level0txt")))
@@ -2249,7 +2258,14 @@ def createMetaRotation(
         return None, None
 
     # figure out whether all level1detect data has been processed
-    if completeDaysOnly and not ff.isCompleteL1detect:
+    if completeDaysOnly and not ff.isComplete("level1detect", requireL0Files=True):
+        if ff.isGenuineDataGap():
+            log.warning(
+                f"Newer follower L0 files have been found, likely data gap on {case}"
+            )
+            with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
+                f.write(f"No follower level 0 data available for {case}")
+            return None, None
         log.warning(
             "L1 FOLLOWER NOT COMPLETE YET %i of %i "
             % (len(ff.listFilesExt("level1detect")), len(ff.listFiles("level0txt")))

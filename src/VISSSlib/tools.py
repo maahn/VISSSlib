@@ -158,7 +158,6 @@ DEFAULT_SETTINGS = {
     "rotate": {},
 }
 
-
 niceNames = (
     ("master", "leader"),
     ("trigger", "leader"),

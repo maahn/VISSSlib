@@ -2829,9 +2829,10 @@ For information about the commands, run
         if has_skip:
             p.add_argument(
                 "--skip-existing",
-                action="store_true",
+                action=argparse.BooleanOptionalAction,
                 default=skip_default,
-                help=f"Skip if exists (default: {skip_default})",
+                help=f"Skip if exists (default: {skip_default}); use "
+                "--no-skip-existing to force reprocessing",
             )
 
     # Metadata commands

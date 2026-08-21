@@ -438,6 +438,7 @@ class DataProduct(object):
         if bin is None:
             bin = os.path.join(sys.exec_prefix, "bin", "python")
 
+        if (extraOrigin is not None) and (len(self.fn.listNoData(extraOrigin)) > 0):
             log.warning(
                 f"{self.relatives} {extraOrigin} is nodata, "
                 f"not generating {self.level} commands"
@@ -658,11 +659,39 @@ class DataProduct(object):
         """
         Check if all required files for this level exist.
 
+        For "l1" levels (one output per origin file), a day is also
+        considered complete -- with nothing missing -- if there is
+        nothing left it could ever produce: either its extraOrigin
+        parent (e.g. metaRotation for level1match) is marked nodata for
+        this day, or its origin level's own product is complete but
+        produced zero files (propagating the same reasoning one level
+        further down the chain, e.g. level1track once level1match is
+        vacuously complete). Without this, a level1detect/level1match
+        gap caused by a confirmed data gap upstream would otherwise
+        leave every level depending on it -- and ultimately allDone --
+        permanently "incomplete", even though nothing more will ever be
+        produced for that day.
+
         Returns
         -------
         bool
             True if all files are complete, False otherwise
         """
+        command = LEVEL_REGISTRY.get(self.level, {}).get("command", (None,))
+        if command[0] == "l1":
+            _, originLevel, _, extraOrigin = command
+            if (extraOrigin is not None) and (
+                len(self.fn.listNoData(extraOrigin)) > 0
+            ):
+                return True
+            originParent = self.parents.get(f"{self.camera}_{originLevel}")
+            if (
+                (originParent is not None)
+                and originParent.isComplete
+                and (len(originParent.fn.listFilesExt(originLevel)) == 0)
+            ):
+                return True
+
         nMissing = self.fn.nMissing(self.level)
         if nMissing > 0:
             log.info(f"{self.case} {self.relatives} {nMissing} files are missing")

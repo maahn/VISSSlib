@@ -409,8 +409,20 @@ def _createLevel2(
         log.warning("no level 0 data for %s" % case)
         return None, None
 
+    # level1match/level1track are only ever nonempty if metaRotation held
+    # real data; if metaRotation was marked nodata (a confirmed data gap,
+    # see matching.createMetaRotation), neither will ever produce
+    # anything for this day, so mark this level2 file as nodata too
+    # instead of erroring out on every run forever.
+    metaRotationIsNoData = len(fL.listNoData("metaRotation")) > 0
+
     if sublevel == "match":
         if not fL.isCompleteL1match:
+            if metaRotationIsNoData:
+                with tools.open2("%s.nodata" % lv2File, config, "w") as f:
+                    f.write("metaRotation is nodata for %s" % case)
+                log.warning(f"metaRotation is nodata for {case}, marking {lv2File}")
+                return None, None
             log.error(
                 "level1match NOT COMPLETE YET %i of %i %s"
                 % (
@@ -423,6 +435,11 @@ def _createLevel2(
             return None, None
     elif sublevel == "track":
         if not fL.isCompleteL1track:
+            if metaRotationIsNoData:
+                with tools.open2("%s.nodata" % lv2File, config, "w") as f:
+                    f.write("metaRotation is nodata for %s" % case)
+                log.warning(f"metaRotation is nodata for {case}, marking {lv2File}")
+                return None, None
             log.error(
                 "level1track NOT COMPLETE YET %i of %i %s"
                 % (

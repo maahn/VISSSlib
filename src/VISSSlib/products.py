@@ -701,6 +701,16 @@ class DataProduct(object):
         marked up to date. Such a product is treated as vacuously
         younger than all of its parents instead.
 
+        The mirror image applies per parent: a parent that is complete
+        but only has a .nodata/.broken.txt sentinel (no real output) can
+        have that sentinel rewritten at any time -- e.g. a bulk backfill
+        or a retried failure -- without there being any new real
+        information for us to react to. Letting a sentinel's mtime alone
+        mark us stale would force endless, permanently unproductive
+        "redo" commands (the redo is always skip-existing and a no-op,
+        since there is nothing to redo), so such a parent is treated as
+        vacuously old for this comparison instead.
+
         Returns
         -------
         dict
@@ -710,7 +720,12 @@ class DataProduct(object):
         vacuouslyFresh = (self.fileCreation == 0) and self.isComplete
         youngerThanParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
-            isYounger = vacuouslyFresh or (parent.fileCreation < self.fileCreation)
+            parentVacuous = parent.isComplete and (len(parent.listFiles()) == 0)
+            isYounger = (
+                vacuouslyFresh
+                or parentVacuous
+                or (parent.fileCreation < self.fileCreation)
+            )
             if (self.level == "level1detect") and (parent.level == "metaEvents"):
                 # special case: no need to do level1detect again due to updated metaEvents
                 youngerThanParentsDict[name] = True

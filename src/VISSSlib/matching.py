@@ -1970,10 +1970,61 @@ def matchParticles(
     )[0]
     followerRestarted = fEvents.file_starttime[followerRestartedII].values
 
+    # Pre-PTP hardware could silently drop a captured frame's index,
+    # which permanently offsets the leader-follower capture_id
+    # correspondence from that point on within an otherwise unbroken
+    # recording. _matchSegments estimates one offset per timeBlocks
+    # segment and (correctly) refuses to guess when a window straddles
+    # such a drop, since the true offset differs by a whole frame on
+    # either side. Detect those drops here -- same condition _matchSegments
+    # uses to decide it needs capture_id-based offset estimation at all
+    # (ptpStatus missing/Disabled) -- and add them as extra segment
+    # boundaries, exactly like a genuine follower restart, so each side
+    # gets resolved independently instead of failing outright. PTP-active
+    # data never takes this path, since ptpDisabled is False for it and
+    # matching then relies on synchronized timestamps rather than
+    # capture_id offsets in the first place.
+    ptpDisabled = (
+        ("ptpStatus" not in lEvents.data_vars)
+        or ("ptpStatus" not in fEvents.data_vars)
+        or np.any(
+            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
+            == "Disabled"
+        ).values
+        or np.any(
+            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
+            == "Disabled"
+        ).values
+    )
+    captureIdDropTimes = []
+    if ptpDisabled:
+        maxDiffMsForDropDetection = maxDiffMs
+        if maxDiffMsForDropDetection == "config":
+            maxDiffMsForDropDetection = 1000 / config.fps / 2
+        try:
+            captureIdDropTimes = tools.detectCaptureIdDropTimes(
+                leader1D,
+                follower1DAll,
+                dim="fpid",
+                nPoints=nPoints,
+                maxDiffMs=maxDiffMsForDropDetection,
+                timeDim="capture_time",
+            )
+        except Exception as e:
+            log.warning(tools.concat("detectCaptureIdDropTimes FAILED", str(e)))
+        if len(captureIdDropTimes) > 0:
+            log.warning(
+                tools.concat(
+                    "found likely dropped frame(s), splitting matching window at",
+                    captureIdDropTimes,
+                )
+            )
+
     timeBlocks = np.concatenate(
         (
             follower1DAll.capture_time.values[:1],
             followerRestarted,
+            np.array(captureIdDropTimes, dtype=follower1DAll.capture_time.values.dtype),
             follower1DAll.capture_time.values[-1:],
         )
     )

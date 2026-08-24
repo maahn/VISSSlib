@@ -2002,7 +2002,7 @@ def matchParticles(
         if maxDiffMsForDropDetection == "config":
             maxDiffMsForDropDetection = 1000 / config.fps / 2
         try:
-            captureIdDropTimes = tools.detectCaptureIdDropTimes(
+            captureIdDropTimes = fixes.detectCaptureIdDropTimes(
                 leader1D,
                 follower1DAll,
                 dim="fpid",

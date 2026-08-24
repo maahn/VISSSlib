@@ -453,3 +453,110 @@ def makeCaptureTimeEven(datF, config, dim="capture_time"):
 #     dat = dat.rename({"capture_time": "capture_time_even"})
 #     dat = dat.rename({"capture_time_orig": "capture_time"})
 #     return dat
+
+
+def detectCaptureIdDropTimes(
+    leaderDat,
+    followerDat,
+    dim="fpid",
+    nPoints=500,
+    maxDiffMs=1,
+    timeDim="capture_time",
+    minRunLength=5,
+    maxJump=2,
+):
+    """
+    Find times within a window where the leader-follower capture_id
+    offset makes a clean, sustained jump of a few frames -- the
+    signature of one camera silently dropping (or duplicating) a
+    frame index, as opposed to genuine timing ambiguity between the
+    two cameras.
+
+    Pre-PTP hardware occasionally lost a captured frame's index
+    without otherwise disturbing the capture_id sequence. That leaves
+    the true offset well-defined and constant on either side of the
+    drop, but `tools.estimateCaptureIdDiffCore` averages the whole
+    window into one offset and fails its >70% consistency check
+    whenever a drop happens to fall inside it. The offset itself is
+    not ambiguous -- only the single-offset-per-window assumption is
+    wrong. Returns candidate leader `capture_time` values to split the
+    window at (feed into `timeBlocks` alongside genuine follower
+    restarts) so each side can be resolved independently; not meant
+    as a replacement for `estimateCaptureIdDiffCore` itself.
+
+    Parameters
+    ----------
+    leaderDat, followerDat : xarray.Dataset
+        Same inputs as `tools.estimateCaptureIdDiffCore`.
+    dim : str, optional
+        Dimension to sample leader points from, by default "fpid".
+    nPoints : int, optional
+        Number of leader points to sample, by default 500.
+    maxDiffMs : float, optional
+        Matching window in ms, by default 1.
+    timeDim : str, optional
+        Time coordinate to use, by default "capture_time".
+    minRunLength : int, optional
+        Minimum number of samples for a run to be trusted as a real
+        offset regime rather than noise, by default 5.
+    maxJump : int, optional
+        Only trust a jump between neighbouring runs up to this many
+        frames (a dropped/duplicated frame is normally exactly 1), by
+        default 2.
+
+    Returns
+    -------
+    list of numpy.datetime64
+        Leader capture_times to split the window at, in time order.
+    """
+    if (len(leaderDat[dim]) == 0) or (len(followerDat[dim]) == 0):
+        return []
+
+    timeDimFollower = timeDim
+    if (timeDim == "capture_time") and ("capture_time_even" in followerDat.data_vars):
+        timeDimFollower = "capture_time_even"
+
+    if len(leaderDat[dim]) > nPoints:
+        points = np.linspace(0, len(leaderDat[dim]), nPoints, dtype=int, endpoint=False)
+    else:
+        points = range(len(leaderDat[dim]))
+
+    times = []
+    idDiffs = []
+    for point in points:
+        absDiff = np.abs(
+            leaderDat[timeDim].isel(**{dim: point}).values
+            - followerDat[timeDimFollower]
+        )
+        pMin = np.min(absDiff).values
+        if pMin < np.timedelta64(int(maxDiffMs), "ms"):
+            pII = absDiff.argmin().values
+            idDiffs.append(
+                followerDat.capture_id.values[pII]
+                - leaderDat.capture_id.isel(**{dim: point}).values
+            )
+            times.append(leaderDat[timeDim].isel(**{dim: point}).values)
+
+    if len(idDiffs) < 2 * minRunLength:
+        return []
+
+    times = np.array(times)
+    idDiffs = np.array(idDiffs)
+    order = np.argsort(times)
+    times, idDiffs = times[order], idDiffs[order]
+
+    changeAt = np.where(np.diff(idDiffs) != 0)[0] + 1
+    runBounds = np.concatenate(([0], changeAt, [len(idDiffs)]))
+    runs = [
+        (idDiffs[a], a, b)
+        for a, b in zip(runBounds[:-1], runBounds[1:])
+        if (b - a) >= minRunLength
+    ]
+    if len(runs) < 2:
+        return []
+
+    breakTimes = []
+    for (valA, _, _), (valB, sB, _) in zip(runs[:-1], runs[1:]):
+        if 0 < abs(int(valB) - int(valA)) <= maxJump:
+            breakTimes.append(times[sB])
+    return breakTimes

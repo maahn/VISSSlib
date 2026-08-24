@@ -2422,7 +2422,7 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     return success
 
 
-def worker1(queue, ww=0, status=None, waitTime=5):
+def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
     """
     Worker function for processing queue items.
 
@@ -2436,6 +2436,21 @@ def worker1(queue, ww=0, status=None, waitTime=5):
         Status array, by default None.
     waitTime : int, optional
         Wait time between checks, by default 5.
+    leaseSeconds : int, optional
+        Visibility timeout for a leased task, in seconds, by default
+        21600 (6h). `tq.poll` leases one task, then runs it fully
+        synchronously (`runCommandInQueue` blocks on the subprocess for
+        the task's entire runtime) before leasing the next -- the lease
+        is never renewed while a task is executing. Once `leaseSeconds`
+        elapses, other workers treat the task as abandoned and lease it
+        again even though the original worker is still correctly,
+        actively running it, causing duplicate concurrent execution of
+        the same command (the file lock in `runCommandInQueue` then
+        makes the duplicates no-op quickly, which drains the *queue*
+        long before the *task* actually finishes -- queue-empty stops
+        being a valid "done" signal). Must comfortably exceed the
+        slowest realistic single-file runtime for whatever commands
+        this queue carries, not just the typical one.
 
     Returns
     -------
@@ -2454,7 +2469,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
                     verbose=True,
                     tally=True,
                     stop_fn=tq.is_empty,
-                    lease_seconds=2,
+                    lease_seconds=leaseSeconds,
                     backoff_exceptions=[BlockingIOError],
                 )
             except:
@@ -2479,7 +2494,7 @@ def worker1(queue, ww=0, status=None, waitTime=5):
     return out
 
 
-def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
+def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True, leaseSeconds=21600):
     """
     Start multiple worker processes.
 
@@ -2493,6 +2508,10 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
         Wait time between checks, by default 60.
     join : bool, optional
         Join processes, by default True.
+    leaseSeconds : int, optional
+        Passed through to `worker1` -- see its docstring for why this
+        must exceed the slowest realistic task runtime, by default
+        21600 (6h).
 
     Returns
     -------
@@ -2511,6 +2530,7 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True):
                 "ww": ww,
                 "status": status,
                 "waitTime": waitTime,
+                "leaseSeconds": leaseSeconds,
             },
         )
         x.start()

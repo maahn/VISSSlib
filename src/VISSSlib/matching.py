@@ -1108,6 +1108,593 @@ class _MatchEarlyReturn(Exception):
         self.result = result
 
 
+def _sliceFollowerSegment(FR1, FR2, follower1DAll, leaderMinTime, leaderMaxTime, tt, nSegments):
+    """
+    Select the follower1DAll subset covering one follower-restart-to-
+    restart segment [FR1, FR2] and decide whether it overlaps the leader's
+    time range enough to bother with. Always logs its own outcome.
+
+    Returns
+    -------
+    xarray.Dataset or None
+        The follower1D slice, or None if this segment should be skipped
+        entirely (too early, too late, too short, or too little
+        overlapping follower data).
+    """
+    log.info(
+        tools.concat(tt + 1, "of", nSegments, "slice for follower restart", FR1, FR2)
+    )
+
+    if (FR1 < leaderMinTime) and (FR2 < leaderMinTime):
+        log.info(
+            tools.concat(
+                "CONTINUE, slice for follower restart",
+                tt,
+                FR1,
+                FR2,
+                "before leader time range",
+                leaderMinTime.values,
+            )
+        )
+        return None
+    if (FR1 > leaderMaxTime) and (FR2 > leaderMaxTime):
+        log.info(
+            tools.concat(
+                "CONTINUE, slice for follower restart",
+                tt,
+                FR1,
+                FR2,
+                "after leader time range",
+                leaderMaxTime.values,
+            )
+        )
+        return None
+    if (FR2 - FR1) < np.timedelta64(1, "s"):
+        log.info(
+            tools.concat(
+                "CONTINUE, slice for follower restart",
+                tt,
+                FR1,
+                FR2,
+                "less than one second",
+                (FR2 - FR1) / 1e9,
+            )
+        )
+        return None
+
+    # the 2nd <= is on purpose because it is required if there is no restart. if there is a restart, there is anyway no data exactly at that time
+    TIMES = (FR1 <= follower1DAll.capture_time.values) & (
+        follower1DAll.capture_time.values <= FR2
+    )
+    if np.sum(TIMES) <= 3:
+        log.warning(
+            f"CONTINUE, too little follower data (#{np.sum(TIMES)}) overlapping with leader period"
+        )
+        return None
+
+    return follower1DAll.isel(fpid=TIMES)
+
+
+def _applyCaptureTimeEvenFix(follower1D, config, rotationOnly):
+    """
+    Apply the optional per-config makeCaptureTimeEven fix to a follower
+    segment.
+
+    Returns
+    -------
+    tuple(xarray.Dataset, str or None, bool)
+        (follower1D, errorMessage, skip). If skip is True, the caller
+        should move on to the next segment without using follower1D or
+        errorMessage. errorMessage, when not None, is a soft failure the
+        caller should record for this segment (processing continues with
+        the *original*, unfixed follower1D) rather than a reason to skip.
+    """
+    if "makeCaptureTimeEven" not in config.dataFixes:
+        return follower1D, None, False
+
+    try:
+        return fixes.makeCaptureTimeEven(follower1D, config, dim="fpid"), None, False
+    except AssertionError as e:
+        log.error("fixes.makeCaptureTimeEven FAILED")
+        log.error(str(e))
+        nTimes = len(follower1D.fpid)
+        if rotationOnly:
+            return follower1D, None, True
+        if nTimes <= 20:
+            log.error(tools.concat(f"so little data {nTimes} ignore it!"))
+            return follower1D, None, True
+        return follower1D, f"fixes.makeCaptureTimeEven FAILED {str(e)}", False
+
+
+def _followerCameraWasReset(follower1D):
+    """True if the follower's capture_id goes backward within this
+    segment -- the camera physically reset mid-recording, and there is
+    nothing to salvage here."""
+    return not np.all(np.diff(follower1D.capture_id) >= 0)
+
+
+def _resolveMatchingOffset(
+    leader1D,
+    follower1D,
+    lEvents,
+    fEvents,
+    config,
+    offsetsOnly,
+    rotationOnly,
+    maxDiffMs,
+    nPoints,
+    fname1Match,
+    tt,
+    FR1,
+    FR2,
+    errorStrs,
+    errors,
+):
+    """
+    Determine how to time-align leader and follower for this segment:
+    either directly from synchronized PTP timestamps, or by estimating
+    the leader-follower capture_id offset (trying both capture_time- and
+    record_time-based estimates and taking whichever matched more).
+
+    Mutates errorStrs[-1] and errors in place on soft failures (unless
+    rotationOnly, matching the historical behavior of not bothering to
+    record errors when only a rotation estimate was requested).
+
+    Returns
+    -------
+    tuple(dict, dict, bool, float) or None
+        (mu, delta, ptpTime, maxDiffMs) for doMatchSlicer, with maxDiffMs
+        resolved from "config" to a number if it wasn't already (the
+        caller should carry the returned value forward to the next
+        segment, mirroring the original code resolving it once and
+        reusing it for the rest of the day). None if this segment should
+        be skipped entirely (already logged).
+
+    Raises
+    ------
+    _MatchEarlyReturn
+        If offsetsOnly is set and an offset was successfully found --
+        matchParticles' historic contract for that mode.
+    """
+    ptpDisabled = (
+        offsetsOnly
+        or ("ptpStatus" not in lEvents.data_vars)
+        or ("ptpStatus" not in fEvents.data_vars)
+        or np.any(
+            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
+            == "Disabled"
+        ).values
+        or np.any(
+            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
+            == "Disabled"
+        ).values
+    )
+
+    if not ptpDisabled:
+        mu = {"Z": 0, "H": 0, "T": 0}
+        delta = {"Z": 0.5, "Y": 0.5, "H": 1, "T": 1 / config.fps}
+        return mu, delta, True, maxDiffMs
+
+    if maxDiffMs == "config":
+        maxDiffMs = 1000 / config.fps / 2
+
+    try:
+        captureIdOffset1, nMatched1 = tools.estimateCaptureIdDiffCore(
+            leader1D,
+            follower1D,
+            "fpid",
+            maxDiffMs=maxDiffMs,
+            nPoints=nPoints,
+            timeDim="capture_time",
+        )
+    except Exception as e:
+        captureIdOffset1 = nMatched1 = -99
+        error1 = str(e)
+    try:
+        captureIdOffset2, nMatched2 = tools.estimateCaptureIdDiffCore(
+            leader1D,
+            follower1D,
+            "fpid",
+            maxDiffMs=maxDiffMs,
+            nPoints=nPoints,
+            timeDim="record_time",
+        )
+    except Exception as e:
+        captureIdOffset2 = nMatched2 = -99
+        error2 = str(e)
+
+    if nMatched2 == nMatched1 == -99:
+        log.error(tools.concat("tools.estimateCaptureIdDiff FAILED"))
+        log.error(tools.concat(error1))
+        log.error(tools.concat(error2))
+        if not rotationOnly:
+            errorStrs[-1].append(
+                f"tools.estimateCaptureIdDiff(ffl1, config, graceInterval=2)\r{error1}\r{error2}"
+            )
+        return None
+
+    if (nMatched2 <= 1) and (nMatched1 <= 1):
+        log.error(tools.concat("NOT ENOUGH DATA", fname1Match, tt, FR1, FR2))
+        return None
+
+    # In theory, capture time is much better, but there are cases were it is off. Try to identify them by chgecking whether record_time yielded more matches.
+    # for mosaic, capture time is pretty much useless!
+    if (nMatched2 > nMatched1) or (config.site == "mosaic"):
+        if nMatched2 == -99:
+            log.error(
+                tools.concat(
+                    "record_id based diff estiamtion failed", fname1Match, tt, FR1, FR2
+                )
+            )
+            errors["offsetEstimation"] = True
+            return None
+
+        captureIdOffset = captureIdOffset2
+        nMatched = nMatched2
+        log.info(
+            tools.concat(
+                f"Taking offset from record_time {(captureIdOffset2, nMatched2)} intead of capture_time {(captureIdOffset1, nMatched1)}"
+            )
+        )
+    else:
+        captureIdOffset = captureIdOffset1
+        nMatched = nMatched1
+
+    if offsetsOnly:
+        raise _MatchEarlyReturn((captureIdOffset, nMatched))
+
+    mu = {"Z": 0, "H": 0, "T": 0, "I": captureIdOffset}
+    delta = {"Z": 0.5, "Y": 0.5, "H": 1, "T": 1 / config.fps, "I": 1}
+    return mu, delta, False, maxDiffMs
+
+
+def _prepareDataForRotation(
+    leader1D,
+    follower1D,
+    leader1D4rot,
+    follower1D4rot,
+    doRot,
+    minDMax4rot,
+    singleParticleFramesOnly,
+    nSamples4rot,
+    minSamples4rot,
+):
+    """
+    Subset this segment's leader/follower data down to what's worth using
+    for rotation refinement: filter to large, sharp (blur) particles if
+    requested, optionally keep only frames with a single particle
+    (removes matching ambiguity), and cap the sample size for speed.
+    Turns doRot off if what's left is too little to bother refining
+    rotation with at all.
+
+    If doRot is already False on entry, leader1D4rot/follower1D4rot are
+    returned unchanged -- mirroring the original inline code, which
+    simply never touched them in that case, leaving whatever they held
+    from the last segment that *did* run this (they are not reset to
+    this segment's data just because doRot happens to be off here).
+
+    Returns
+    -------
+    tuple(xarray.Dataset, xarray.Dataset, bool, bool)
+        (leader1D4rot, follower1D4rot, dataTruncated4rot, doRot)
+    """
+    if not doRot:
+        return leader1D4rot, follower1D4rot, False, doRot
+
+    dataTruncated4rot = False
+    minBlur4rot = 100
+
+    if minDMax4rot > 0:
+        filt = (leader1D.Dmax > minDMax4rot).values & (
+            leader1D.blur > minBlur4rot
+        ).values
+        log.info(
+            tools.concat(
+                "DMax&blur filter leader:",
+                minDMax4rot,
+                np.sum(filt) / len(leader1D.fpid) * 100,
+                "%",
+            )
+        )
+        leader1D4rot = leader1D.isel(fpid=filt)
+    else:
+        leader1D4rot = leader1D.copy()
+
+    if minDMax4rot > 0:
+        filt = (follower1D.Dmax > minDMax4rot).values & (
+            follower1D.blur > minBlur4rot
+        ).values
+        log.info(
+            tools.concat(
+                "DMax&blur filter follower:",
+                minDMax4rot,
+                np.sum(filt) / len(follower1D.fpid) * 100,
+                "%",
+            )
+        )
+        follower1D4rot = follower1D.isel(fpid=filt)
+    else:
+        follower1D4rot = follower1D.copy()
+
+    # to get rotation coefficients, using frames with only a single particle is helpful!
+    if singleParticleFramesOnly:
+        un, ii, counts = np.unique(
+            leader1D4rot.capture_time, return_index=True, return_counts=True
+        )
+        leader1D4rot = leader1D4rot.isel(fpid=ii[counts == 1])
+
+        un, ii, counts = np.unique(
+            follower1D4rot.capture_time, return_index=True, return_counts=True
+        )
+        follower1D4rot = follower1D4rot.isel(fpid=ii[counts == 1])
+
+    if (
+        len(leader1D4rot.fpid) > nSamples4rot * 10
+    ):  # assuming we have about 10 times more particles outside the obs volume
+        leader1D4rot = leader1D4rot.isel(fpid=slice(nSamples4rot * 10))
+        dataTruncated4rot = True
+    elif len(leader1D4rot.fpid) < minSamples4rot:
+        log.error(
+            "not enough leader data to estimate rotation %i" % len(leader1D4rot.fpid)
+        )
+        doRot = False
+
+    if len(follower1D4rot.fpid) > nSamples4rot * 10:
+        follower1D4rot = follower1D4rot.isel(fpid=slice(nSamples4rot * 10))
+        dataTruncated4rot = True
+    elif len(follower1D4rot.fpid) < minSamples4rot:
+        log.error(
+            "not enough follower data to estimate rotation %i"
+            % len(follower1D4rot.fpid)
+        )
+        doRot = False
+
+    return leader1D4rot, follower1D4rot, dataTruncated4rot, doRot
+
+
+def _refineRotationIteration(
+    leader1D4rot,
+    follower1D4rot,
+    sigma,
+    mu,
+    delta,
+    config,
+    rotate,
+    rotate_err,
+    ptpTime,
+    testing,
+    nSamples4rot,
+    minSamples4rot,
+    y_cov_diag,
+    maxIter,
+    errors,
+    matchedDat,
+    matchedDat4Rot,
+    rotate_result,
+    rotate_err_result,
+):
+    """
+    Iteratively refine the camera rotation via optimal estimation (up to
+    20 steps): match particles with the current rotation guess, refit
+    the rotation from the best-matched pairs, and stop once the change
+    is smaller than its own uncertainty (or data runs out, or the fit
+    itself fails).
+
+    matchedDat, matchedDat4Rot, rotate_result, and rotate_err_result are
+    accepted as well as returned because -- matching the original inline
+    loop exactly -- they are left *unchanged* if this loop breaks before
+    ever landing a usable match, carrying over whatever value a previous
+    segment last computed (for better or worse; not a decision this
+    extraction should be changing).
+
+    Mutates errors in place.
+
+    Returns
+    -------
+    tuple
+        (matchedDat, matchedDat4Rot, rotate_result, rotate_err_result)
+    """
+    rotates = []
+    for ii in range(20):
+        log.info(
+            tools.concat(
+                "rotation coefficients iteration",
+                ii,
+                "of 20 with",
+                len(leader1D4rot.fpid),
+                "and",
+                len(follower1D4rot.fpid),
+                "data points",
+            )
+        )
+        # in here is all the magic
+        res = doMatchSlicer(
+            leader1D4rot,
+            follower1D4rot,
+            sigma,
+            mu,
+            delta,
+            config,
+            rotate,
+            ptpTime,
+            chunckSize=1e6,
+            testing=testing,
+        )
+        if res[0] is None:
+            log.error(
+                "doMatchSlicer 4 rot failed %s"
+                % str(leader1D4rot.capture_time.values[0])
+            )
+            if (len(leader1D4rot.fpid) > nSamples4rot) and (
+                len(follower1D4rot.fpid) > nSamples4rot
+            ):
+                log.error(
+                    f"reason for error unclear because number of samples is {len(leader1D4rot.fpid)} and {len(follower1D4rot.fpid)}"
+                )
+                errors["doMatchSlicer"] = True
+
+            break
+        matchedDat, disputedPairs, new_sigma, new_mu = res
+
+        if len(matchedDat.pair_id) >= minSamples4rot:
+            matchedDat4Rot = deepcopy(matchedDat)
+            #                 matchedDat4Rot = matchedDat4Rot.isel(pair_id=(matchedDat4Rot.matchScore>minMatchScore4rot))
+            matchedDat4Rot = matchedDat4Rot.isel(
+                pair_id=sorted(np.argsort(matchedDat4Rot.matchScore)[-nSamples4rot:])
+            )
+
+            x_ap = rotate
+            x_cov_diag = (rotate_err * 10) ** 2
+            try:
+                rotate_result, rotate_err_result, dgf_x = retrieveRotation(
+                    matchedDat4Rot,
+                    x_ap,
+                    x_cov_diag,
+                    y_cov_diag,
+                    config,
+                    verbose=True,
+                    maxIter=maxIter,
+                )
+            except AssertionError as e:
+                log.error(tools.concat(f"pyOE error, taking previous values."))
+                log.error(tools.concat(str(e)))
+                break
+
+            log.debug(
+                tools.concat(
+                    "MATCH",
+                    ii,
+                    matchedDat.matchScore.mean().values,
+                )
+            )
+            log.debug(
+                tools.concat(
+                    "ROTATE",
+                    ii,
+                    "\n",
+                    rotate_result,
+                    "\n",
+                    "error",
+                    "\n",
+                    rotate_err_result,
+                    "\n",
+                    "dgf",
+                    "\n",
+                    dgf_x,
+                )
+            )
+            rotates.append(rotate_result)
+
+            if ii > 0:
+                # if the change of the coefficients is smaller than their 1std errors for all of them, stop
+                if np.all(
+                    np.abs(rotates[ii - 1] - rotate_result) < rotate_err_result
+                ):
+                    log.info(tools.concat("interupting loop"))
+                    log.info(tools.concat(rotate_result))
+                    break
+        else:
+            log.warning(
+                tools.concat(
+                    f"{len(matchedDat.pair_id)} pairs is not enough data to estimate rotation, taking previous values."
+                )
+            )
+
+            break
+
+    return matchedDat, matchedDat4Rot, rotate_result, rotate_err_result
+
+
+def _finalizeSegmentMatch(
+    leader1D,
+    follower1D,
+    sigma,
+    mu,
+    delta,
+    config,
+    ptpTime,
+    chunckSize,
+    testing,
+    dataTruncated4rot,
+    doRot,
+    rotate,
+    rotate_err,
+    rotate_result,
+    rotate_err_result,
+    rotate_final,
+    rotate_err_final,
+    matchedDat,
+    errors,
+):
+    """
+    Produce this segment's final matched-particle dataset and the
+    rotation used to compute particle positions from it.
+
+    If rotation refinement already ran against the segment's *full* data
+    (not truncated for speed), its matchedDat is already final and is
+    returned unchanged, along with rotate_final/rotate_err_final left
+    untouched -- matching the original code, which in that case simply
+    never updates them for this segment, leaving whatever a previous
+    segment (or the caller) last set. Otherwise, re-run the match once
+    more against the full segment data with whatever rotation ended up
+    being used (refinement, if it ran at all, only ever saw a subset),
+    and set rotate_final/rotate_err_final from that.
+
+    Mutates errors in place.
+
+    Returns
+    -------
+    tuple(xarray.Dataset or None, dict, dict, bool)
+        (matchedDat, rotate_final, rotate_err_final, skip). skip is True
+        if this segment produced nothing usable and the caller should
+        move on without appending anything for it.
+    """
+    if not (dataTruncated4rot or (not doRot)):
+        # matchDat is alread final because it was not truncated
+        return matchedDat, rotate_final, rotate_err_final, False
+
+    log.info(tools.concat("final doMatch"))
+
+    if rotate_result is None:
+        log.warning(f"falling back on default rotate {rotate}")
+        rotate_final = rotate
+        rotate_err_final = rotate_err
+    else:
+        rotate_final = rotate_result
+        rotate_err_final = rotate_err_result
+
+    # do it again because we did not consider everything before
+    res = doMatchSlicer(
+        leader1D,
+        follower1D,
+        sigma,
+        mu,
+        delta,
+        config,
+        rotate_final,
+        ptpTime,
+        chunckSize=chunckSize,
+        testing=testing,
+    )
+
+    if res[0] is None:
+        log.error(tools.concat("doMatchSlicer failed"))
+        errors["doMatchSlicer"] = True
+        return matchedDat, rotate_final, rotate_err_final, True
+
+    matchedDat, disputedPairs, new_sigma, new_mu = res
+    log.info(
+        tools.concat(
+            "doMatch ok, number of detections:",
+            len(leader1D.fpid),
+            len(follower1D.fpid),
+            "number of matches:",
+            len(matchedDat.pair_id),
+        ),
+    )
+    return matchedDat, rotate_final, rotate_err_final, False
+
+
 def _matchSegments(
     leader1D,
     follower1DAll,
@@ -1166,101 +1753,30 @@ def _matchSegments(
     fEvents.close()
 
     # loop over all follower segments separated by camera restarts
+    nSegments = len(timeBlocks) - 1
     for tt, (FR1, FR2) in enumerate(zip(timeBlocks[:-1], timeBlocks[1:])):
-        log.info(
-            tools.concat(
-                tt + 1,
-                "of",
-                len(timeBlocks) - 1,
-                "slice for follower restart",
-                FR1,
-                FR2,
-            )
+        follower1D = _sliceFollowerSegment(
+            FR1, FR2, follower1DAll, leaderMinTime, leaderMaxTime, tt, nSegments
         )
-
-        if (FR1 < leaderMinTime) and (FR2 < leaderMinTime):
-            log.info(
-                tools.concat(
-                    "CONTINUE, slice for follower restart",
-                    tt,
-                    FR1,
-                    FR2,
-                    "before leader time range",
-                    leaderMinTime.values,
-                )
-            )
-            continue
-        if (FR1 > leaderMaxTime) and (FR2 > leaderMaxTime):
-            log.info(
-                tools.concat(
-                    "CONTINUE, slice for follower restart",
-                    tt,
-                    FR1,
-                    FR2,
-                    "after leader time range",
-                    leaderMaxTime.values,
-                )
-            )
-            continue
-        if (FR2 - FR1) < np.timedelta64(1, "s"):
-            log.info(
-                tools.concat(
-                    "CONTINUE, slice for follower restart",
-                    tt,
-                    FR1,
-                    FR2,
-                    "less than one second",
-                    (FR2 - FR1) / 1e9,
-                )
-            )
-            continue
-
-        # the 2nd <= is on purpose because it is required if there is no restart. if there is a restart, there is anyway no data exactly at that time
-        TIMES = (FR1 <= follower1DAll.capture_time.values) & (
-            follower1DAll.capture_time.values <= FR2
-        )
-        if np.sum(TIMES) <= 3:
-            log.warning(
-                f"CONTINUE, too little follower data (#{np.sum(TIMES)}) overlapping with leader period"
-            )
+        if follower1D is None:
             continue
 
         errorStrs.append([])
-        nSamples.append(np.sum(TIMES))
+        nSamples.append(len(follower1D.fpid))
 
-        # TIMES = REGEX nach  file_starttime
-        follower1D = follower1DAll.isel(fpid=TIMES)
+        follower1D, fixError, skip = _applyCaptureTimeEvenFix(
+            follower1D, config, rotationOnly
+        )
+        if skip:
+            continue
+        if fixError:
+            errorStrs[-1].append(fixError)
 
-        if "makeCaptureTimeEven" in config.dataFixes:
-            # does not make sense for leader
-            # redo capture_time based on first time stamp...
-            try:
-                follower1D = fixes.makeCaptureTimeEven(follower1D, config, dim="fpid")
-            except AssertionError as e:
-                log.error("fixes.makeCaptureTimeEven FAILED")
-                log.error(str(e))
-                if not rotationOnly:
-                    if np.sum(TIMES) <= 20:
-                        log.error(
-                            tools.concat(f"so little data {np.sum(TIMES)} ignore it!")
-                        )
-                        continue
-                    else:
-                        errorStrs[-1].append(
-                            f"fixes.makeCaptureTimeEven FAILED {str(e)}"
-                        )
-
-                else:
-                    continue
-
-        if not np.all(np.diff(follower1D.capture_id) >= 0):
+        if _followerCameraWasReset(follower1D):
             log.error(tools.concat("follower camera reset detected"))
             if not rotationOnly:
                 errorStrs[-1].append("follower camera reset detected")
             continue
-
-        if maxDiffMs == "config":
-            maxDiffMs = 1000 / config.fps / 2
 
         # if (minDMax4rot > 0):
         #     filt = (leader1D.Dmax>minDMax4rot).values
@@ -1272,210 +1788,45 @@ def _matchSegments(
         #     log.info(tools.concat("DMax capture id filter follower:", minDMax4rot, np.sum(filt)/len(follower1D.fpid) * 100,"%"))
         #     follower1D = follower1D.isel(fpid=filt)
 
-        if (
-            offsetsOnly
-            or ("ptpStatus" not in lEvents.data_vars)
-            or ("ptpStatus" not in fEvents.data_vars)
-            or np.any(
-                lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
-                == "Disabled"
-            ).values
-            or np.any(
-                fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
-                == "Disabled"
-            ).values
-        ):
-            ptpTime = False
-            try:
-                captureIdOffset1, nMatched1 = tools.estimateCaptureIdDiffCore(
-                    leader1D,
-                    follower1D,
-                    "fpid",
-                    maxDiffMs=maxDiffMs,
-                    nPoints=nPoints,
-                    timeDim="capture_time",
-                )
-            except Exception as e:
-                captureIdOffset1 = nMatched1 = -99
-                error1 = str(e)
-            try:
-                captureIdOffset2, nMatched2 = tools.estimateCaptureIdDiffCore(
-                    leader1D,
-                    follower1D,
-                    "fpid",
-                    maxDiffMs=maxDiffMs,
-                    nPoints=nPoints,
-                    timeDim="record_time",
-                )
-            except Exception as e:
-                captureIdOffset2 = nMatched2 = -99
-                error2 = str(e)
-
-            if nMatched2 == nMatched1 == -99:
-                log.error(tools.concat("tools.estimateCaptureIdDiff FAILED"))
-                log.error(tools.concat(error1))
-                log.error(tools.concat(error2))
-                if not rotationOnly:
-                    errorStrs[-1].append(
-                        f"tools.estimateCaptureIdDiff(ffl1, config, graceInterval=2)\r{error1}\r{error2}"
-                    )
-                continue
-
-            if (nMatched2 <= 1) and (nMatched1 <= 1):
-                # if not rotationOnly:
-                #     with tools.open2(f"{fname1Match}.nodata", config, "w") as f:
-                #         f.write("NOT ENOUGH DATA")
-                log.error(tools.concat("NOT ENOUGH DATA", fname1Match, tt, FR1, FR2))
-                continue
-
-            # In theory, capture time is much better, but there are cases were it is off. Try to identify them by chgecking whether record_time yielded more matches.
-            # for mosaic, capture time is pretty much useless!
-            if (nMatched2 > nMatched1) or (config.site == "mosaic"):
-                if nMatched2 == -99:
-                    log.error(
-                        tools.concat(
-                            "record_id based diff estiamtion failed",
-                            fname1Match,
-                            tt,
-                            FR1,
-                            FR2,
-                        )
-                    )
-                    errors["offsetEstimation"] = True
-                    continue
-
-                captureIdOffset = captureIdOffset2
-                nMatched = nMatched2
-                log.info(
-                    tools.concat(
-                        f"Taking offset from record_time {(captureIdOffset2, nMatched2)} intead of capture_time {(captureIdOffset1, nMatched1)}"
-                    )
-                )
-            else:
-                captureIdOffset = captureIdOffset1
-                nMatched = nMatched1
-
-            if offsetsOnly:
-                raise _MatchEarlyReturn((captureIdOffset, nMatched))
-
-            mu = {
-                "Z": 0,
-                "H": 0,
-                "T": 0,
-                "I": captureIdOffset,
-            }
-            delta = {
-                "Z": 0.5,  # 0.5 because center is considered
-                "Y": 0.5,  # 0.5 because center is considered
-                "H": 1,
-                "T": 1 / config.fps,
-                "I": 1,
-            }
-
-        else:
-            ptpTime = True
-            mu = {
-                "Z": 0,
-                "H": 0,
-                "T": 0,
-            }
-            delta = {
-                "Z": 0.5,  # 0.5 because center is considered
-                "Y": 0.5,  # 0.5 because center is considered
-                "H": 1,
-                "T": 1 / config.fps,
-            }
+        offsetResult = _resolveMatchingOffset(
+            leader1D,
+            follower1D,
+            lEvents,
+            fEvents,
+            config,
+            offsetsOnly,
+            rotationOnly,
+            maxDiffMs,
+            nPoints,
+            fname1Match,
+            tt,
+            FR1,
+            FR2,
+            errorStrs,
+            errors,
+        )
+        if offsetResult is None:
+            continue
+        mu, delta, ptpTime, maxDiffMs = offsetResult
 
         # figure out how cameras ae rotated, first prepare data
-        dataTruncated4rot = False
-        if doRot:
-            rotates = []
-
-            # for estiamting rotation, we wo not need the full data set, use subset to speed up caluculation
-            minBlur4rot = 100
-            if minDMax4rot > 0:
-                filt = (leader1D.Dmax > minDMax4rot).values & (
-                    leader1D.blur > minBlur4rot
-                ).values
-                log.info(
-                    tools.concat(
-                        "DMax&blur filter leader:",
-                        minDMax4rot,
-                        np.sum(filt) / len(leader1D.fpid) * 100,
-                        "%",
-                    )
-                )
-                leader1D4rot = leader1D.isel(fpid=filt)
-            else:
-                leader1D4rot = leader1D.copy()
-
-            if minDMax4rot > 0:
-                filt = (follower1D.Dmax > minDMax4rot).values & (
-                    follower1D.blur > minBlur4rot
-                ).values
-                log.info(
-                    tools.concat(
-                        "DMax&blur filter follower:",
-                        minDMax4rot,
-                        np.sum(filt) / len(follower1D.fpid) * 100,
-                        "%",
-                    )
-                )
-                follower1D4rot = follower1D.isel(fpid=filt)
-            else:
-                follower1D4rot = follower1D.copy()
-
-            # to get rotation coefficients, using frames with only a single particle is helpful!
-            if singleParticleFramesOnly:
-                un, ii, counts = np.unique(
-                    leader1D4rot.capture_time, return_index=True, return_counts=True
-                )
-                leader1D4rot = leader1D4rot.isel(fpid=ii[counts == 1])
-
-                un, ii, counts = np.unique(
-                    follower1D4rot.capture_time, return_index=True, return_counts=True
-                )
-                follower1D4rot = follower1D4rot.isel(fpid=ii[counts == 1])
-
-            if (
-                len(leader1D4rot.fpid) > nSamples4rot * 10
-            ):  # assuming we have about 10 times more particles outside the obs volume
-                leader1D4rot = leader1D4rot.isel(fpid=slice(nSamples4rot * 10))
-                dataTruncated4rot = True
-            elif len(leader1D4rot.fpid) < minSamples4rot:
-                log.error(
-                    "not enough leader data to estimate rotation %i"
-                    % len(leader1D4rot.fpid)
-                )
-                doRot = False
-
-            if len(follower1D4rot.fpid) > nSamples4rot * 10:
-                follower1D4rot = follower1D4rot.isel(fpid=slice(nSamples4rot * 10))
-                dataTruncated4rot = True
-            elif len(follower1D4rot.fpid) < minSamples4rot:
-                log.error(
-                    "not enough follower data to estimate rotation %i"
-                    % len(follower1D4rot.fpid)
-                )
-                doRot = False
-
+        leader1D4rot, follower1D4rot, dataTruncated4rot, doRot = (
+            _prepareDataForRotation(
+                leader1D,
+                follower1D,
+                leader1D4rot,
+                follower1D4rot,
+                doRot,
+                minDMax4rot,
+                singleParticleFramesOnly,
+                nSamples4rot,
+                minSamples4rot,
+            )
+        )
         # iterate to rotation coefficients in max. 20 steps
-
         if doRot:
-            for ii in range(20):
-                log.info(
-                    tools.concat(
-                        "rotation coefficients iteration",
-                        ii,
-                        "of 20 with",
-                        len(leader1D4rot.fpid),
-                        "and",
-                        len(follower1D4rot.fpid),
-                        "data points",
-                    )
-                )
-                # in here is all the magic
-                res = doMatchSlicer(
+            matchedDat, matchedDat4Rot, rotate_result, rotate_err_result = (
+                _refineRotationIteration(
                     leader1D4rot,
                     follower1D4rot,
                     sigma,
@@ -1483,93 +1834,20 @@ def _matchSegments(
                     delta,
                     config,
                     rotate,
+                    rotate_err,
                     ptpTime,
-                    chunckSize=1e6,
-                    testing=testing,
+                    testing,
+                    nSamples4rot,
+                    minSamples4rot,
+                    y_cov_diag,
+                    maxIter,
+                    errors,
+                    matchedDat,
+                    matchedDat4Rot,
+                    rotate_result,
+                    rotate_err_result,
                 )
-                if res[0] is None:
-                    log.error(
-                        "doMatchSlicer 4 rot failed %s"
-                        % str(leader1D4rot.capture_time.values[0])
-                    )
-                    if (len(leader1D4rot.fpid) > nSamples4rot) and (
-                        len(follower1D4rot.fpid) > nSamples4rot
-                    ):
-                        log.error(
-                            f"reason for error unclear because number of samples is {len(leader1D4rot.fpid)} and {len(follower1D4rot.fpid)}"
-                        )
-                        errors["doMatchSlicer"] = True
-
-                    break
-                matchedDat, disputedPairs, new_sigma, new_mu = res
-
-                if len(matchedDat.pair_id) >= minSamples4rot:
-                    matchedDat4Rot = deepcopy(matchedDat)
-                    #                 matchedDat4Rot = matchedDat4Rot.isel(pair_id=(matchedDat4Rot.matchScore>minMatchScore4rot))
-                    matchedDat4Rot = matchedDat4Rot.isel(
-                        pair_id=sorted(
-                            np.argsort(matchedDat4Rot.matchScore)[-nSamples4rot:]
-                        )
-                    )
-
-                    x_ap = rotate
-                    x_cov_diag = (rotate_err * 10) ** 2
-                    try:
-                        rotate_result, rotate_err_result, dgf_x = retrieveRotation(
-                            matchedDat4Rot,
-                            x_ap,
-                            x_cov_diag,
-                            y_cov_diag,
-                            config,
-                            verbose=True,
-                            maxIter=maxIter,
-                        )
-                    except AssertionError as e:
-                        log.error(tools.concat(f"pyOE error, taking previous values."))
-                        log.error(tools.concat(str(e)))
-                        break
-
-                    log.debug(
-                        tools.concat(
-                            "MATCH",
-                            ii,
-                            matchedDat.matchScore.mean().values,
-                        )
-                    )
-                    log.debug(
-                        tools.concat(
-                            "ROTATE",
-                            ii,
-                            "\n",
-                            rotate_result,
-                            "\n",
-                            "error",
-                            "\n",
-                            rotate_err_result,
-                            "\n",
-                            "dgf",
-                            "\n",
-                            dgf_x,
-                        )
-                    )
-                    rotates.append(rotate_result)
-
-                    if ii > 0:
-                        # if the change of the coefficients is smaller than their 1std errors for all of them, stop
-                        if np.all(
-                            np.abs(rotates[ii - 1] - rotate_result) < rotate_err_result
-                        ):
-                            log.info(tools.concat("interupting loop"))
-                            log.info(tools.concat(rotate_result))
-                            break
-                else:
-                    log.warning(
-                        tools.concat(
-                            f"{len(matchedDat.pair_id)} pairs is not enough data to estimate rotation, taking previous values."
-                        )
-                    )
-
-                    break
+            )
         else:
             log.warning(
                 tools.concat(f"taking provided data for rotation from {rotate_time}")
@@ -1586,49 +1864,29 @@ def _matchSegments(
         nLeader += len(leader1D.fpid)
         nFollower += len(follower1D.fpid)
 
-        if dataTruncated4rot or (not doRot):
-            log.info(tools.concat("final doMatch"))
-
-            if rotate_result is None:
-                log.warning(f"falling back on default rotate {rotate}")
-                rotate_final = rotate
-                rotate_err_final = rotate_err
-            else:
-                rotate_final = rotate_result
-                rotate_err_final = rotate_err_result
-
-            # do it again because we did not consider everything before
-            res = doMatchSlicer(
-                leader1D,
-                follower1D,
-                sigma,
-                mu,
-                delta,
-                config,
-                rotate_final,
-                ptpTime,
-                chunckSize=chunckSize,
-                testing=testing,
-            )
-
-            if res[0] is None:
-                log.error(tools.concat("doMatchSlicer failed"))
-                errors["doMatchSlicer"] = True
-
-                continue
-            matchedDat, disputedPairs, new_sigma, new_mu = res
-            log.info(
-                tools.concat(
-                    "doMatch ok, number of detections:",
-                    len(leader1D.fpid),
-                    len(follower1D.fpid),
-                    "number of matches:",
-                    len(matchedDat.pair_id),
-                ),
-            )
-        else:
-            # matchDat is alread final because it was not truncated
-            pass
+        matchedDat, rotate_final, rotate_err_final, skip = _finalizeSegmentMatch(
+            leader1D,
+            follower1D,
+            sigma,
+            mu,
+            delta,
+            config,
+            ptpTime,
+            chunckSize,
+            testing,
+            dataTruncated4rot,
+            doRot,
+            rotate,
+            rotate_err,
+            rotate_result,
+            rotate_err_result,
+            rotate_final,
+            rotate_err_final,
+            matchedDat,
+            errors,
+        )
+        if skip:
+            continue
 
         if (matchedDat is not None) and len(matchedDat.pair_id) > 0:
             # add position with final roation coeffs.

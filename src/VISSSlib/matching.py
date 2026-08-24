@@ -2448,6 +2448,62 @@ def createMetaRotation(
         rotate_default = pd.Series(dict(rotate))
         rotate_err_default = pd.Series(dict(rotate_err))
 
+    maxConsecutiveFixFailures = 5
+    consecutiveFixFailures = 0
+
+    def tryFixFromScratch(ffl1, reason):
+        """
+        Last-resort recovery for a single file's rotation estimate: refit
+        from scratch (blur>100, large-particle-only, wide-open prior --
+        see manualRotationEstimate) instead of trusting the possibly-wrong
+        carried-forward default. Used both when matchParticles raises and
+        when it silently returns without updating the rotation (e.g. a
+        real camera shift the current default no longer explains, which
+        otherwise gets stuck repeating the same stale value for the rest
+        of the day and into subsequent days). Only ever used in-memory for
+        this run; does not write back to the config file. Returns
+        (rot, rot_err) as pd.Series, or (None, None) if the fit also fails
+        validation inside manualRotationEstimate -- giving up silently is
+        expected some of the time.
+
+        Backs off after maxConsecutiveFixFailures in a row (e.g. a
+        genuinely blocked-camera stretch the from-scratch fit can never
+        succeed on -- each attempt costs a real multi-second refit, not
+        worth repeating file after file for the same doomed stretch) and
+        resumes automatically the moment any success happens again
+        (tracked in the caller, since a plain unaided matchParticles
+        success is just as good evidence the stretch ended as a
+        successful fix is).
+        """
+        nonlocal consecutiveFixFailures
+        if consecutiveFixFailures >= maxConsecutiveFixFailures:
+            log.warning(
+                f"skipping from-scratch fix for {ffl1.case}: already failed "
+                f"{consecutiveFixFailures} times in a row, assuming this "
+                "stretch is unrecoverable (e.g. camera genuinely blocked) "
+                "until something succeeds again"
+            )
+            return None, None
+        log.warning(f"{reason} for {ffl1.case}, trying to fix it from scratch")
+        try:
+            fixed = manualRotationEstimate(
+                ffl1.case, config, returnResultOnly=True
+            ).get(ffl1.case)
+        except (RuntimeError, AssertionError) as e:
+            log.error(f"fixing attempt raised for {ffl1.case}")
+            log.error(str(e))
+            consecutiveFixFailures += 1
+            return None, None
+        if fixed is None:
+            log.error(f"fixing attempt FAILED for {ffl1.case}")
+            consecutiveFixFailures += 1
+            return None, None
+        log.warning(f"fixed rotation from scratch for {ffl1.case}: {fixed['transformation']}")
+        return (
+            pd.Series(fixed["transformation"]),
+            pd.Series(fixed["transformation_err"]),
+        )
+
     # loop through all files
     fnames1L = fl.listFilesExt("level1detect")
     for fname1L in fnames1L:
@@ -2505,14 +2561,11 @@ def createMetaRotation(
                 )
                 log.error(str(e))
                 ## as a last resort, try to fix it from scratch:
-                try:
-                    _, _, rot, rot_err, nL, nF, nM, errors = manualRotationEstimate(
-                        cases, settings, returnResultOnly=False
-                    )
-                except (RuntimeError, AssertionError) as e:
-                    log.error("fixing attempt FAILED %s" % fnameMetaRotation)
-                    log.error(str(e))
+                rot, rot_err = tryFixFromScratch(ffl1, "matchParticles FAILED")
+                if rot is None:
                     continue
+                nL = nF = nM = None
+                errors = {"doMatchSlicer": False}
 
         # avoid division by zero
         if (nL == 0) or (nL is None):
@@ -2542,6 +2595,11 @@ def createMetaRotation(
             # update default
             rotate_default = rot
             rotate_err_default = rot_err
+            # any success -- fix-based or not -- is evidence a bad stretch
+            # (if we were in one) has ended, so give tryFixFromScratch
+            # another chance on the next failure instead of staying
+            # backed off for the rest of the day
+            consecutiveFixFailures = 0
         # result failed, but dataset was in theory large enough, add explicit nans in this case
         elif (
             (nL > nSamples4rot)
@@ -2555,6 +2613,26 @@ def createMetaRotation(
             if stopOnFailure:
                 raise RuntimeError
             nError += 1
+        elif (nL > nSamples4rot) or (nF > nSamples4rot):
+            # matchParticles returned cleanly but didn't update the
+            # rotation (e.g. the current default no longer explains this
+            # file at all) even though there were enough particles to work
+            # with -- worth a from-scratch attempt before giving up
+            fixedRot, fixedRotErr = tryFixFromScratch(
+                ffl1, "rotation not updated despite enough particles"
+            )
+            if fixedRot is not None:
+                metaRotation.append(
+                    tools.rotDict2Xr(fixedRot, fixedRotErr, ffl1.datetime64)
+                )
+                rotate_default = fixedRot
+                rotate_err_default = fixedRotErr
+            else:
+                metaRotation.append(
+                    tools.rotDict2Xr(
+                        rotate_default, rotate_err_default, ffl1.datetime64
+                    )
+                )
         else:
             # just use default values again
             metaRotation.append(

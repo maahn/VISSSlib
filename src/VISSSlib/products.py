@@ -897,12 +897,17 @@ class DataProduct(object):
         if withParents:
             df1 = [df]
             for name, parent in self.parents.items():
-                df1.append(
-                    parent.reportBroken(
-                        withParents=False,
-                        returnAllInformation=returnAllInformation,
+                # dual-camera parents (e.g. level1detect) are stored as a
+                # list of DataProduct instances rather than a single one
+                if not isinstance(parent, list):
+                    parent = [parent]
+                for p in parent:
+                    df1.append(
+                        p.reportBroken(
+                            withParents=False,
+                            returnAllInformation=returnAllInformation,
+                        )
                     )
-                )
             df = pd.concat(df1)
             # df = df.iloc[~df.index.duplicated()]
             df = df.sort_index()
@@ -1248,6 +1253,47 @@ class DataProductRange(DataProduct):
             List of no-data file paths
         """
         return tools._aggregate([dp.listNoData() for dp in self._instances])
+
+    def reportBroken(self, withParents=False, returnAllInformation=True):
+        """Report broken files for all instances.
+
+        DataProduct.reportBroken relies on per-case attributes (self.case,
+        self.fn, self.parents, ...) that a DataProductRange does not have,
+        so it cannot simply be inherited -- it needs to be run per case
+        instance and the results concatenated, same as listBroken/listFiles.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to include parent reports
+        returnAllInformation : bool, default True
+            Whether to return all information
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with broken file information across all cases
+        """
+        import pandas as pd
+
+        dfs = [
+            dp.reportBroken(
+                withParents=withParents,
+                returnAllInformation=returnAllInformation,
+            )
+            for dp in self._instances
+        ]
+        if len(dfs) == 0:
+            columns = (
+                ["command", "outfile", "gist", "fullError"]
+                if returnAllInformation
+                else ["command", "gist"]
+            )
+            return pd.DataFrame(columns=columns)
+
+        df = pd.concat(dfs)
+        df = df.sort_index()
+        return df
 
     def submitCommands(
         self,

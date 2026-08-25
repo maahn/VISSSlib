@@ -541,7 +541,6 @@ class Tracker(object):
         self.costExperiencePenalty = costExperiencePenalty
         self.R_std = R_std
         self.q_var = q_var
-        self.reduced_q_var = reduced_q_var
         self.maxIter = maxIter
         self.minTrackLen4training = minTrackLen4training
         self.maxAge4training = maxAge4training  # seconds
@@ -632,9 +631,10 @@ class Tracker(object):
 
         # F/H/R/Q/P only depend on R_std/q_var, fixed for the whole run, so
         # build them once instead of re-deriving via scipy for every new track.
-        self._kfConstants = _buildKFConstants(
-            R_std=R_std, q_var=q_var, reduced_q_var=reduced_q_var
-        )
+        # Track's own reduced_q_var default (0.5) is used here, not the
+        # reduced_q_var passed into Tracker/trackParticles - Track never
+        # forwards that argument on, matching prior behavior.
+        self._kfConstants = _buildKFConstants(R_std=R_std, q_var=q_var)
 
         # results will be written here
         nParts = len(self.lv1track.pair_id)
@@ -882,7 +882,6 @@ class Tracker(object):
                     velocityGuess=velocityGuess,
                     R_std=self.R_std,
                     q_var=self.q_var,
-                    reduced_q_var=self.reduced_q_var,
                     kfConstants=self._kfConstants,
                 )
                 self.trackIdCount += 1
@@ -1042,7 +1041,6 @@ class Tracker(object):
                 velocityGuess=velocityGuess,
                 R_std=self.R_std,
                 q_var=self.q_var,
-                reduced_q_var=self.reduced_q_var,
                 kfConstants=self._kfConstants,
             )
             self.trackIdCount += 1

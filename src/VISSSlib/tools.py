@@ -2731,9 +2731,43 @@ def copyCurrentQuicklook(level, ff):
     return
 
 
-def checkForExisting(
-    ffOut, level0=None, events=None, parents=None, parentsSummary=None
-):
+def _isLevelGroup(item):
+    """True for a (files.FindFiles, level) pair, as opposed to a plain
+    file path -- see checkForExisting's events/parents docstring."""
+    return (
+        isinstance(item, tuple)
+        and len(item) == 2
+        and isinstance(item[1], str)
+        and hasattr(item[0], "markerPath")
+    )
+
+
+def _newestMtime(items):
+    """
+    Newest mtime across `items`, a list that may freely mix plain file
+    paths with (files.FindFiles, level) pairs (see checkForExisting).
+    A (fn, level) pair is resolved through the on-disk freshness cache
+    (readLevelSummary) when available -- no glob, no per-file stat --
+    falling back to a real scan of that level's files (fn.listFilesExt)
+    only on a cache miss. Empty/None `items` -> 0.
+    """
+    newest = 0.0
+    for item in items or []:
+        if _isLevelGroup(item):
+            fn, level = item
+            cached = readLevelSummary(fn, level)
+            if cached is not None:
+                newest = max(newest, cached[2])  # newest
+                continue
+            item = fn.listFilesExt(level)
+        else:
+            item = [item]
+        if item:
+            newest = max(newest, max(os.path.getmtime(f) for f in item))
+    return newest
+
+
+def checkForExisting(ffOut, level0=None, events=None, parents=None):
     """
     Check if file exists and is up-to-date including potential parents.
 
@@ -2743,22 +2777,16 @@ def checkForExisting(
         Output file path.
     level0 : list, optional
         Level 0 data files, by default None.
-    events : list, optional
-        Event files, by default None.
-    parents : list, optional
-        Parent files, by default None. Still required even when
-        `parentsSummary` is given, since it's the fallback whenever no
-        cached summary is available yet.
-    parentsSummary : tuple(files.FindFiles, str) or list of such tuples, optional
-        (fn, level) identifying which level(s) `parents` was built from
-        (e.g. `fL.listFilesExt("level1match")` -> `(fL, "level1match")`).
-        When given, the newest-mtime check against `parents` first tries
-        the on-disk freshness-summary cache for each (fn, level) (see
-        readLevelSummary) instead of stat'ing every file in `parents`
-        one by one -- using the max of their cached "newest" values.
-        Falls back to stat'ing `parents` in full the moment any one of
-        them has no cached summary yet, so this is always at least as
-        correct as passing nothing, just not always as fast.
+    events, parents : list, optional
+        What `ffOut` must not be older than, by default None. Each
+        element is either a plain file path (stat'd directly, as
+        before), or a (files.FindFiles, level) pair -- e.g.
+        `(fL, "level1match")` in place of pre-globbing
+        `fL.listFilesExt("level1match")` yourself -- resolved through
+        the on-disk freshness-summary cache when possible instead of
+        globbing and stat'ing every one of that level's files (see
+        _newestMtime/readLevelSummary). The two forms can be mixed
+        freely within one list.
 
     Returns
     -------
@@ -2773,34 +2801,11 @@ def checkForExisting(
             log.warning(f"no level0 data {ffOut}")
             return True
     if events is not None:
-        if np.any(
-            os.path.getmtime(ffOut)
-            < np.array([0] + [os.path.getmtime(f) for f in events])
-        ):
+        if os.path.getmtime(ffOut) < _newestMtime(events):
             log.warning(f"file exists but older than event file, redoing {ffOut}")
             return False
     if parents is not None:
-        parentsNewest = None
-        if parentsSummary is not None:
-            groups = parentsSummary
-            if (
-                isinstance(groups, tuple)
-                and len(groups) == 2
-                and isinstance(groups[1], str)
-            ):
-                groups = [groups]
-            cachedNewest = []
-            for fn, level in groups:
-                cached = readLevelSummary(fn, level)
-                if cached is None:
-                    cachedNewest = None
-                    break
-                cachedNewest.append(cached[2])  # newest
-            if cachedNewest is not None:
-                parentsNewest = max([0] + cachedNewest)
-        if parentsNewest is None:
-            parentsNewest = np.max([0] + [os.path.getmtime(f) for f in parents])
-        if os.path.getmtime(ffOut) < parentsNewest:
+        if os.path.getmtime(ffOut) < _newestMtime(parents):
             log.warning(f"file exists but older than parents files, redoing {ffOut}")
             return False
     log.warning(f"output file exists already: {ffOut}")

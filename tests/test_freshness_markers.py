@@ -240,13 +240,14 @@ class TestDataProductIntegration:
 
 
 class TestCheckForExistingUsesCache:
-    """tools.checkForExisting's parentsSummary is opt-in: passing it must
-    never change the answer relative to not passing it, it should only
-    change how that answer gets computed (cached "newest" vs. stat'ing
-    every file in `parents`)."""
+    """tools.checkForExisting's events/parents accept either plain file
+    paths (unchanged legacy behavior) or (files.FindFiles, level) pairs
+    -- passing the latter must never change the answer relative to the
+    caller pre-globbing the same files itself, it should only change how
+    that answer gets computed (cached "newest" vs. stat'ing every file)."""
 
     @pytest.mark.unit
-    def test_matches_uncached_behavior_on_cache_miss(self, config, tmp_path):
+    def test_group_form_matches_plain_list_form(self, config, tmp_path):
         fn = files.FindFiles("20260101", "leader", config)
         ff, path = _level1matchPath(config)
         tools.to_netcdf2(xr.Dataset({"x": 1}), config, path)
@@ -256,11 +257,9 @@ class TestCheckForExistingUsesCache:
         outFile = str(tmp_path / "out.nc")
         open(outFile, "w").close()
 
-        withoutHint = tools.checkForExisting(outFile, parents=parents)
-        withHint = tools.checkForExisting(
-            outFile, parents=parents, parentsSummary=(fn, "level1match")
-        )
-        assert withHint == withoutHint
+        withPaths = tools.checkForExisting(outFile, parents=parents)
+        withGroup = tools.checkForExisting(outFile, parents=[(fn, "level1match")])
+        assert withGroup == withPaths
 
     @pytest.mark.unit
     def test_uses_cached_newest_instead_of_rescanning(self, config, tmp_path):
@@ -272,7 +271,6 @@ class TestCheckForExistingUsesCache:
         fn = files.FindFiles("20260101", "leader", config)
         ff, path = _level1matchPath(config)
         tools.to_netcdf2(xr.Dataset({"x": 1}), config, path)
-        parents = fn.listFilesExt("level1match")
 
         fence = tools.getLevelTouchTime(fn, "level1match")
         realNewest = os.path.getmtime(path)
@@ -289,20 +287,19 @@ class TestCheckForExistingUsesCache:
         open(outFile, "w").close()
         os.utime(outFile, (realNewest + 1, realNewest + 1))
 
+        assert tools.checkForExisting(outFile, parents=[(fn, "level1match")]) is False
         assert (
-            tools.checkForExisting(
-                outFile, parents=parents, parentsSummary=(fn, "level1match")
-            )
-            is False
+            tools.checkForExisting(outFile, parents=fn.listFilesExt("level1match"))
+            is True
         )
-        assert tools.checkForExisting(outFile, parents=parents) is True
 
     @pytest.mark.unit
     def test_falls_back_when_any_group_uncached(self, config, tmp_path):
-        """parentsSummary can list several (fn, level) groups (e.g.
-        metaRotation's leader+follower level1detect parents); if even one
-        lacks a cached summary, fall back to a full scan rather than
-        silently ignoring that group's files."""
+        """parents/events can list several (fn, level) groups (e.g.
+        metaRotation's leader+follower level1detect parents); a group
+        with no cached summary yet must still fall back to a real scan
+        of just that group, not be silently skipped or poison the whole
+        check."""
         fn1 = files.FindFiles("20260101", "leader", config)
         fn2 = files.FindFiles("20260101", "follower", config)
         ff, path = _level1matchPath(config)
@@ -315,10 +312,31 @@ class TestCheckForExistingUsesCache:
         outFile = str(tmp_path / "out.nc")
         open(outFile, "w").close()
 
-        withoutHint = tools.checkForExisting(outFile, parents=parents)
-        withHint = tools.checkForExisting(
-            outFile,
-            parents=parents,
-            parentsSummary=[(fn1, "level1match"), (fn2, "level1track")],
+        withPaths = tools.checkForExisting(outFile, parents=parents)
+        withGroups = tools.checkForExisting(
+            outFile, parents=[(fn1, "level1match"), (fn2, "level1track")]
         )
-        assert withHint == withoutHint
+        assert withGroups == withPaths
+
+    @pytest.mark.unit
+    def test_events_and_parents_groups_can_be_mixed_with_plain_paths(
+        self, config, tmp_path
+    ):
+        fn = files.FindFiles("20260101", "leader", config)
+        ff, path = _level1matchPath(config)
+        tools.to_netcdf2(xr.Dataset({"x": 1}), config, path)
+
+        extraFile = str(tmp_path / "extra.nc")
+        open(extraFile, "w").close()
+
+        outFile = str(tmp_path / "out.nc")
+        open(outFile, "w").close()
+
+        # must not raise, and must agree with the fully-plain-list answer
+        mixed = tools.checkForExisting(
+            outFile, parents=[(fn, "level1match"), extraFile]
+        )
+        plain = tools.checkForExisting(
+            outFile, parents=fn.listFilesExt("level1match") + [extraFile]
+        )
+        assert mixed == plain

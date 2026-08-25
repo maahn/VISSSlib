@@ -2558,9 +2558,8 @@ def createMetaRotation(
     # check whether output exists
     if skipExisting and tools.checkForExisting(
         fnameMetaRotation,
-        events=fl.listFiles("metaEvents") + ff.listFiles(f"metaEvents"),
-        parents=fl.listFilesExt(f"level1detect") + ff.listFilesExt(f"level1detect"),
-        parentsSummary=[(fl, "level1detect"), (ff, "level1detect")],
+        events=[(fl, "metaEvents"), (ff, "metaEvents")],
+        parents=[(fl, "level1detect"), (ff, "level1detect")],
     ):
         return None, None
 

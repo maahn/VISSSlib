@@ -687,6 +687,19 @@ class DataProduct(object):
             log.info(f"{self.case} {self.relatives} {nMissing} files are missing")
         return nMissing == 0
 
+    def isUpToDate(self):
+        """
+        Check if all required files for this level exist and do not need to be reprocessed
+        because they were processed after their parents.
+
+        Returns
+        -------
+        bool
+            True if all files are up to date, False otherwise
+        """
+        return self.isComplete and self._youngerThanParents and self.parentsComplete
+
+
     @cached_property
     def _youngerThanParentsDict(self):
         """

@@ -1261,12 +1261,26 @@ def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
     )
     end = leader.capture_time[-1].values + np.timedelta64(int(gracePeriod * 1000), "ms")
 
-    if start is not None:
-        follower = follower.isel({dim: (follower.capture_time >= start)})
-    if end is not None:
-        follower = follower.isel({dim: (follower.capture_time <= end)})
+    captureTimeValues = follower.capture_time.values
 
-    return follower
+    # Follower particles are appended in capture order, so the [start,
+    # end] window is a contiguous index range that a binary search over
+    # the 1D time array can find directly. That lets us slice with a
+    # basic integer range (a cheap view) instead of a boolean mask, which
+    # forces xarray to materialize a full copy of every variable in
+    # `follower`. This function is called once per leader chunk in
+    # doMatchSlicer, so for a large follower dataset that copy dominated
+    # runtime. If capture_time isn't sorted, plenty else downstream (this
+    # same assumption is already made of leader.capture_time[0]/[-1]
+    # above, and elsewhere in matching.py/tools.py) is already broken, so
+    # fail loudly here rather than silently falling back.
+    assert np.all(captureTimeValues[:-1] <= captureTimeValues[1:]), (
+        "follower.capture_time is not sorted"
+    )
+
+    lo = np.searchsorted(captureTimeValues, start, side="left")
+    hi = np.searchsorted(captureTimeValues, end, side="right")
+    return follower.isel({dim: slice(lo, hi)})
 
 
 def nextCase(case):

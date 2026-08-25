@@ -417,20 +417,22 @@ def probability(x, mu, sigma, delta):
     array-like
         Probability values
     """
-    import scipy.stats
+    from scipy.special import ndtr
 
     x = x.astype(float)
     mu = float(mu)
     sigma = float(sigma)
     delta = float(delta)
 
-    x1 = x - (delta / 2)
-    x2 = x + (delta / 2)
+    # standardized bounds of the integration interval; ndtr(z) is the
+    # standard normal CDF. Equivalent to but much faster than
+    # scipy.stats.norm.cdf(), which pays for generic rv_continuous
+    # argument checking/masking machinery on every call.
+    x1 = (x - (delta / 2) - mu) / sigma
+    x2 = (x + (delta / 2) - mu) / sigma
 
     # integrated over delta x region
-    return scipy.stats.norm.cdf(x2, loc=mu, scale=sigma) - scipy.stats.norm.cdf(
-        x1, loc=mu, scale=sigma
-    )
+    return ndtr(x2) - ndtr(x1)
 
 
 def step(x, mu, sigma):
@@ -468,27 +470,28 @@ def removeDoubleCounts(mPart, mProp, doubleCounts):
 
     Parameters
     ----------
-    mPart : array-like
-        Particle match indices
-    mProp : array-like
-        Match probabilities
+    mPart : numpy.ndarray
+        Particle match indices, shape (n, maxMatches)
+    mProp : numpy.ndarray
+        Match probabilities, shape (n, maxMatches)
     doubleCounts : array-like
         Indices of particles that appear multiple times
 
     Returns
     -------
     tuple
-        Updated mPart and mProp arrays with duplicates removed
+        Updated mPart and mProp arrays (mutated in place) with duplicates
+        removed
     """
     for doubleCount in doubleCounts:
         ii = np.where(mPart[:, 0] == doubleCount)[0]
-        bestProp = mProp[ii, 0].values.argmax()
+        bestProp = mProp[ii, 0].argmax()
         #         print(doubleCount, ii, bestProp)
         for jj, i1 in enumerate(ii):
             if jj == bestProp:
                 continue
-            mPart[i1, :-1] = mPart[i1, 1:].values
-            mProp[i1, :-1] = mProp[i1, 1:].values
+            mPart[i1, :-1] = mPart[i1, 1:]
+            mProp[i1, :-1] = mProp[i1, 1:]
             mPart[i1, -1] = np.nan
             mProp[i1, -1] = np.nan
 
@@ -676,8 +679,26 @@ def doMatch(
         [propJoint, propJoint.T],
         [leader1D, follower1D],
     ):
-        matchedParticles[camera] = np.argsort(prop1, axis=1)[:, -maxMatches:][:, ::-1]
-        matchedProbabilities[camera] = np.sort(prop1, axis=1)[:, -maxMatches:][:, ::-1]
+        nCandidates = prop1.shape[1]
+        if nCandidates > maxMatches:
+            # Partial sort: only the top `maxMatches` candidates per row
+            # are needed, not a full row sort. argpartition is O(n)
+            # instead of argsort's O(n log n), which matters a lot when
+            # maxMatches is much smaller than the number of candidates
+            # (busy follower time windows). Ties are resolved arbitrarily
+            # among equally-probable candidates, same as the previous
+            # (also non-stable) full argsort; any candidate that matters
+            # is far above the minProp cutoff applied further down, so
+            # this can't change which matches are kept.
+            topIdx = np.argpartition(prop1, -maxMatches, axis=1)[:, -maxMatches:]
+            topProp = np.take_along_axis(prop1, topIdx, axis=1)
+            order = np.argsort(topProp, axis=1)[:, ::-1]
+            matchedParticles[camera] = np.take_along_axis(topIdx, order, axis=1)
+            matchedProbabilities[camera] = np.take_along_axis(topProp, order, axis=1)
+        else:
+            order = np.argsort(prop1, axis=1)[:, ::-1]
+            matchedParticles[camera] = order
+            matchedProbabilities[camera] = np.take_along_axis(prop1, order, axis=1)
 
         matchedParticles[camera] = xr.DataArray(
             matchedParticles[camera],
@@ -702,25 +723,42 @@ def doMatch(
             matchedProbabilities[cam1] > minProp
         )
 
+        # Do the double-count resolution on plain numpy arrays instead of
+        # xr.DataArray: removeDoubleCounts mutates individual rows in a
+        # Python loop, and xarray's label-based __getitem__/__setitem__
+        # overhead on every single row access dominates runtime for busy
+        # files with many collisions. The fpidII/match coordinates carry
+        # no information beyond position (range(...)), so this round-trip
+        # is lossless.
+        fpidIICoord = matchedParticles[cam1].fpidII
+        matchCoord = matchedParticles[cam1].match
+        mPart = matchedParticles[cam1].values
+        mProp = matchedProbabilities[cam1].values
+
         for kk in range(maxMatches):
-            u, c = np.unique(matchedParticles[cam1][:, 0], return_counts=True)
+            u, c = np.unique(mPart[:, 0], return_counts=True)
             doubleCounts = u[np.where(c > 1)[0]]
             doubleCounts = doubleCounts[np.isfinite(doubleCounts)]
             if len(doubleCounts) != 0:
                 # print(
                 # cam1, "particles have been matched twice, fixing", kk)
-                matchedParticles[cam1], matchedProbabilities[cam1] = removeDoubleCounts(
-                    matchedParticles[cam1], matchedProbabilities[cam1], doubleCounts
-                )
+                mPart, mProp = removeDoubleCounts(mPart, mProp, doubleCounts)
             else:
                 break
 
-        u, c = np.unique(matchedParticles[cam1][:, 0], return_counts=True)
+        u, c = np.unique(mPart[:, 0], return_counts=True)
         doubleCounts = u[np.where(c > 1)[0]]
         doubleCounts = doubleCounts[np.isfinite(doubleCounts)]
 
         assert len(doubleCounts) == 0, (
             "%s particles have still been matched twice" % cam1
+        )
+
+        matchedParticles[cam1] = xr.DataArray(
+            mPart, coords=[fpidIICoord, matchCoord], dims=["fpidII", "match"]
+        )
+        matchedProbabilities[cam1] = xr.DataArray(
+            mProp, coords=[fpidIICoord, matchCoord], dims=["fpidII", "match"]
         )
 
     for reverseFactor in [1, -1]:

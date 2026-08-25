@@ -648,6 +648,44 @@ class FindFiles(object):
 
         return fnames
 
+    def markerPath(self, level, kind):
+        """
+        Path of a small sentinel file used to cache freshness-check
+        results for `level` (this case/camera/day), instead of
+        re-globbing and re-stat'ing every one of this level's own files
+        on every check.
+
+        Parameters
+        ----------
+        level : str
+            Processing level (e.g. 'level1match').
+        kind : {"touch", "done"}
+            "touch" is bumped by every real write to `level` (see
+            tools.open2/to_netcdf2) and is a race-safe stand-in for this
+            level's newest mtime: concurrent writers never corrupt it,
+            whichever write lands last simply wins, and it is always
+            touched no earlier than the write it corresponds to.
+            "done" is the richer cache (file count + oldest/newest
+            mtime), but is only ever trusted by a reader if "touch" has
+            not moved since "done" was written -- so a writer that was
+            mid-scan while another worker wrote a new file can never
+            resurrect a stale summary after that write already
+            invalidated it. See tools.readLevelSummary/writeLevelSummary.
+
+        Returns
+        -------
+        str
+            Marker file path.
+        """
+        return "%s/%s_V%s_%s_%s.%s" % (
+            self.outpath[level],
+            level,
+            self.version,
+            self.camera,
+            self.case,
+            kind,
+        )
+
     @property
     def isCompleteL0(self):
         """
@@ -1218,6 +1256,25 @@ class Filenames(object):
 
     def __repr__(self):
         return json.dumps(self.fname, indent=4)
+
+    def markerPath(self, level, kind):
+        """
+        See FindFiles.markerPath. Scoped to this file's day (not its
+        possibly-sub-day case, e.g. a single 10-minute level1match file),
+        matching the case granularity freshness checks actually operate
+        at, so a marker written from here resolves to the same path a
+        FindFiles instance for that (level, camera, day) would compute.
+        """
+        outpath = self.outpath if level in fileLevels else self.outpathDaily
+        dayCase = f"{self.year}{self.month}{self.day}"
+        return "%s/%s_V%s_%s_%s.%s" % (
+            outpath.format(version=self.version, site=self.config["site"], level=level),
+            level,
+            self.version,
+            self.camera,
+            dayCase,
+            kind,
+        )
 
     def isNoData(self, level):
         """

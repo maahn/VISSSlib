@@ -387,12 +387,14 @@ def _createLevel2(
         lv2File,
         events=fL.listFiles("metaEvents"),
         parents=fL.listFilesExt(f"level1{sublevel}"),
+        parentsSummary=(fL, f"level1{sublevel}"),
     ):
         return None, None
     if skipExisting and tools.checkForExisting(
         "%s.nodata" % lv2File,
         events=fL.listFiles("metaEvents"),
         parents=fL.listFilesExt(f"level1{sublevel}"),
+        parentsSummary=(fL, f"level1{sublevel}"),
     ):
         return None, None
 

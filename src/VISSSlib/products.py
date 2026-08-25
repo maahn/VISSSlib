@@ -786,24 +786,57 @@ class DataProduct(object):
             )
         return parentsUpToDateWithGrandparents
 
-    def _newestFileCreation(self, files):
+    @cached_property
+    def _freshnessSummary(self):
         """
-        Get the creation time of the most recent file.
+        (n, oldest, newest) mtime summary for this product's own files.
 
-        Parameters
-        ----------
-        files : list
-            List of file paths
+        Read from the on-disk cache maintained by
+        tools.readLevelSummary/writeLevelSummary when possible, falling
+        back to a real glob+stat scan (the previous, exact behavior of
+        newestFileCreation/oldestFileCreation) on any cache miss.
+
+        The cache is fenced against a "touch" marker that every real
+        write bumps (tools.open2/to_netcdf2's hooks): the fence is
+        captured before this scan starts, and the freshly computed
+        summary is only published (tools.writeLevelSummary) if the
+        fence still has that exact value afterwards. That's what makes
+        this safe with many concurrent SLURM workers writing files for
+        the same level+camera+day -- a scan that overlaps a concurrent
+        write never gets to cache what it saw, so a later reader can't
+        be handed stale data; it just falls back to scanning again,
+        the same as if nothing had ever been cached.
+
+        Raw/passthrough levels (level0, level0txt, ...; identified by
+        having no per-level output directory in self.fn.outpath) are
+        never written by us via open2/to_netcdf2 -- there's nothing for
+        a marker to cache -- so those always take the plain scan path.
 
         Returns
         -------
-        float
-            Maximum modification time of the files
+        tuple
+            (n, oldest, newest) -- file count and min/max mtime, or
+            (0, 0, 0) if this product has no files.
         """
-        if len(files) > 0:
-            return np.max([os.path.getmtime(f) for f in files])
+        cacheable = self.level in self.fn.outpath
+        if cacheable:
+            cached = tools.readLevelSummary(self.fn, self.level)
+            if cached is not None:
+                return cached
+            fenceBefore = tools.getLevelTouchTime(self.fn, self.level)
+
+        fileList = self.listFilesExt()
+        if len(fileList) > 0:
+            mtimes = [os.path.getmtime(f) for f in fileList]
+            summary = (len(fileList), np.min(mtimes), np.max(mtimes))
         else:
-            return 0
+            summary = (0, 0, 0)
+
+        if cacheable:
+            tools.writeLevelSummary(
+                self.fn, self.level, *summary, fenceBefore, self.config
+            )
+        return summary
 
     @cached_property
     def newestFileCreation(self):
@@ -819,27 +852,7 @@ class DataProduct(object):
         float
             Modification time of the newest file
         """
-        files = self.listFilesExt()
-        return self._newestFileCreation(files)
-
-    def _oldestFileCreation(self, files):
-        """
-        Get the creation time of the least recently modified file.
-
-        Parameters
-        ----------
-        files : list
-            List of file paths
-
-        Returns
-        -------
-        float
-            Minimum modification time of the files
-        """
-        if len(files) > 0:
-            return np.min([os.path.getmtime(f) for f in files])
-        else:
-            return 0
+        return self._freshnessSummary[2]
 
     @cached_property
     def oldestFileCreation(self):
@@ -861,8 +874,7 @@ class DataProduct(object):
         float
             Modification time of the oldest file
         """
-        files = self.listFilesExt()
-        return self._oldestFileCreation(files)
+        return self._freshnessSummary[1]
 
     @cached_property
     def parentsComplete(self):

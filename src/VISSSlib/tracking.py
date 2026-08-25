@@ -404,6 +404,28 @@ class Track(object):
         if self.reduced_q_var is not None:
             self.KF.Q = self.reducedQ
 
+    def trimHistory(self, max_length):
+        """
+        Drop the oldest history entries so at most `max_length` remain.
+
+        Parameters
+        ----------
+        max_length : int
+            Maximum number of trace/feature/size entries to keep.
+
+        Notes
+        -----
+        `trace`/`meanVelocity`/etc. read `_trace` through a property that
+        returns a fresh `np.array(self._trace)` on every access, so trimming
+        must mutate `_trace` (and the parallel `_features`/`_sizes` lists)
+        directly rather than the array a property call returns.
+        """
+        excess = len(self._trace) - max_length
+        if excess > 0:
+            del self._trace[:excess]
+            del self._features[:excess]
+            del self._sizes[:excess]
+
     def predict(self):
         """
         Predict next state using Kalman Filter.
@@ -519,6 +541,7 @@ class Tracker(object):
         self.costExperiencePenalty = costExperiencePenalty
         self.R_std = R_std
         self.q_var = q_var
+        self.reduced_q_var = reduced_q_var
         self.maxIter = maxIter
         self.minTrackLen4training = minTrackLen4training
         self.maxAge4training = maxAge4training  # seconds
@@ -550,8 +573,6 @@ class Tracker(object):
             self.ax.set_xlabel("x")
             self.ax.set_ylabel("y")
             self.ax.set_zlabel("z")
-
-        self.iiCapture = -99
 
         # Pull everything the per-frame loop needs into plain numpy arrays once,
         # up front. update() used to re-enter xarray on every frame (a
@@ -611,7 +632,9 @@ class Tracker(object):
 
         # F/H/R/Q/P only depend on R_std/q_var, fixed for the whole run, so
         # build them once instead of re-deriving via scipy for every new track.
-        self._kfConstants = _buildKFConstants(R_std=R_std, q_var=q_var)
+        self._kfConstants = _buildKFConstants(
+            R_std=R_std, q_var=q_var, reduced_q_var=reduced_q_var
+        )
 
         # results will be written here
         nParts = len(self.lv1track.pair_id)
@@ -719,8 +742,17 @@ class Tracker(object):
         if self.training:
             print(f"training complete after {ff} of {self.nFrames} frames")
             self.training = False
-            # reset track index
+            # reset track index and all per-frame/per-track state so the real
+            # pass starts clean at frame 0 instead of carrying over whatever
+            # tracks were active wherever the training pass happened to stop.
+            # The archive (archiveTrack*, used to fit the size/velocity
+            # relation) is intentionally kept as a warm-start prior.
             self.trackIdCount = 0
+            self.activeTracks = []
+            self.assignment = []
+            self._frameid = -1
+            self.lastTime = np.datetime64("2010-01-01T00:00:00")
+            self.lastFrame = 0
             for ff in tqdm(range(stopAfter), file=sys.stdout):
                 self.update(ff)
 
@@ -789,7 +821,6 @@ class Tracker(object):
             for i in range(len(self.activeTracks)):
                 self.activeTracks[i].updateTrack(None, None, None)
                 self.activeTracks[i].skipped_frames += 1
-            stop = True
 
         self._frameid = thisFrameid
 
@@ -851,6 +882,7 @@ class Tracker(object):
                     velocityGuess=velocityGuess,
                     R_std=self.R_std,
                     q_var=self.q_var,
+                    reduced_q_var=self.reduced_q_var,
                     kfConstants=self._kfConstants,
                 )
                 self.trackIdCount += 1
@@ -1010,6 +1042,7 @@ class Tracker(object):
                 velocityGuess=velocityGuess,
                 R_std=self.R_std,
                 q_var=self.q_var,
+                reduced_q_var=self.reduced_q_var,
                 kfConstants=self._kfConstants,
             )
             self.trackIdCount += 1
@@ -1046,11 +1079,7 @@ class Tracker(object):
                 self.activeTracks[i].updateTrack(None, None, None)
 
             if self.max_trace_length is not None:
-                if len(self.activeTracks[i].trace) > self.max_trace_length:
-                    for j in range(
-                        len(self.activeTracks[i].trace) - self.max_trace_length
-                    ):
-                        del self.activeTracks[i].trace[j]
+                self.activeTracks[i].trimHistory(self.max_trace_length)
 
             if not self.training and (self.verbosity > 5):
                 print(i, "done")

@@ -670,8 +670,18 @@ def doMatch(
         plt.xlabel("follower")
         plt.ylabel("leader")
 
+    # matchedParticles/matchedProbabilities/matchedOwnIdx are kept as
+    # plain numpy arrays throughout the matching/dedup logic below (only
+    # wrapped into xarray once, at the very end, to build the output
+    # Dataset). xarray's per-element label-based indexing overhead was
+    # showing up all over this hot loop even outside removeDoubleCounts
+    # -- every argsort/where/dropna call on an xr.DataArray pays for
+    # dimension/coordinate bookkeeping that's pure waste here, since the
+    # "fpidII" coordinate never carries anything but its own position
+    # (range(nOwn)), which matchedOwnIdx tracks directly instead.
     matchedParticles = {}
     matchedProbabilities = {}
+    matchedOwnIdx = {}
 
     # try to solve this from both perspectives
     for camera, prop1, dat2 in zip(
@@ -700,40 +710,16 @@ def doMatch(
             matchedParticles[camera] = order
             matchedProbabilities[camera] = np.take_along_axis(prop1, order, axis=1)
 
-        matchedParticles[camera] = xr.DataArray(
-            matchedParticles[camera],
-            coords=[range(len(dat2.fpid)), range(matchedParticles[camera].shape[1])],
-            dims=["fpidII", "match"],
-        )
-        matchedProbabilities[camera] = xr.DataArray(
-            matchedProbabilities[camera],
-            coords=[range(len(dat2.fpid)), range(matchedParticles[camera].shape[1])],
-            dims=["fpidII", "match"],
-        )
+        matchedOwnIdx[camera] = np.arange(len(dat2.fpid))
 
     del propJoint, prop
 
     for reverseFactor in [1, -1]:
         cam1, cam2 = [config["leader"], config["follower"]][::reverseFactor]
 
-        matchedParticles[cam1] = matchedParticles[cam1].where(
-            matchedProbabilities[cam1] > minProp
-        )
-        matchedProbabilities[cam1] = matchedProbabilities[cam1].where(
-            matchedProbabilities[cam1] > minProp
-        )
-
-        # Do the double-count resolution on plain numpy arrays instead of
-        # xr.DataArray: removeDoubleCounts mutates individual rows in a
-        # Python loop, and xarray's label-based __getitem__/__setitem__
-        # overhead on every single row access dominates runtime for busy
-        # files with many collisions. The fpidII/match coordinates carry
-        # no information beyond position (range(...)), so this round-trip
-        # is lossless.
-        fpidIICoord = matchedParticles[cam1].fpidII
-        matchCoord = matchedParticles[cam1].match
-        mPart = matchedParticles[cam1].values
-        mProp = matchedProbabilities[cam1].values
+        belowMinProp = matchedProbabilities[cam1] <= minProp
+        mPart = np.where(belowMinProp, np.nan, matchedParticles[cam1])
+        mProp = np.where(belowMinProp, np.nan, matchedProbabilities[cam1])
 
         for kk in range(maxMatches):
             u, c = np.unique(mPart[:, 0], return_counts=True)
@@ -754,20 +740,22 @@ def doMatch(
             "%s particles have still been matched twice" % cam1
         )
 
-        matchedParticles[cam1] = xr.DataArray(
-            mPart, coords=[fpidIICoord, matchCoord], dims=["fpidII", "match"]
-        )
-        matchedProbabilities[cam1] = xr.DataArray(
-            mProp, coords=[fpidIICoord, matchCoord], dims=["fpidII", "match"]
-        )
+        matchedParticles[cam1] = mPart
+        matchedProbabilities[cam1] = mProp
 
     for reverseFactor in [1, -1]:
         cam1, cam2 = [config["leader"], config["follower"]][::reverseFactor]
         matchedParticles[cam1] = matchedParticles[cam1][:, 0]
         matchedProbabilities[cam1] = matchedProbabilities[cam1][:, 0]
 
-        matchedParticles[cam1] = matchedParticles[cam1].dropna("fpidII")
-        matchedProbabilities[cam1] = matchedProbabilities[cam1].dropna("fpidII")
+        # equivalent of the previous .dropna("fpidII"): matchedParticles
+        # and matchedProbabilities are NaN at exactly the same positions
+        # by construction (set together above and in removeDoubleCounts),
+        # so one mask suffices for both, and for matchedOwnIdx.
+        valid = np.isfinite(matchedParticles[cam1])
+        matchedParticles[cam1] = matchedParticles[cam1][valid]
+        matchedProbabilities[cam1] = matchedProbabilities[cam1][valid]
+        matchedOwnIdx[cam1] = matchedOwnIdx[cam1][valid]
 
     if np.all([len(v) == 0 for v in matchedParticles.values()]):
         noMatches = True
@@ -779,14 +767,14 @@ def doMatch(
 
     pairs1 = set(
         zip(
-            matchedParticles[cam1].fpidII.values,
-            matchedParticles[cam1].values.astype(int),
+            matchedOwnIdx[cam1],
+            matchedParticles[cam1].astype(int),
         )
     )
     pairs2 = set(
         zip(
-            matchedParticles[cam2].values.astype(int),
-            matchedParticles[cam2].fpidII.values,
+            matchedParticles[cam2].astype(int),
+            matchedOwnIdx[cam2],
         )
     )
 
@@ -794,11 +782,9 @@ def doMatch(
 
     # sort pairs together
     dats = []
+    dats.append(leader1D.isel(fpid=matchedOwnIdx[config["leader"]].astype(int)))
     dats.append(
-        leader1D.isel(fpid=matchedParticles[config["leader"]].fpidII.values.astype(int))
-    )
-    dats.append(
-        follower1D.isel(fpid=matchedParticles[config["leader"]].values.astype(int))
+        follower1D.isel(fpid=matchedParticles[config["leader"]].astype(int))
     )
 
     for dd, d1 in enumerate(dats):
@@ -806,8 +792,7 @@ def doMatch(
         file_starttime = deepcopy(d1.file_starttime.values)
         d1 = d1.rename(fpid="pair_id")
         d1 = d1.assign_coords(
-            pair_id=np.arange(len(matchedParticles[config["leader"]].fpidII))
-            + indexOffset
+            pair_id=np.arange(len(matchedOwnIdx[config["leader"]])) + indexOffset
         )
 
         d1["pid"] = xr.DataArray(pid, coords=[d1.pair_id])
@@ -818,7 +803,7 @@ def doMatch(
     matchedDat = matchedDat.assign_coords(camera=[config["leader"], config["follower"]])
     # add propabilities
     matchedDat["matchScore"] = xr.DataArray(
-        matchedProbabilities[config["leader"]].values.astype(np.float32),
+        matchedProbabilities[config["leader"]].astype(np.float32),
         coords=[matchedDat.pair_id],
     )
 
@@ -827,6 +812,7 @@ def doMatch(
         dats,
         matchedParticles,
         matchedProbabilities,
+        matchedOwnIdx,
         leader1D,
         follower1D,
         pairs1,

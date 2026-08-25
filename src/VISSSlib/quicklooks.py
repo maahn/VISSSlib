@@ -2117,7 +2117,8 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         return None, None
 
     try:
-        events = xr.open_dataset(eventFile)
+        with xr.open_dataset(eventFile) as ds:
+            events = ds.load()
     except:
         print(f"{eventFile} broken")
         return None, None
@@ -2129,7 +2130,8 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         return None, None
 
     try:
-        events2 = xr.open_dataset(eventFile)
+        with xr.open_dataset(eventFile) as ds:
+            events2 = ds.load()
     except:
         print(f"{eventFile} broken")
         return None, None
@@ -2147,7 +2149,8 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
         return None, None
 
     try:
-        rotDat = xr.open_dataset(ff.listFiles("metaRotation")[0])
+        with xr.open_dataset(ff.listFiles("metaRotation")[0]) as ds:
+            rotDat = ds.load()
     except:
         print(f'{ff.listFiles("metaRotation")[0]} broken')
         return None, None

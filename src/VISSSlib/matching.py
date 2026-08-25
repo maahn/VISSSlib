@@ -2059,6 +2059,7 @@ def matchParticles(
             log.error(f"all camera_Ofz in {fnameMetaRotation} nan")
             error = str(e)
             log.error(error)
+            metaRotationDat.close()
             if not rotationOnly:
                 raise RuntimeError(error)
             errors["openingData"] = True
@@ -2140,10 +2141,12 @@ def matchParticles(
         )
 
     lEvents = ffl1.fname.metaEvents
-    lEvents = xr.open_dataset(lEvents).load()
+    with xr.open_dataset(lEvents) as ds:
+        lEvents = ds.load()
 
     fEvents = np.unique([f.fname.metaEvents for f in fClass])
-    fEvents = xr.open_mfdataset(fEvents).load()
+    with xr.open_mfdataset(fEvents) as ds:
+        fEvents = ds.load()
 
     start = leader1D.capture_time[0].values - np.timedelta64(2, "s")
     end = leader1D.capture_time[-1].values + np.timedelta64(2, "s")
@@ -2679,10 +2682,9 @@ def createMetaRotation(
 
         # add previous configuration to config file structure
         if len(prevFile) > 0:
-            prevDat = xr.open_dataset(prevFile)
-            prevDat = prevDat.where(prevDat.camera_Ofz.notnull(), drop=True)
+            with xr.open_dataset(prevFile) as ds:
+                prevDat = ds.where(ds.camera_Ofz.notnull(), drop=True).load()
             config = tools.rotXr2dict(prevDat, config)
-            prevDat.close()
 
         # get most recent rotation estimate from config object
         rotate_default, rotate_err_default, prevTime = tools.getPrevRotationEstimates(

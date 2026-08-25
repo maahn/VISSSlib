@@ -680,9 +680,10 @@ def open_mfmetaFrames(fnames, config, start=None, end=None, skipFixes=[]):
 
         return dat
 
-    dat = xr.open_mfdataset(
+    with xr.open_mfdataset(
         fnames, combine="nested", concat_dim="capture_time", preprocess=preprocess
-    ).load()
+    ) as ds:
+        dat = ds.load()
 
     if skipFixes != "all":
         # fix potential integer overflows if necessary
@@ -778,9 +779,10 @@ def open_mflevel1detect(
     if len(fnames) == 0:
         return None
 
-    dat = xr.open_mfdataset(
+    with xr.open_mfdataset(
         fnames, combine="nested", concat_dim="pid", preprocess=preprocess
-    ).load()
+    ) as ds:
+        dat = ds.load()
 
     if start is not None:
         dat = dat.isel(pid=(dat.capture_time >= start))
@@ -880,9 +882,10 @@ def open_mflevel1match(fnamesExt, config, datVars="all"):
             dat = dat[datVars]
         return dat
 
-    dat = xr.open_mfdataset(
+    with xr.open_mfdataset(
         fnames, combine="nested", concat_dim="pair_id", preprocess=preprocess
-    ).load()
+    ) as ds:
+        dat = ds.load()
     # replace pid by empty dimesnion to allow concatenating files without jumps in dimension pid
     dat = dat.swap_dims({"pair_id": "fpair_id"})
 
@@ -914,7 +917,8 @@ def identifyBlockedBlowingSnowData(fnames, config, timeIndex1, sublevel):
     # print("starting identifyBlowingSnowData", cam)
     movingObjects = []
     for fna in fnames:
-        movingObjects.append(xr.open_dataset(fna).movingObjects)
+        with xr.open_dataset(fna) as ds:
+            movingObjects.append(ds.movingObjects.load())
     movingObjects = xr.concat(movingObjects, dim="capture_time")
     # movingObjects = xr.open_mfdataset(fnames,  combine='nested', preprocess=preprocess).movingObjects.load()
     movingObjects = movingObjects.sortby("capture_time")

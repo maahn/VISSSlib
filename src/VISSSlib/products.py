@@ -694,7 +694,7 @@ class DataProduct(object):
         parents -- i.e. whether it reflects each parent's current state,
         or is stale and needs to be redone.
 
-        Compares each parent's newest file (`parent.fileCreation`, a
+        Compares each parent's newest file (`parent.newestFileCreation`, a
         MAX over that parent's files -- its most recent update) against
         this product's OLDEST file (`self.oldestFileCreation`, a MIN
         over this product's own files). The oldest file has to be used
@@ -729,14 +729,14 @@ class DataProduct(object):
             Dictionary mapping parent names to boolean values indicating
             whether this product is up to date with each parent
         """
-        vacuouslyFresh = (self.fileCreation == 0) and self.isComplete
+        vacuouslyFresh = (self.newestFileCreation == 0) and self.isComplete
         upToDateWithParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
             parentVacuous = parent.isComplete and (len(parent.listFiles()) == 0)
             isUpToDate = (
                 vacuouslyFresh
                 or parentVacuous
-                or (parent.fileCreation < self.oldestFileCreation)
+                or (parent.newestFileCreation < self.oldestFileCreation)
             )
             if (self.level == "level1detect") and (parent.level == "metaEvents"):
                 # special case: no need to do level1detect again due to updated metaEvents
@@ -747,7 +747,7 @@ class DataProduct(object):
                 log.debug(
                     f"{self.relatives} has files older "
                     f"({tools.timestamp2str(self.oldestFileCreation)}) than parent "
-                    f"{name}'s newest ({tools.timestamp2str(parent.fileCreation)})",
+                    f"{name}'s newest ({tools.timestamp2str(parent.newestFileCreation)})",
                 )
         return upToDateWithParentsDict
 
@@ -786,7 +786,7 @@ class DataProduct(object):
             )
         return parentsUpToDateWithGrandparents
 
-    def _fileCreation(self, files):
+    def _newestFileCreation(self, files):
         """
         Get the creation time of the most recent file.
 
@@ -806,9 +806,13 @@ class DataProduct(object):
             return 0
 
     @cached_property
-    def fileCreation(self):
+    def newestFileCreation(self):
         """
-        Get the creation time of this product.
+        Get the creation time of this product's most recently modified
+        file.
+
+        See `oldestFileCreation` for the complementary MIN-based
+        property used in staleness comparisons.
 
         Returns
         -------
@@ -816,7 +820,7 @@ class DataProduct(object):
             Modification time of the newest file
         """
         files = self.listFilesExt()
-        return self._fileCreation(files)
+        return self._newestFileCreation(files)
 
     def _oldestFileCreation(self, files):
         """
@@ -843,12 +847,12 @@ class DataProduct(object):
         Get the creation time of this product's least recently modified
         file.
 
-        `fileCreation` (the newest file) answers "when was this product
+        `newestFileCreation` (the newest file) answers "when was this product
         last touched" -- useful for reporting. Freshness comparisons
         against a parent need the opposite: if even one of this
         product's own files predates a parent's newest update, that one
         file is stale, so the product as a whole is not fully up to
-        date. Using `fileCreation` there would let a single
+        date. Using `newestFileCreation` there would let a single
         recently-touched file mask staleness in all the others (see
         `_upToDateWithParentsDict`).
 
@@ -897,7 +901,7 @@ class DataProduct(object):
             "nMissing",
             nMissing,
             "newest file",
-            tools.timestamp2str(self.fileCreation),
+            tools.timestamp2str(self.newestFileCreation),
             "younger than parents",
             self._upToDateWithParents,
         )
@@ -1324,6 +1328,35 @@ class DataProductRange(DataProduct):
             List of no-data file paths
         """
         return tools._aggregate([dp.listNoData() for dp in self._instances])
+
+    @cached_property
+    def allComplete(self):
+        """
+        Check if this product and all its dependencies are complete,
+        for every case in this range.
+
+        Overridden from DataProduct: without this, `allComplete` (a
+        cached_property) would be found via normal inheritance and
+        evaluated with `self` bound to this DataProductRange instance
+        instead of an individual case's DataProduct -- but the
+        properties it depends on (isComplete, _upToDateWithParents,
+        parentsComplete, and transitively newestFileCreation/parents/etc.)
+        assume per-case attributes like `self.fn`/`self.parents` that
+        only exist on a genuine single-case DataProduct. That failure
+        is an AttributeError, which Python's attribute-lookup protocol
+        silently swallows and retries via `__getattr__` -- repeatedly,
+        once per property in the chain -- eventually surfacing as a
+        confusing bare `AttributeError: allComplete` with the real
+        cause (whatever actually went wrong, e.g. a genuinely missing
+        parent, or a file removed mid-scan by a concurrent worker)
+        discarded.
+
+        Returns
+        -------
+        bool
+            True only if every case in this range is complete
+        """
+        return all(dp.allComplete for dp in self._instances)
 
     def reportBroken(self, withParents=False, returnAllInformation=True):
         """Report broken files for all instances.

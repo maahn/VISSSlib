@@ -95,6 +95,17 @@ DEFAULT_SETTINGS = {
         "blurSigma": 1,
         "check4childCntLength": True,  # discard short child contours instead of dilate/erose
         "cropImage": None,  # (offsetX, offsetY)
+        "cv2NumThreads": None,  # cv2's own thread pool is not covered by the OMP_NUM_THREADS/
+        # OPENBLAS_NUM_THREADS/etc. env vars products.py already exports for detect jobs, so
+        # by default it happily grabs os.cpu_count() threads per process; with
+        # tools.workers() launching os.cpu_count() worker processes, that oversubscribes
+        # cores badly (measured ~2-3x slower aggregate throughput). Left at the default
+        # (None), detectParticles follows the OMP_NUM_THREADS env var products.py already
+        # sets per job (falling back to cv2's own default if that isn't set either, e.g.
+        # interactive use outside the task queue). Set an explicit int here to override
+        # both and force a specific value regardless of environment -- including -1, which
+        # cv2 itself defines as "reset to system default", i.e. the escape hatch to force
+        # cv2 back to using all cores even when OMP_NUM_THREADS is set for everything else.
         "dilateErodeFgMask": False,  # turns out to be not so smart because it makes holes insides particles smaller
         "dilateFgMask4Contours": True,
         "dilateIterations": 1,  # to close gaps in canny edges (the default is 1 whic is sufficient)

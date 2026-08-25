@@ -519,7 +519,6 @@ class DataProduct(object):
         list
             List of commands to execute
         """
-        nCPU = 1
         if skipExisting:
             skipExistingStr = "--skip-existing"
         else:

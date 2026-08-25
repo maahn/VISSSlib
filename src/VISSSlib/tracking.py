@@ -166,6 +166,59 @@ def myKF(FirstPos3D, velocityGuess=[0, 0, 50], R_std=2, q_var=1, constants=None)
     return kf
 
 
+class _RollingArray:
+    """
+    Append-only history buffer, backed by a numpy array, that only ever
+    exposes its most recent `maxlen` entries.
+
+    Tracker keeps a short rolling history of recently finished tracks
+    (`archiveTrack*`) to fit the size/velocity relationship. That history
+    used to be a plain Python list, rebuilt into a numpy array (and
+    re-trimmed to `maxlen`) on every read in updateVelocityFirstGuess() -
+    which runs on nearly every frame. Here the storage is already numpy, so
+    reads (`.values`) are O(1) views and appends are amortized O(1) instead
+    of paying an O(maxlen) list->array conversion on every read.
+    """
+
+    def __init__(self, maxlen, dtype, shape=()):
+        self.maxlen = maxlen
+        self._dtype = dtype
+        self._shape = shape
+        self._cap = max(maxlen * 2, 1)
+        self._buf = np.empty((self._cap,) + shape, dtype=dtype)
+        self._n = 0  # valid entries live in self._buf[:self._n]
+
+    def extend(self, values):
+        if len(values) == 0:
+            return
+        values = np.asarray(values, dtype=self._dtype)
+        k = len(values)
+        if self._n + k > self._cap:
+            # drop everything older than the last `maxlen` entries, growing
+            # the backing buffer too if the incoming batch still won't fit
+            start = max(0, self._n - self.maxlen)
+            kept = self._buf[start : self._n].copy()
+            self._n = len(kept)
+            if self._n + k > self._cap:
+                self._cap = max(self._cap * 2, self._n + k)
+                newBuf = np.empty((self._cap,) + self._shape, dtype=self._dtype)
+                newBuf[: self._n] = kept
+                self._buf = newBuf
+            else:
+                self._buf[: self._n] = kept
+        self._buf[self._n : self._n + k] = values
+        self._n += k
+
+    @property
+    def values(self):
+        """The last `maxlen` entries, oldest to newest."""
+        start = max(0, self._n - self.maxlen)
+        return self._buf[start : self._n]
+
+    def __len__(self):
+        return min(self._n, self.maxlen)
+
+
 class Track(object):
     """
     Track class for every object to be tracked
@@ -488,11 +541,6 @@ class Tracker(object):
         self.lastFrame = 0
 
         self.activeTracks = []
-        self.archiveTrackNSamples = []
-        self.archiveTrackTimes = []
-        self.archiveTrackSize = []
-        self.archiveTrackVelocities = []
-        self.archiveTrackAngles = []
 
         self.trackIdCount = 0
         # print("Tracker created", dist_thresh, max_frames_to_skip)
@@ -593,6 +641,18 @@ class Tracker(object):
         self.backSteps = 200  # max number of data point to look back
         # max number of default values to fill up backSteps
         self.backStepsMin = self.backSteps // 10
+
+        # rolling history of recently finished tracks, used to fit the
+        # size/velocity relation in updateVelocityFirstGuess()
+        archiveMaxlen = self.backSteps * 10
+        self._archiveTrackTimes = _RollingArray(
+            archiveMaxlen, dtype=self._captureTimesSorted.dtype
+        )
+        self._archiveTrackNSamples = _RollingArray(archiveMaxlen, dtype=np.int64)
+        self._archiveTrackSize = _RollingArray(archiveMaxlen, dtype=np.float64)
+        self._archiveTrackVelocities = _RollingArray(
+            archiveMaxlen, dtype=np.float64, shape=(3,)
+        )
 
         if velSlope is None:
             self.velGuess_slope = _reference_slopes[self.sizeVariable][config.visssGen]
@@ -763,7 +823,7 @@ class Tracker(object):
             # or if older than X s
             ((capture_times[0] - self.lastTime) > np.timedelta64(500, "ms"))
             or (
-                len(self.archiveTrackNSamples) < (self.backSteps * 10)
+                len(self._archiveTrackNSamples) < (self.backSteps * 10)
             )  # or at the beginning
         ):
             self.updateVelocityFirstGuess(capture_times, ff)
@@ -1059,11 +1119,12 @@ class Tracker(object):
             self.config.visssGen
         ]
 
-        if len(self.archiveTrackTimes) > 0:
-            nSamples = np.array(self.archiveTrackNSamples[-(self.backSteps * 20) :])
-            times = np.array(self.archiveTrackTimes[-(self.backSteps * 20) :])
-            zVels = np.array(self.archiveTrackVelocities)[-self.backSteps * 20 :, 2]
-            sizes = np.array(self.archiveTrackSize[-self.backSteps * 20 :])
+        if len(self._archiveTrackTimes) > 0:
+            nSamples = self._archiveTrackNSamples.values
+            times = self._archiveTrackTimes.values
+            velocities = self._archiveTrackVelocities.values
+            zVels = velocities[:, 2]
+            sizes = self._archiveTrackSize.values
 
             cond = (
                 (nSamples >= self.minTrackLen4training)
@@ -1120,9 +1181,7 @@ class Tracker(object):
                 #     from IPython import display
                 #     display.display(plt.gcf())
 
-                xVel, yVel = np.nanmean(
-                    np.array(self.archiveTrackVelocities)[:, :2], axis=0
-                )
+                xVel, yVel = np.nanmean(velocities[:, :2], axis=0)
                 self.velocityGuessXY = [xVel, yVel]  # , np.mean(zVels, axis=0)
                 log.debug(self.velocityGuessXY)
                 self.costGuessFactor = 1
@@ -1177,17 +1236,12 @@ class Tracker(object):
                 )
 
         # self.archiveTracks += self.activeTracks
-        self.archiveTrackTimes += [t.startTime for t in self.activeTracks]
-        self.archiveTrackNSamples += [t.length for t in self.activeTracks]
-        self.archiveTrackSize += [t.meanSize for t in self.activeTracks]
-        self.archiveTrackVelocities += [t.meanVelocity for t in self.activeTracks]
-
-        self.archiveTrackTimes = self.archiveTrackTimes[-(self.backSteps * 10) :]
-        self.archiveTrackNSamples = self.archiveTrackNSamples[-(self.backSteps * 10) :]
-        self.archiveTrackSize = self.archiveTrackSize[-(self.backSteps * 10) :]
-        self.archiveTrackVelocities = self.archiveTrackVelocities[
-            -(self.backSteps * 10) :
-        ]
+        self._archiveTrackTimes.extend([t.startTime for t in self.activeTracks])
+        self._archiveTrackNSamples.extend([t.length for t in self.activeTracks])
+        self._archiveTrackSize.extend([t.meanSize for t in self.activeTracks])
+        self._archiveTrackVelocities.extend(
+            [t.meanVelocity for t in self.activeTracks]
+        )
 
         self.activeTracks = []
         self.assignment = []
@@ -1207,26 +1261,18 @@ class Tracker(object):
         Maintains only recent archive data (last backSteps*10 items).
         """
         del_ii = np.where(del_ii)[0]
-        self.archiveTrackTimes += [
-            i.startTime for j, i in enumerate(self.activeTracks) if j in del_ii
-        ]
-        self.archiveTrackNSamples += [
-            i.length for j, i in enumerate(self.activeTracks) if j in del_ii
-        ]
-        self.archiveTrackSize += [
-            i.meanSize for j, i in enumerate(self.activeTracks) if j in del_ii
-        ]
-        self.archiveTrackVelocities += [
-            i.meanVelocity for j, i in enumerate(self.activeTracks) if j in del_ii
-        ]
-        # import pdb;pdb.set_trace()
-
-        self.archiveTrackTimes = self.archiveTrackTimes[-(self.backSteps * 10) :]
-        self.archiveTrackNSamples = self.archiveTrackNSamples[-(self.backSteps * 10) :]
-        self.archiveTrackSize = self.archiveTrackSize[-(self.backSteps * 10) :]
-        self.archiveTrackVelocities = self.archiveTrackVelocities[
-            -(self.backSteps * 10) :
-        ]
+        self._archiveTrackTimes.extend(
+            [i.startTime for j, i in enumerate(self.activeTracks) if j in del_ii]
+        )
+        self._archiveTrackNSamples.extend(
+            [i.length for j, i in enumerate(self.activeTracks) if j in del_ii]
+        )
+        self._archiveTrackSize.extend(
+            [i.meanSize for j, i in enumerate(self.activeTracks) if j in del_ii]
+        )
+        self._archiveTrackVelocities.extend(
+            [i.meanVelocity for j, i in enumerate(self.activeTracks) if j in del_ii]
+        )
 
         self.activeTracks = [
             i for j, i in enumerate(self.activeTracks) if j not in del_ii

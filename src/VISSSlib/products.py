@@ -301,19 +301,19 @@ class DataProduct(object):
         if (
             skipExisting
             and isComplete
-            and self._youngerThanParents
+            and self._upToDateWithParents
             and self.parentsComplete
         ):
             if withParents:
                 log.info(f"{self.case} {self.relatives}: everything processed")
             return []
-        if isComplete and (not self._youngerThanParents):
-            for name, younger in self._youngerThanParentsDict.items():
-                if not younger:
+        if isComplete and (not self._upToDateWithParents):
+            for name, upToDate in self._upToDateWithParentsDict.items():
+                if not upToDate:
                     log.warning(
-                        f"{self.case} {self.relatives} redoing level, parent {name} is younger"
+                        f"{self.case} {self.relatives} redoing level, parent {name} was updated more recently"
                     )
-        if self.parentsComplete and self._parentsYoungerThanGrandparents:
+        if self.parentsComplete and self._parentsUpToDateWithGrandparents:
             commands = self.generateCommands(
                 skipExisting=skipExisting,
             )
@@ -539,7 +539,7 @@ class DataProduct(object):
         if self.level in files.dailyLevels:
             outFile = self.fn.fnamesDaily[self.level]
             exisiting = glob.glob(f"{outFile}*")
-            if skipExisting and (len(exisiting) >= 1) and (self._youngerThanParents):
+            if skipExisting and (len(exisiting) >= 1) and (self._upToDateWithParents):
                 log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
                 return []
         else:
@@ -558,7 +558,7 @@ class DataProduct(object):
             if (
                 skipExisting
                 and (self.fn.nMissing(self.level) == 0)
-                and (self._youngerThanParents)
+                and (self._upToDateWithParents)
             ):
                 log.info(f"{self.relatives} skip exisiting {outFile}")
                 return []
@@ -688,18 +688,30 @@ class DataProduct(object):
         return nMissing == 0
 
     @cached_property
-    def _youngerThanParentsDict(self):
+    def _upToDateWithParentsDict(self):
         """
-        Check if this product is younger than its parents.
+        Check whether this product was (re)processed after each of its
+        parents -- i.e. whether it reflects each parent's current state,
+        or is stale and needs to be redone.
+
+        Compares each parent's newest file (`parent.fileCreation`, a
+        MAX over that parent's files -- its most recent update) against
+        this product's OLDEST file (`self.oldestFileCreation`, a MIN
+        over this product's own files). The oldest file has to be used
+        here, not the newest: if even a single one of this product's
+        own files predates a parent's latest update, that one file is
+        stale, so the product as a whole is not fully up to date --
+        using the newest file instead would let one recently-touched
+        file mask staleness in all the others.
 
         A product that is complete but has zero real files (e.g. a day
         with a confirmed data gap upstream, so nothing was ever expected
-        here) has no meaningful fileCreation (0/epoch) to compare against
-        its parents' mtimes. Without an exception, that 0 looks
+        here) has no meaningful file time to compare against its
+        parents' mtimes. Without an exception, that would look
         "infinitely stale" against any real parent mtime and would block
         every descendant -- and ultimately allDone -- from ever being
         marked up to date. Such a product is treated as vacuously
-        younger than all of its parents instead.
+        up to date with all of its parents instead.
 
         The mirror image applies per parent: a parent that is complete
         but only has a .nodata/.broken.txt sentinel (no real output) can
@@ -715,62 +727,64 @@ class DataProduct(object):
         -------
         dict
             Dictionary mapping parent names to boolean values indicating
-            whether this product is younger than each parent
+            whether this product is up to date with each parent
         """
         vacuouslyFresh = (self.fileCreation == 0) and self.isComplete
-        youngerThanParentsDict = tools.DictNoDefault()
+        upToDateWithParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
             parentVacuous = parent.isComplete and (len(parent.listFiles()) == 0)
-            isYounger = (
+            isUpToDate = (
                 vacuouslyFresh
                 or parentVacuous
-                or (parent.fileCreation < self.fileCreation)
+                or (parent.fileCreation < self.oldestFileCreation)
             )
             if (self.level == "level1detect") and (parent.level == "metaEvents"):
                 # special case: no need to do level1detect again due to updated metaEvents
-                youngerThanParentsDict[name] = True
+                upToDateWithParentsDict[name] = True
             else:
-                youngerThanParentsDict[name] = isYounger
-            if not youngerThanParentsDict[name]:
+                upToDateWithParentsDict[name] = isUpToDate
+            if not upToDateWithParentsDict[name]:
                 log.debug(
-                    f"{self.relatives} is older "
-                    f"({tools.timestamp2str(self.fileCreation)}) than parent "
-                    f"{name} ({tools.timestamp2str(parent.fileCreation)})",
+                    f"{self.relatives} has files older "
+                    f"({tools.timestamp2str(self.oldestFileCreation)}) than parent "
+                    f"{name}'s newest ({tools.timestamp2str(parent.fileCreation)})",
                 )
-        return youngerThanParentsDict
+        return upToDateWithParentsDict
 
     @cached_property
-    def _youngerThanParents(self):
+    def _upToDateWithParents(self):
         """
-        Check if this product is younger than all parents.
+        Check if this product was (re)processed after all of its parents.
 
         Returns
         -------
         bool
-            True if this product is younger than all parents, False otherwise
+            True if this product is up to date with all parents, False otherwise
         """
-        youngerThanParents = np.all(list(self._youngerThanParentsDict.values()))
-        return youngerThanParents
+        upToDateWithParents = np.all(list(self._upToDateWithParentsDict.values()))
+        return upToDateWithParents
 
     @cached_property
-    def _parentsYoungerThanGrandparents(self):
+    def _parentsUpToDateWithGrandparents(self):
         """
-        Check if parents are younger than their grandparents.
+        Check if parents were themselves (re)processed after their own
+        parents (this product's grandparents) -- i.e. whether the whole
+        ancestor chain, not just the direct parents, is current.
 
         Returns
         -------
         bool
-            True if all parents are younger than their grandparents, False otherwise
+            True if all parents are up to date with their own parents, False otherwise
         """
-        parentsYoungerThanGrandparents = True
+        parentsUpToDateWithGrandparents = True
         for name, parent in self.parents.items():
-            parentsYoungerThanGrandparents = (
-                parentsYoungerThanGrandparents and parent._youngerThanParents
+            parentsUpToDateWithGrandparents = (
+                parentsUpToDateWithGrandparents and parent._upToDateWithParents
             )
             log.debug(
-                f"{self.relatives} parent {name} is younger than its (grand)parents { parent._youngerThanParents}"
+                f"{self.relatives} parent {name} is up to date with its (grand)parents: { parent._upToDateWithParents}"
             )
-        return parentsYoungerThanGrandparents
+        return parentsUpToDateWithGrandparents
 
     def _fileCreation(self, files):
         """
@@ -803,6 +817,48 @@ class DataProduct(object):
         """
         files = self.listFilesExt()
         return self._fileCreation(files)
+
+    def _oldestFileCreation(self, files):
+        """
+        Get the creation time of the least recently modified file.
+
+        Parameters
+        ----------
+        files : list
+            List of file paths
+
+        Returns
+        -------
+        float
+            Minimum modification time of the files
+        """
+        if len(files) > 0:
+            return np.min([os.path.getmtime(f) for f in files])
+        else:
+            return 0
+
+    @cached_property
+    def oldestFileCreation(self):
+        """
+        Get the creation time of this product's least recently modified
+        file.
+
+        `fileCreation` (the newest file) answers "when was this product
+        last touched" -- useful for reporting. Freshness comparisons
+        against a parent need the opposite: if even one of this
+        product's own files predates a parent's newest update, that one
+        file is stale, so the product as a whole is not fully up to
+        date. Using `fileCreation` there would let a single
+        recently-touched file mask staleness in all the others (see
+        `_upToDateWithParentsDict`).
+
+        Returns
+        -------
+        float
+            Modification time of the oldest file
+        """
+        files = self.listFilesExt()
+        return self._oldestFileCreation(files)
 
     @cached_property
     def parentsComplete(self):
@@ -843,7 +899,7 @@ class DataProduct(object):
             "newest file",
             tools.timestamp2str(self.fileCreation),
             "younger than parents",
-            self._youngerThanParents,
+            self._upToDateWithParents,
         )
         if nMissing > 0:
             print(
@@ -958,7 +1014,7 @@ class DataProduct(object):
         bool
             True if all is complete, False otherwise
         """
-        return self.isComplete and self._youngerThanParents and self.parentsComplete
+        return self.isComplete and self._upToDateWithParents and self.parentsComplete
 
     @cached_property
     def nFiles(self):

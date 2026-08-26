@@ -2666,7 +2666,9 @@ def createMetaRotation(
                     lastCase,
                     lastFile,
                     lastFileTime,
-                ) = files.findLastFile(config, "metaRotation", config.leader)
+                ) = files.findLastFile(
+                    config, "metaRotation", config.leader, beforeCase=fflM.yesterday
+                )
                 if lastFileTime == "n/a":
                     log.error(
                         f"Did not find previous metaRotation. "

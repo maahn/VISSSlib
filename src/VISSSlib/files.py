@@ -66,7 +66,7 @@ quicklookLevelsComb = [
 imageLevels = ["imagesL1detect"]
 
 
-def findLastFile(config, prod, camera):
+def findLastFile(config, prod, camera, beforeCase=None):
     """
     Find the last available file and related metadata for a given product and camera.
 
@@ -78,6 +78,15 @@ def findLastFile(config, prod, camera):
         Product name (e.g., 'level1detect').
     camera : str
         Camera identifier (e.g., 'leader' or 'follower').
+    beforeCase : str, optional
+        If given, only consider cases up to and including this one
+        (YYYYMMDD), searching backward from there instead of from the
+        end of the configured deployment period. Use this when looking
+        for "the last real file before a specific historical case" --
+        e.g. seeding a backfill for a case deep in the past -- since
+        without it, this function finds the most recent file over the
+        *entire* deployment (which may well postdate the case actually
+        being processed and answers a different question).
 
     Returns
     -------
@@ -94,7 +103,10 @@ def findLastFile(config, prod, camera):
     of the requested product and camera combination.
     """
     config = readSettings(config)
-    cases = getCaseRange(0, config, endYesterday=False)[::-1]
+    cases = getCaseRange(0, config, endYesterday=False)
+    if beforeCase is not None:
+        cases = [c for c in cases if c <= beforeCase]
+    cases = cases[::-1]
 
     foundLastFile = False
     foundComplete = False

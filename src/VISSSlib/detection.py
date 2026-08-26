@@ -501,8 +501,8 @@ class detectedParticles(object):
             )
 
             # single pixels will be modified, make sure we do not change the full frame
-            particleBoxPlus = deepcopy(particleBoxPlus)
-            fgBoxMaskPlus = deepcopy(fgBoxMaskPlus)
+            particleBoxPlus = particleBoxPlus.copy()
+            fgBoxMaskPlus = fgBoxMaskPlus.copy()
             particleBoxMaskPlus = self.applyCannyFilter(particleBoxPlus, fgBoxMaskPlus)
 
             if np.sum(particleBoxMaskPlus) == 0:
@@ -542,12 +542,8 @@ class detectedParticles(object):
                 self.record_time,
                 self.nThread,
                 self.pp,
-                deepcopy(
-                    frame4sp
-                ),  # single pixels will be modified, make sure we do not change the full frame
-                deepcopy(
-                    mask4sp
-                ),  # single pixels will be modified, make sure we do not change the full frame
+                frame4sp.copy(),  # single pixels will be modified, make sure we do not change the full frame
+                mask4sp.copy(),  # single pixels will be modified, make sure we do not change the full frame
                 cnt,
                 cntChild,
                 xOffset,
@@ -1105,7 +1101,6 @@ class singleParticle(object):
             Verbosity level, default is 0
         """
         import cv2
-        import scipy.stats
 
         self._cv2 = cv2
 
@@ -1177,7 +1172,7 @@ class singleParticle(object):
         self.particleBoxAlpha = np.stack((self.particleBox, self.particleBoxMask), -1)
 
         fill_color = 255  # any  color value to fill with
-        self.particleBoxCropped = deepcopy(self.particleBox)
+        self.particleBoxCropped = self.particleBox.copy()
         self.particleBoxCropped[self.particleBoxMask == 0] = fill_color
         particleBoxData = self.particleBox[self.particleBoxMask == 255]
 
@@ -1197,8 +1192,8 @@ class singleParticle(object):
         )  # , interpolation='nearest'
         self.pixStd = np.std(particleBoxData, ddof=1)
 
-        self.pixSkew = scipy.stats.skew(particleBoxData)
-        self.pixKurtosis = scipy.stats.kurtosis(particleBoxData)
+        self.pixSkew = _skew(particleBoxData)
+        self.pixKurtosis = _kurtosis(particleBoxData)
         self.particleContrast = parent.brightnessBackground - self.pixMin
 
         # figure out whether particle was properly detected
@@ -1328,8 +1323,8 @@ class singleParticle(object):
         self.area = self._cv2.contourArea(self.cnt)
         self.perimeter = self._cv2.arcLength(self.cnt, True)
 
-        self.areaConsideringHoles = deepcopy(self.area)
-        self.perimeterConsideringHoles = deepcopy(self.perimeter)
+        self.areaConsideringHoles = self.area
+        self.perimeterConsideringHoles = self.perimeter
         for cc in self.cntChild:
             self.areaConsideringHoles -= self._cv2.contourArea(cc)
             self.perimeterConsideringHoles += self._cv2.arcLength(cc, True)
@@ -1559,6 +1554,30 @@ class singleParticle(object):
         return annotatedParticleCropped
 
 
+def _skew(x):
+    """
+    Sample skewness, equivalent to scipy.stats.skew(x) (bias=True default)
+    but without the inspect-based nan-policy wrapper scipy wraps every call
+    in, which dominates its per-call cost for small arrays like a single
+    particle's pixel values.
+    """
+    d = x - x.mean()
+    m2 = np.mean(d**2)
+    m3 = np.mean(d**3)
+    return m3 / m2**1.5
+
+
+def _kurtosis(x):
+    """
+    Sample excess (Fisher) kurtosis, equivalent to scipy.stats.kurtosis(x)
+    (fisher=True, bias=True defaults) -- see _skew for why this bypasses scipy.
+    """
+    d = x - x.mean()
+    m2 = np.mean(d**2)
+    m4 = np.mean(d**4)
+    return m4 / m2**2 - 3.0
+
+
 def extractRoi(roi, frame, extra=0):
     """
     Extract region of interest from frame.
@@ -1735,6 +1754,23 @@ def detectParticles(
 
     config = tools.readSettings(config)
 
+    # cv2's own thread pool defaults to os.cpu_count() and is not covered by the
+    # OMP_NUM_THREADS/OPENBLAS_NUM_THREADS/etc. env vars products.py already sets for
+    # detect jobs, so it silently oversubscribes cores when many detect workers run
+    # concurrently (the normal task-queue deployment). An explicit level1detect.cv2NumThreads
+    # always wins; otherwise follow OMP_NUM_THREADS (the same value products.py already
+    # exports per job) so cv2 stays consistent with the rest of the numeric stack without a
+    # second, independent thread-count setting to keep in sync; if neither is set (e.g.
+    # interactive use outside the task queue), cv2's own default is left untouched.
+    cv2NumThreads = config.level1detect.cv2NumThreads
+    if cv2NumThreads is None:
+        cv2NumThreads = os.environ.get("OMP_NUM_THREADS")
+    if cv2NumThreads is not None:
+        try:
+            cv2.setNumThreads(int(cv2NumThreads))
+        except ValueError:
+            log.warning(f"cannot parse thread count {cv2NumThreads!r}, ignoring")
+
     path = config["path"]
     threshs = np.array(config.level1detect.threshs)
     instruments = config["instruments"]
@@ -1813,7 +1849,10 @@ def detectParticles(
         return 0
 
     try:
-        metaData = xr.open_dataset(fn.fname.metaFrames)
+        # .load() pulls all variables into memory up front instead of lazily
+        # re-reading from the netCDF file (with xarray's indexing-wrapper overhead
+        # on top) on every single .isel()/.values access in the per-frame loop below.
+        metaData = xr.open_dataset(fn.fname.metaFrames).load()
     except FileNotFoundError:
         if fn.isNoData("metaFrames"):
             _noData("no data in %s" % fn.fname.metaFrames)

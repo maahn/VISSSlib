@@ -2,7 +2,6 @@
 
 import functools
 import operator
-import sys
 import warnings
 from copy import deepcopy
 
@@ -348,6 +347,117 @@ def createLevel2track(
         quicklooks.createLevel2trackQuicklook(case, config, skipExisting=skipExisting)
 
     return out
+
+
+def _circularMeanDeg(sinMean, cosMean):
+    """
+    Closed-form circular mean (degrees) from grouped mean sin/cos
+    components. Equivalent to scipy.stats.circmean(angles, high=360,
+    nan_policy="omit"), but vectorized: atan2 of *means* gives the same
+    angle as atan2 of sums (the 1/n scaling cancels), and an all-NaN group
+    naturally produces NaN here since sinMean/cosMean are already NaN for
+    it, matching scipy's "empty input -> NaN" behavior without extra
+    masking.
+    """
+    return np.degrees(np.arctan2(sinMean, cosMean)) % 360
+
+
+def _circularStdDeg(sinMean, cosMean):
+    """
+    Closed-form circular standard deviation (degrees) from grouped mean
+    sin/cos components, matching scipy.stats.circstd(angles, high=360,
+    nan_policy="omit").
+    """
+    R = np.clip(np.sqrt(sinMean**2 + cosMean**2), None, 1.0)
+    return np.degrees(np.sqrt(-2 * np.log(R)))
+
+
+def _binTimeAndSize(
+    level1dat_4timeAve,
+    reduceDim,
+    timeBins,
+    sizeBins,
+    sizeDefinition,
+    data_vars,
+    sublevel,
+    coordVar,
+    coord,
+):
+    """
+    Bin the full time range against `sizeDefinition` in one flox multi-
+    grouper call, replacing what used to be a Python loop over every
+    1-minute interval that re-derived pandas.cut bin edges from scratch on
+    each iteration (the dominant cost in _createLevel2part - see the
+    profiling notes referenced from AI.md). Produces the "N" (histogram)
+    and "<var>_dist" (per-bin mean, with "angle" via a closed-form circular
+    mean) fields for one (coord, sizeDefinition) combination, identical to
+    what the old per-minute loop produced for the same combination.
+
+    coordVar/coord select which camera/cameratrack slice to use for the
+    per-particle *values*; the bin *edges* for everything except the raw
+    N histogram always come from the "max" slice, matching the original
+    loop's `binningVar = ...sel(**{coordVar: "max"})`. Pass coordVar=None
+    for sublevel="detect", which has no camera dimension at all.
+    """
+    import flox.xarray
+
+    if coordVar is not None:
+        ownVar = level1dat_4timeAve[sizeDefinition].sel(**{coordVar: coord}, drop=True)
+        binningVar = level1dat_4timeAve[sizeDefinition].sel(
+            **{coordVar: "max"}, drop=True
+        )
+        selKw = {coordVar: coord}
+    else:
+        ownVar = level1dat_4timeAve[sizeDefinition]
+        binningVar = ownVar
+        selKw = {}
+    binningVar = binningVar.rename(sizeDefinition)
+
+    N = flox.xarray.xarray_reduce(
+        ownVar.rename("N"),
+        level1dat_4timeAve["time"],
+        ownVar,
+        func="count",
+        expected_groups=(timeBins, sizeBins),
+        isbin=[True, True],
+        dim=reduceDim,
+        fill_value=0,
+    )
+    N = N.rename({f"{sizeDefinition}_bins": "D_bins", "time_bins": "time"})
+
+    # NB: data_vars1 includes sizeDefinition itself, mirroring the original
+    # loop's `data_vars + [sizeDefinition]`. For match/track this is *not*
+    # deleted afterwards (the original loop only deletes it in the detect
+    # branch), which reproduces the original's Dmax_dist/Dequiv_dist output:
+    # real-valued only for their own sizeDefinition pass, NaN-filled for the
+    # other after the size_definition concat below.
+    data_vars1 = [v for v in data_vars if v != "angle"] + [sizeDefinition]
+    meanDs = level1dat_4timeAve[data_vars1]
+    angleSel = level1dat_4timeAve["angle"]
+    if selKw:
+        meanDs = meanDs.sel(drop=True, **selKw)
+        angleSel = angleSel.sel(drop=True, **selKw)
+    angleRad = np.deg2rad(angleSel)
+    meanDs = meanDs.assign(_sinAngle=np.sin(angleRad), _cosAngle=np.cos(angleRad))
+
+    meanRes = flox.xarray.xarray_reduce(
+        meanDs,
+        level1dat_4timeAve["time"],
+        binningVar,
+        func="mean",
+        expected_groups=(timeBins, sizeBins),
+        isbin=[True, True],
+        dim=reduceDim,
+        fill_value=np.nan,
+    )
+    meanRes["angle"] = _circularMeanDeg(meanRes["_sinAngle"], meanRes["_cosAngle"])
+    meanRes = meanRes.drop_vars(["_sinAngle", "_cosAngle"])
+    if sublevel == "detect":
+        del meanRes[sizeDefinition]
+    meanRes = meanRes.rename({k: f"{k}_dist" for k in meanRes.data_vars})
+    meanRes = meanRes.rename({f"{sizeDefinition}_bins": "D_bins", "time_bins": "time"})
+
+    return xr.merge([N, meanRes])
 
 
 def _createLevel2(
@@ -1213,8 +1323,6 @@ def _createLevel2part(
     """
     import dask
     import pandas as pd
-    import scipy.stats
-    from tqdm import tqdm
 
     assert sublevel in ["match", "track", "detect"]
 
@@ -1242,6 +1350,15 @@ def _createLevel2part(
         with xr.open_mfdataset(
             lv1Files, preprocess=_preprocess, combine="nested", concat_dim="pair_id"
         ) as level1dat:
+            # load *before* applying the boolean pair_id mask below: doing the
+            # boolean isel while level1dat is still dask-backed (per-file
+            # chunked) routes through dask's fancy-indexing "shuffle", which
+            # deep-copies per-chunk graph state for every selected element and
+            # measured several seconds per hourly chunk on real data. Loading
+            # first means the mask is applied with plain numpy indexing
+            # instead, with the same end result.
+            level1dat.load()
+
             # camera variable exists only for track and match
             try:
                 # limit to period of interest
@@ -1259,8 +1376,6 @@ def _createLevel2part(
                     pair_id=(level1dat.capture_time >= fL.datetime64).values
                     & (level1dat.capture_time < (fL.datetime64 + endTime)).values
                 )
-
-            level1dat.load()
     # make chunks more regular
     # level1dat = level1dat.chunk(pair_id=10000)
 
@@ -1513,9 +1628,14 @@ def _createLevel2part(
             "std",
         ]
 
-        # fix angle because we want the circular mean
-        level1dat_camAve["angle"].loc["mean"] = level1dat_time["angle"].reduce(
-            scipy.stats.circmean, "camera", high=360, nan_policy="omit"
+        # fix angle because we want the circular mean; closed-form via
+        # grouped sin/cos means instead of a scipy.stats.circmean callback
+        # applied per (fitMethod, pair_id) slice through apply_along_axis,
+        # which profiled as the dominant cost of this function once the
+        # per-minute distribution loop below was vectorized.
+        _angleRad = np.deg2rad(level1dat_time["angle"])
+        level1dat_camAve["angle"].loc["mean"] = _circularMeanDeg(
+            np.sin(_angleRad).mean("camera"), np.cos(_angleRad).mean("camera")
         )
 
         # position_3D is the same for all
@@ -1611,19 +1731,6 @@ def _createLevel2part(
     log.info(f"add additonal variables")
     level1dat_4timeAve = addPerParticleVariables(level1dat_4timeAve, config)
 
-    # split data in 1 min chunks
-    level1datG = level1dat_4timeAve.groupby_bins(
-        "time", timeIndex1, right=False, squeeze=False
-    )
-    level1datG_angle = level1dat_4timeAve["angle"].groupby_bins(
-        "time", timeIndex1, right=False, squeeze=False
-    )
-    individualDataPointsG = individualDataPoints.groupby_bins(
-        "time", timeIndex1, right=False, squeeze=False
-    )
-
-    del level1dat_4timeAve
-
     sizeDefinitions = ["Dmax", "Dequiv"]
     data_vars = [
         "area",
@@ -1641,134 +1748,57 @@ def _createLevel2part(
         data_vars += ["velocity", "track_angle"]
 
     log.info(f"get time resolved distributions")
-    # process each 1 min chunks
-    res = {}
-    nParticles = {}
+    # Bin the whole case against time x size in one flox call per
+    # (coord, sizeDefinition) pair instead of looping over every 1-minute
+    # interval and re-deriving pandas.cut bin edges from scratch each time
+    # (up to ~2000 groupby_bins calls/hour previously - see profiling notes
+    # referenced from AI.md). "time" is a plain coordinate on "pair_id" for
+    # match/detect, but *is* the reduced dimension itself for track (after
+    # the track_id/track_step -> pair_id -> time swap above), so the
+    # reduction dim is derived from where "time" actually lives rather than
+    # hardcoded.
+    reduceDim = level1dat_4timeAve["time"].dims[0]
+    timeBins = pd.IntervalIndex.from_breaks(np.asarray(timeIndex1), closed="left")
+    sizeBins = pd.IntervalIndex.from_breaks(
+        np.asarray(list(DbinsPixel), dtype=float), closed="left"
+    )
 
     if sublevel == "detect":
-        # iterate through every 1 min piece
-        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout, desc=case):
-            # estimate counts
-            tmpXr = []
-            for sizeDefinition in sizeDefinitions:
-                tmpXr1 = (
-                    level1datG1[[sizeDefinition]]
-                    .groupby_bins(sizeDefinition, DbinsPixel, right=False)
-                    .count()
-                    .fillna(0)
-                )
+        coordVar = None
+        coords = [None]
+    elif sublevel == "track":
+        coordVar = "cameratrack"
+        coords = level1dat_4timeAve[coordVar].values
+    elif sublevel == "match":
+        coordVar = "camera"
+        coords = level1dat_4timeAve[coordVar].values
 
-                tmpXr1 = tmpXr1.rename({sizeDefinition: "N"})
-                tmpXr1 = tmpXr1.rename({f"{sizeDefinition}_bins": "D_bins"})
+    resPerCoord = []
+    for coord in coords:
+        resPerSizeDef = [
+            _binTimeAndSize(
+                level1dat_4timeAve,
+                reduceDim,
+                timeBins,
+                sizeBins,
+                sizeDefinition,
+                data_vars,
+                sublevel,
+                coordVar,
+                coord,
+            )
+            for sizeDefinition in sizeDefinitions
+        ]
+        tmpXr = xr.concat(resPerSizeDef, dim="size_definition")
+        tmpXr["size_definition"] = sizeDefinitions
+        resPerCoord.append(tmpXr)
 
-                # import pdb; pdb.set_trace()
-                # estimate mean values for "area", "angle", "aspectRatio", "perimeter"
-                # Dmax is only for technical resaons and is removed afterwards
-                data_vars1 = data_vars + [sizeDefinition]
-                data_vars1.remove("angle")  # treated seperately
-
-                otherVars1 = (
-                    level1datG1[data_vars1]
-                    .groupby_bins(sizeDefinition, DbinsPixel, right=False)
-                    .mean()
-                )
-                angleVars = (
-                    level1datG1[["angle", sizeDefinition]]
-                    .groupby_bins(sizeDefinition, DbinsPixel, right=False)
-                    .reduce(scipy.stats.circmean, high=360, nan_policy="omit")
-                )
-                otherVars1["angle"] = angleVars["angle"]
-                del otherVars1[sizeDefinition]
-
-                otherVars1 = otherVars1.rename(
-                    {k: f"{k}_dist" for k in otherVars1.data_vars}
-                )
-                otherVars1 = otherVars1.rename({f"{sizeDefinition}_bins": "D_bins"})
-                tmpXr1.update(otherVars1)
-                tmpXr.append(tmpXr1)
-
-            tmpXr = xr.concat(tmpXr, dim="size_definition")
-            tmpXr["size_definition"] = sizeDefinitions
-
-            res[interv.left] = tmpXr.copy()
-
-        # clean up
-        del tmpXr, tmpXr1
-
-        dist = xr.concat(res.values(), dim="time")
-        dist["time"] = list(res.keys())
-
+    if coordVar is not None:
+        dist = xr.concat(resPerCoord, dim=coordVar)
+        dist[coordVar] = list(coords)
     else:
-        if sublevel == "track":
-            coordVar = "cameratrack"
-        elif sublevel == "match":
-            coordVar = "camera"
-
-        # iterate through every 1 min piece
-        for interv, level1datG1 in tqdm(level1datG, file=sys.stdout, desc=case):
-            # print(interv)
-            tmp = []
-            # for each track&camera/min/max/mean seperately
-            for coord in level1datG1[coordVar].values:
-                # estimate counts
-                tmpXr = []
-                for sizeDefinition in sizeDefinitions:
-                    # for the PSD, caemra min/max etc applied to the binning
-                    tmpXr1 = (
-                        level1datG1[[sizeDefinition]]
-                        .sel(**{coordVar: coord})
-                        .groupby_bins(sizeDefinition, DbinsPixel, right=False)
-                        .count()
-                        .fillna(0)
-                    )
-
-                    tmpXr1 = tmpXr1.rename({sizeDefinition: "N"})
-                    tmpXr1 = tmpXr1.rename({f"{sizeDefinition}_bins": "D_bins"})
-
-                    # import pdb; pdb.set_trace()
-                    # estimate mean values for "area", "angle", "aspectRatio", "perimeter"
-                    # Dmax is only for technical resaons and is removed afterwards
-                    data_vars1 = data_vars + [sizeDefinition]
-                    data_vars1.remove("angle")  # treated seperately
-
-                    # for all variabvles except the PSD, min/max etc is applied to the variable
-                    # the binning uses max observed Dmax or Deq
-                    binningVar = level1datG1[sizeDefinition].sel(**{coordVar: "max"})
-                    otherVars1 = (
-                        level1datG1[data_vars1]
-                        .sel(drop=True, **{coordVar: coord})
-                        .groupby_bins(binningVar, DbinsPixel, right=False)
-                        .mean()
-                    )
-                    angleVars = (
-                        level1datG1[["angle", sizeDefinition]]
-                        .sel(drop=True, **{coordVar: coord})
-                        .groupby_bins(binningVar, DbinsPixel, right=False)
-                        .reduce(scipy.stats.circmean, high=360, nan_policy="omit")
-                    )
-                    otherVars1["angle"] = angleVars["angle"]
-
-                    otherVars1 = otherVars1.rename(
-                        {k: f"{k}_dist" for k in otherVars1.data_vars}
-                    )
-                    otherVars1 = otherVars1.rename({f"{sizeDefinition}_bins": "D_bins"})
-                    tmpXr1.update(otherVars1)
-                    tmpXr.append(tmpXr1)
-
-                tmpXr = xr.concat(tmpXr, dim="size_definition")
-                tmpXr["size_definition"] = sizeDefinitions
-
-                tmp.append(tmpXr.copy())
-            # merge camera/min/max/mean reults
-            res[interv.left] = xr.concat(tmp, dim=coordVar)
-            # add camera/min/max/mean information
-            res[interv.left][coordVar] = level1datG1[coordVar]
-
-        # clean up
-        del tmpXr, tmp, tmpXr1
-
-        dist = xr.concat(res.values(), dim="time")
-        dist["time"] = list(res.keys())
+        dist = resPerCoord[0]
+    dist["time"] = [a.left for a in dist["time"].values]
 
     # fill data gaps with zeros
     with warnings.catch_warnings():
@@ -1779,11 +1809,38 @@ def _createLevel2part(
     log.info("do temporal mean values")
     # estimate mean values
     # to do: data is weighted with number of obs not considering the smalle robservation volume for larger particles
+    level1datG = level1dat_4timeAve.groupby_bins(
+        "time", timeIndex1, right=False, squeeze=False
+    )
+    individualDataPointsG = individualDataPoints.groupby_bins(
+        "time", timeIndex1, right=False, squeeze=False
+    )
+
+    # closed-form circular mean/std (grouped mean sin/cos, see
+    # _circularMeanDeg/_circularStdDeg) instead of a scipy.stats.circmean/
+    # circstd Python callback invoked once per time bin via .reduce()
+    import flox.xarray
+
+    angleRad = np.deg2rad(level1dat_4timeAve["angle"])
+    sinMeanT = flox.xarray.xarray_reduce(
+        np.sin(angleRad),
+        level1dat_4timeAve["time"],
+        func="mean",
+        expected_groups=timeBins,
+        isbin=True,
+        dim=reduceDim,
+    )
+    cosMeanT = flox.xarray.xarray_reduce(
+        np.cos(angleRad),
+        level1dat_4timeAve["time"],
+        func="mean",
+        expected_groups=timeBins,
+        isbin=True,
+        dim=reduceDim,
+    )
 
     meanValues = level1datG.mean()
-    meanValues["angle"] = level1datG_angle.reduce(
-        scipy.stats.circmean, high=360, nan_policy="omit"
-    )
+    meanValues["angle"] = _circularMeanDeg(sinMeanT, cosMeanT)
     meanValues = meanValues.rename({k: f"{k}_mean" for k in meanValues.data_vars})
     meanValues = meanValues.rename(time_bins="time")
     # we want time stamps not intervals
@@ -1793,9 +1850,7 @@ def _createLevel2part(
     # estimate mean values
     # to do: data is weighted with number of obs not considering the smalle robservation volume for larger particles
     stdValues = level1datG.std()
-    stdValues["angle"] = level1datG_angle.reduce(
-        scipy.stats.circstd, high=360, nan_policy="omit"
-    )
+    stdValues["angle"] = _circularStdDeg(sinMeanT, cosMeanT)
     stdValues = stdValues.rename({k: f"{k}_std" for k in stdValues.data_vars})
     stdValues = stdValues.rename(time_bins="time")
     # we want tiem stamps not intervals
@@ -1812,7 +1867,7 @@ def _createLevel2part(
     calibDat = calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1)
 
     # clean up!
-    del level1datG, level1dat_time
+    del level1dat_4timeAve, level1datG, level1dat_time
     return calibDat
 
 
@@ -2126,7 +2181,6 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
         time-resolved track data, individual particle data, and number of cuts.
     """
     import pandas as pd
-    import scipy.stats
 
     log.info(f"reshape tracks")
 
@@ -2238,13 +2292,16 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
     level1dat_trackAve = xr.concat(level1dat_trackAve, dim="cameratrack")
     level1dat_trackAve["cameratrack"] = trackOps
 
-    # fix  circular mean & std for angle
-    level1dat_trackAve["angle"].loc["mean"] = level1dat_track2D_4ave["angle"].reduce(
-        scipy.stats.circmean, ["track_step", "camera"], high=360, nan_policy="omit"
-    )
-    level1dat_trackAve["angle"].loc["std"] = level1dat_track2D_4ave["angle"].reduce(
-        scipy.stats.circstd, ["track_step", "camera"], high=360, nan_policy="omit"
-    )
+    # fix circular mean & std for angle; closed-form via grouped sin/cos
+    # means instead of scipy.stats.circmean/circstd callbacks applied per
+    # slice through apply_along_axis, which profiled as a dominant cost for
+    # the track sublevel once the per-minute distribution loop in
+    # _createLevel2part was vectorized.
+    _angleRad = np.deg2rad(level1dat_track2D_4ave["angle"])
+    _sinMean = np.sin(_angleRad).mean(["track_step", "camera"])
+    _cosMean = np.cos(_angleRad).mean(["track_step", "camera"])
+    level1dat_trackAve["angle"].loc["mean"] = _circularMeanDeg(_sinMean, _cosMean)
+    level1dat_trackAve["angle"].loc["std"] = _circularStdDeg(_sinMean, _cosMean)
 
     # use Dmax as arbitrary variable with only one dimension
     level1dat_trackAve["track_length"] = (

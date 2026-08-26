@@ -1172,23 +1172,48 @@ def estimateCaptureIdDiffCore(
     if len(leaderDat[dim]) > nPoints:
         points = np.linspace(0, len(leaderDat[dim]), nPoints, dtype=int, endpoint=False)
     else:
-        points = range(len(leaderDat[dim]))
+        points = np.arange(len(leaderDat[dim]))
 
-    # loop through all points
-    idDiffs = []
-    for point in points:
-        absDiff = np.abs(
-            leaderDat[timeDim].isel(**{dim: point}).values
-            - followerDat[timeDimFollower]
-        )
-        pMin = np.min(absDiff).values
-        if pMin < np.timedelta64(int(maxDiffMs), "ms"):
-            pII = absDiff.argmin().values
-            idDiff = (
-                followerDat.capture_id.values[pII]
-                - leaderDat.capture_id.isel(**{dim: point}).values
-            )
-            idDiffs.append(idDiff)
+    # Find, for every sampled leader point, the nearest follower
+    # timestamp -- vectorized instead of a Python loop that recomputed
+    # |t - followerTimes| against the *entire* follower array for every
+    # single point (O(nPoints * N_follower), and paying xarray
+    # per-element isel/argmin overhead nPoints times on top of that).
+    # followerDat[timeDimFollower] is sorted (particles are appended in
+    # capture order, same assumption tools.cutFollowerToLeader makes), so
+    # the nearest value to any query is always one of its two immediate
+    # neighbours at the binary-search insertion point -- searchsorted is
+    # O(log N) per query, run on all points at once.
+    followerTimes = followerDat[timeDimFollower].values
+    followerCaptureId = followerDat.capture_id.values
+    assert np.all(followerTimes[:-1] <= followerTimes[1:]), (
+        f"followerDat.{timeDimFollower} is not sorted"
+    )
+
+    leaderTimes = leaderDat[timeDim].isel(**{dim: points}).values
+    leaderCaptureId = leaderDat.capture_id.isel(**{dim: points}).values
+
+    nFollower = len(followerTimes)
+    idxRight = np.clip(
+        np.searchsorted(followerTimes, leaderTimes, side="left"), 0, nFollower - 1
+    )
+    idxLeft = np.clip(idxRight - 1, 0, nFollower - 1)
+
+    diffRight = np.abs(followerTimes[idxRight] - leaderTimes)
+    diffLeft = np.abs(followerTimes[idxLeft] - leaderTimes)
+    # On an exact tie, prefer the left neighbour to match np.argmin's
+    # first-occurrence behaviour on the original full-array search: a tie
+    # can only happen between the values immediately bracketing the
+    # insertion point (any other follower time is, by sortedness,
+    # strictly farther), and every occurrence of the left value has a
+    # lower original index than every occurrence of the right value.
+    useLeft = diffLeft <= diffRight
+
+    nearestIdx = np.where(useLeft, idxLeft, idxRight)
+    pMin = np.where(useLeft, diffLeft, diffRight)
+
+    keep = pMin < np.timedelta64(int(maxDiffMs), "ms")
+    idDiffs = followerCaptureId[nearestIdx[keep]] - leaderCaptureId[keep]
 
     nIdDiffs = len(idDiffs)
     print(f"using {nIdDiffs} of {len(points)}")
@@ -1272,12 +1297,26 @@ def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
     )
     end = leader.capture_time[-1].values + np.timedelta64(int(gracePeriod * 1000), "ms")
 
-    if start is not None:
-        follower = follower.isel({dim: (follower.capture_time >= start)})
-    if end is not None:
-        follower = follower.isel({dim: (follower.capture_time <= end)})
+    captureTimeValues = follower.capture_time.values
 
-    return follower
+    # Follower particles are appended in capture order, so the [start,
+    # end] window is a contiguous index range that a binary search over
+    # the 1D time array can find directly. That lets us slice with a
+    # basic integer range (a cheap view) instead of a boolean mask, which
+    # forces xarray to materialize a full copy of every variable in
+    # `follower`. This function is called once per leader chunk in
+    # doMatchSlicer, so for a large follower dataset that copy dominated
+    # runtime. If capture_time isn't sorted, plenty else downstream (this
+    # same assumption is already made of leader.capture_time[0]/[-1]
+    # above, and elsewhere in matching.py/tools.py) is already broken, so
+    # fail loudly here rather than silently falling back.
+    assert np.all(captureTimeValues[:-1] <= captureTimeValues[1:]), (
+        "follower.capture_time is not sorted"
+    )
+
+    lo = np.searchsorted(captureTimeValues, start, side="left")
+    hi = np.searchsorted(captureTimeValues, end, side="right")
+    return follower.isel({dim: slice(lo, hi)})
 
 
 def nextCase(case):

@@ -660,14 +660,18 @@ class FindFiles(object):
         level : str
             Processing level (e.g. 'level1match').
         kind : {"touch", "done"}
-            "touch" is bumped by every real write to `level` (see
-            tools.open2/to_netcdf2) and is a race-safe stand-in for this
-            level's newest mtime: concurrent writers never corrupt it,
-            whichever write lands last simply wins, and it is always
-            touched no earlier than the write it corresponds to.
+            "touch" is bumped (its content rewritten to a fresh random
+            token, see tools._touchLevelMarker) by every real write to
+            `level` (see tools.open2/to_netcdf2) and is a race-safe
+            fence for this level's freshness cache: concurrent writers
+            never corrupt it, whichever write lands last simply wins,
+            and it is always touched no earlier than the write it
+            corresponds to. A random token rather than the marker
+            file's own mtime is used so that two touches issued within
+            the same filesystem clock tick are still distinguishable.
             "done" is the richer cache (file count + oldest/newest
             mtime), but is only ever trusted by a reader if "touch" has
-            not moved since "done" was written -- so a writer that was
+            not changed since "done" was written -- so a writer that was
             mid-scan while another worker wrote a new file can never
             resurrect a stale summary after that write already
             invalidated it. See tools.readLevelSummary/writeLevelSummary.

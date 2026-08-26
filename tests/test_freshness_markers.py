@@ -231,7 +231,13 @@ class TestDataProductIntegration:
 
         tools.to_netcdf2(dat, config, path)
         secondMtime = os.path.getmtime(path)
-        assert secondMtime > firstNewest
+        # Not asserting secondMtime > firstNewest here: Linux stamps inode
+        # mtimes off a coarse clock (tick resolution, ~1-4ms), so two writes
+        # this close together can land in the same tick and get an
+        # identical mtime. Cache invalidation itself doesn't depend on the
+        # mtime advancing -- every to_netcdf2 write unconditionally drops
+        # the cached "done" summary (tools._touchLevelMarker) -- so what
+        # matters below is that p2 picks up whatever the real mtime is now.
 
         p2 = DataProduct(
             "level1match", "20260101", config, queue, "leader", addRelatives=False

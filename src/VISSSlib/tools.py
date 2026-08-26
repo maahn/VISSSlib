@@ -13,6 +13,7 @@ import socket
 import struct
 import subprocess
 import time
+import uuid
 import warnings
 import zipfile
 import zlib
@@ -2258,10 +2259,20 @@ def _touchLevelMarker(file, config):
     Bump the "touch" marker for the level+camera+day `file` belongs to
     (creating it if missing), and drop any cached "done" summary for it.
 
+    The marker's fence value is a random token written into the file's
+    content, not its mtime: two touches issued close together can land
+    in the same tick of the filesystem's (often coarse, ~1-4ms
+    resolution) mtime clock and come out with an identical mtime, which
+    would let a concurrent write slip past the fence check undetected.
+    A fresh random token on every touch has no such resolution limit,
+    so any two touches -- however close in time -- are always
+    distinguishable.
+
     Concurrent writers touching the same marker never corrupt it or
-    each other: whichever touch lands last simply wins, and every touch
-    happens right after this process's own write completed, so it is
-    always a valid stand-in for "most recent write to this level" (see
+    each other: the write is atomic (tmp file + os.replace), whichever
+    touch lands last simply wins, and every touch happens right after
+    this process's own write completed, so it is always a valid
+    stand-in for "most recent write to this level" (see
     files.FindFiles.markerPath and readLevelSummary/writeLevelSummary
     for how a cached summary is fenced against this marker instead of
     trusted on its own -- that's what makes it safe under many
@@ -2278,32 +2289,39 @@ def _touchLevelMarker(file, config):
     touchPath, donePath = _levelMarkerPaths(file, config)
     if touchPath is None:
         return
+    token = uuid.uuid4().hex
+    tmpPath = f"{touchPath}.{os.getpid()}.{token}.tmp"
     try:
-        os.utime(touchPath, None)
-    except FileNotFoundError:
-        try:
-            createParentDir(touchPath, mode=config.dirMode)
-            open(touchPath, "a").close()
-            os.chmod(touchPath, config.fileMode)
-        except OSError:
-            return
+        createParentDir(touchPath, mode=config.dirMode)
+        with open(tmpPath, "w") as f:
+            f.write(token)
+        os.chmod(tmpPath, config.fileMode)
+        os.replace(tmpPath, touchPath)
+    except OSError:
+        tryRemovingFile(tmpPath)
+        return
     # optimization only, not required for correctness: readLevelSummary
     # already refuses a summary whose fence doesn't match the touch
-    # marker's current mtime, which is now guaranteed to differ from
+    # marker's current token, which is now guaranteed to differ from
     # whatever "done" was fenced against before this write.
     tryRemovingFile(donePath)
 
 
 def getLevelTouchTime(fn, level):
     """
-    Current mtime of `level`'s "touch" marker on `fn` (a
+    Current fence token for `level`'s "touch" marker on `fn` (a
     files.FindFiles instance), or 0 if none exists yet -- i.e. nothing
     has ever been written for this level+camera+day through the
     open2/to_netcdf2 hooks. 0 is a legitimate, stable fence value (it
     only changes once the first such write happens), not an error.
+
+    Despite the name, this is no longer a timestamp -- it's an opaque
+    per-write token (see `_touchLevelMarker`) that is only ever used
+    for equality comparison, never ordering.
     """
     try:
-        return os.path.getmtime(fn.markerPath(level, "touch"))
+        with open(fn.markerPath(level, "touch")) as f:
+            return f.read()
     except OSError:
         return 0
 
@@ -2358,7 +2376,7 @@ def writeLevelSummary(fn, level, n, oldest, newest, fenceBefore, config):
         {"fence": fenceBefore, "n": n, "oldest": oldest, "newest": newest}
     )
     createParentDir(donePath, mode=config.dirMode)
-    tmpPath = f"{donePath}.{np.random.randint(0, 99999 + 1)}.tmp"
+    tmpPath = f"{donePath}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     with open(tmpPath, "w") as f:
         f.write(payload)
     os.chmod(tmpPath, config.fileMode)
@@ -2462,7 +2480,7 @@ def to_netcdf2(dat, config, file, **kwargs):
         if hasattr(dat[var].dtype, 'na_value'):
             dat[var] = dat[var].astype(object)
 
-    tmpFile = f"{file}.{np.random.randint(0, 99999 + 1)}.tmp.cdf"
+    tmpFile = f"{file}.{os.getpid()}.{uuid.uuid4().hex}.tmp.cdf"
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         if dat[list(dat.data_vars)[-1]].chunks is not None:

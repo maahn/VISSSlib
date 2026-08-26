@@ -93,14 +93,24 @@ def findLastFile(config, prod, camera, beforeCase=None):
     tuple
         Tuple containing:
         - foundLastFile: bool indicating if last file was found
-        - lastCase: str, the last case found
+        - lastCase: str, the last *complete* case found (not
+          necessarily the case lastFile/lastFileTime belong to -- a
+          complete case can be a confirmed data gap with no real file
+          at all; see lastFileCase for that)
         - lastFile: str, the path to the last file
         - lastFileTime: datetime obj, the timestamp of the last file
+        - lastFileCase: str, the case lastFile/lastFileTime actually
+          belong to
 
     Notes
     -----
     This function iterates through recent cases to find the most recent file
-    of the requested product and camera combination.
+    of the requested product and camera combination. It keeps searching
+    backward until both a file and a complete case have been found (or
+    cases are exhausted) -- stopping as soon as either one alone is
+    found would risk missing the other, e.g. a confirmed data-gap case
+    (trivially "complete", but with no real file) sitting in front of
+    an earlier case that does have one.
     """
     config = readSettings(config)
     cases = getCaseRange(0, config, endYesterday=False)
@@ -113,6 +123,7 @@ def findLastFile(config, prod, camera, beforeCase=None):
     lastCase = "n/a"
     lastFileTime = "n/a"
     lastFile = "n/a"
+    lastFileCase = "n/a"
     for case in cases:
         # find files
         ff = FindFiles(case, camera, config)
@@ -126,15 +137,18 @@ def findLastFile(config, prod, camera, beforeCase=None):
                     f1 = Filenames(fnames[-1], config)
                 foundLastFile = True
                 lastFileTime = f1.datetime
+                lastFileCase = case
 
         if not foundComplete:
             foundComplete = ff.isComplete(
                 prod, ignoreBrokenFiles=True, requireL0Files=True
             )
-        else:
+            if foundComplete:
+                lastCase = case
+
+        if foundLastFile and foundComplete:
             break
-        lastCase = case
-    return foundLastFile, lastCase, lastFile, lastFileTime
+    return foundLastFile, lastCase, lastFile, lastFileTime, lastFileCase
 
 
 class FindFiles(object):
@@ -809,7 +823,7 @@ class FindFiles(object):
             True if data newer than this case (by more than a day) has
             been found, confirming this case's missing data is a gap.
         """
-        foundLastFile, _, _, lastFileTime = findLastFile(
+        foundLastFile, _, _, lastFileTime, _ = findLastFile(
             self.config, level, self.camera
         )
         return foundLastFile and (

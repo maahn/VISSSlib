@@ -3043,7 +3043,7 @@ def reportLastFiles(
             ):
                 continue
 
-            foundLastFile, completeCase, lastFile, lastFileTime = files.findLastFile(
+            foundLastFile, completeCase, lastFile, lastFileTime, _ = files.findLastFile(
                 config, prod, camera
             )
 

@@ -2666,6 +2666,7 @@ def createMetaRotation(
                     lastCase,
                     lastFile,
                     lastFileTime,
+                    lastFileCase,
                 ) = files.findLastFile(
                     config, "metaRotation", config.leader, beforeCase=fflM.yesterday
                 )
@@ -2673,7 +2674,7 @@ def createMetaRotation(
                     log.error(
                         f"Did not find previous metaRotation. "
                         f"Try running '{sys.executable} -m VISSSlib tools.copyLastMetaRotation "
-                        f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
+                        f"{config.filename} {lastFileCase} {fflM.yesterday}' if instrument was offline",
                     )
                     return None, None
 
@@ -2685,17 +2686,17 @@ def createMetaRotation(
                         f"I cannot find {fflM.yesterdayObject.fnamesDaily.metaEvents}"
                         " and I assume that the instrument was offline."
                         " I try to fix it with copyLastMetaRotation",
-                        lastCase=lastCase,
+                        lastFileCase=lastFileCase,
                         yesterday=fflM.yesterday,
                     )
-                    tools.copyLastMetaRotation(config, lastCase, fflM.yesterday)
+                    tools.copyLastMetaRotation(config, lastFileCase, fflM.yesterday)
                     # try again
                     prevFile = fl.yesterdayObject.listFiles("metaRotation")[0]
 
                 else:
                     log.error(
                         f"Try running '{sys.executable} -m VISSSlib tools.copyLastMetaRotation "
-                        f"{config.filename} {lastCase} {fflM.yesterday}' if instrument was offline",
+                        f"{config.filename} {lastFileCase} {fflM.yesterday}' if instrument was offline",
                     )
                     return None, None
                 # raise RuntimeError(

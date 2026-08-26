@@ -1796,6 +1796,12 @@ def detectParticles(
         fn.writeStatus("metaDetection", "nodata", message)
         fn.writeStatus("level1detect", "nodata", message)
 
+    def _broken(message):
+        # unlike _noData, this means the raw data itself is missing/corrupt
+        # (e.g. a failed transfer), not a confirmed absence of precipitation
+        fn.writeStatus("metaDetection", "broken.txt", message)
+        fn.writeStatus("level1detect", "broken.txt", message)
+
     # check whether output exists
     if skipExisting and tools.checkForExisting(
         fn.fname.level1detect,
@@ -1843,7 +1849,7 @@ def detectParticles(
     if tooFewThreads:
         if nextDayAvailable or campaignEnded:
             log.warning("movie files of other threads not found, no data " + fname)
-            _noData("movie files of other threads not found, no data")
+            _broken("movie files of other threads not found, no data")
         else:
             log.warning("movie files not found (yet?) " + fname)
         return 0

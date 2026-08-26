@@ -172,6 +172,14 @@ class TestL2(object):
         ]:
             assert var in dat.data_vars
 
+        # unlike match/track, _createLevel2part's detect branch explicitly
+        # deletes the size-definition-within-its-own-bin column (see
+        # distributions.py _binTimeAndSize) instead of leaving a half-NaN
+        # Dmax_dist/Dequiv_dist behind - assert it stays gone rather than
+        # reappearing as an accidental side effect of a future refactor.
+        assert "Dmax_dist" not in dat.data_vars
+        assert "Dequiv_dist" not in dat.data_vars
+
     def testL2Match(self):
         case = "20260110"
         dat, _ = createLevel2match(
@@ -253,6 +261,20 @@ class TestL2(object):
         ]:
             assert var in dat.data_vars
 
+        # Dmax_dist/Dequiv_dist are a side effect of the size-definition
+        # loop in _createLevel2part (distributions.py _binTimeAndSize):
+        # only the size_definition slice matching their own name is
+        # populated, the other is left NaN. Assert the structure explicitly
+        # so a refactor that drops or over-populates these fields gets
+        # caught here instead of only showing up as a diff against real
+        # production data.
+        assert "Dmax_dist" in dat.data_vars
+        assert "Dequiv_dist" in dat.data_vars
+        assert np.isfinite(dat.Dmax_dist.sel(size_definition="Dmax")).any()
+        assert np.isnan(dat.Dmax_dist.sel(size_definition="Dequiv")).all()
+        assert np.isfinite(dat.Dequiv_dist.sel(size_definition="Dequiv")).any()
+        assert np.isnan(dat.Dequiv_dist.sel(size_definition="Dmax")).all()
+
     def testL2Track(self):
         case = "20260110"
         dat, _ = createLevel2track(
@@ -332,6 +354,15 @@ class TestL2(object):
             "velocity_std",
         ]:
             assert var in dat.data_vars
+
+        # same Dmax_dist/Dequiv_dist half-NaN structure as testL2Match, see
+        # comment there.
+        assert "Dmax_dist" in dat.data_vars
+        assert "Dequiv_dist" in dat.data_vars
+        assert np.isfinite(dat.Dmax_dist.sel(size_definition="Dmax")).any()
+        assert np.isnan(dat.Dmax_dist.sel(size_definition="Dequiv")).all()
+        assert np.isfinite(dat.Dequiv_dist.sel(size_definition="Dequiv")).any()
+        assert np.isnan(dat.Dequiv_dist.sel(size_definition="Dmax")).all()
 
 
 class TestVolume(object):

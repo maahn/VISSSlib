@@ -397,6 +397,134 @@ def retrieveRotation(
     return oe.x_op, oe.x_op_err, oe.dgf_x
 
 
+def refitRotationFromMatches(
+    matchedDat, rotate, rotate_err, config, sigma="default",
+    nSamples4rot=300, y_cov_diag=1.65**2, minPairs=10,
+):
+    """
+    Try to recover a low-matchScore result by refitting the rotation
+    directly from the already-matched pairs, instead of re-matching from
+    scratch.
+
+    Rationale (see docs/source/metaRotation.rst and the investigation
+    that motivated this): matchScore is the product of independent
+    per-dimension probability terms (Y, T or I, H, Z), and only the Z
+    term (particle height via the stereo geometry, calc_L_z_withOffsets)
+    depends on the rotation. Y/H/T/I terms only depend on frame position,
+    height-in-frame, and capture_id/time -- none of which change when the
+    rotation is refit. So a file where correspondence is trustworthy
+    (Y/H/T/I already look fine) but matchScore is dragged down by a
+    tight, systematic (not noisy) Z offset is a sign the rotation
+    calibration has drifted for this window, not that the matches are
+    wrong -- and can be fixed with a single Optimal Estimation refit
+    against the existing pairs (retrieveRotation), which is fast and
+    independent of file size, rather than the much slower alternative of
+    re-matching from a blind prior (manualRotationEstimate).
+
+    This only recomputes the Z-dependent term of matchScore for the
+    existing pairs -- it does not re-run doMatch, so it cannot find new
+    correspondences the original (wrong-rotation) match missed, only
+    rescue/rescore the ones it already found. It is only valid for the
+    "default" sigma/delta used everywhere in this codebase (Z: sigma=1.7,
+    delta=0.5, the same constant in both the ptpTime and non-ptpTime
+    default branches of doMatch) -- skipped for a custom sigma, since
+    this function has no way to know what Z sigma/delta that used.
+
+    Parameters
+    ----------
+    matchedDat : xarray.Dataset
+        The (low-scoring) matched-pairs dataset from doMatch/doMatchSlicer,
+        with a "camera" dimension holding the leader/follower rows and a
+        pair_id-indexed "matchScore".
+    rotate : dict or pandas.Series
+        The rotation that was used to produce matchedDat.
+    rotate_err : dict or pandas.Series
+        Its uncertainty.
+    config : dict
+        Configuration settings.
+    sigma : str or dict, optional
+        The sigma the original match used (default "default"); refit is
+        skipped for anything else, see Notes above.
+    nSamples4rot : int, optional
+        Number of best-scoring pairs to refit from, same default as
+        metaRotation's own refinement (default 300).
+    y_cov_diag : float, optional
+        Observation covariance diagonal for the OE fit (default 1.65**2,
+        matchParticles' own default).
+    minPairs : int, optional
+        Minimum number of pairs required to even attempt a refit
+        (default 10).
+
+    Returns
+    -------
+    tuple or None
+        (newMatchedDat, newRotate, newRotateErr) -- matchedDat with
+        "matchScore", "position3D_center"/"position3D_centroid" (via
+        addPosition), and the per-pair rotation columns all recomputed
+        for the refit rotation -- if the refit ran and produced a finite
+        result; None if there were too few pairs, sigma wasn't
+        "default", or the OE fit itself failed.
+    """
+    import pandas as pd
+
+    if sigma != "default":
+        return None
+    if len(matchedDat.pair_id) < minPairs:
+        return None
+
+    rotate = pd.Series(dict(rotate))
+    rotate_err = pd.Series(dict(rotate_err))
+
+    n = min(nSamples4rot, len(matchedDat.pair_id))
+    top = matchedDat.isel(
+        pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:])
+    )
+    try:
+        newRotate, newRotateErr, _ = retrieveRotation(
+            top, rotate, (rotate_err * 10) ** 2, y_cov_diag, config,
+        )
+    except AssertionError as e:
+        log.warning(tools.concat("refitRotationFromMatches: OE refit failed", str(e)))
+        return None
+
+    # matchScore is a product of independent terms and only the Z term
+    # depends on rotation (see docstring), so it can be rescaled by the
+    # ratio of the old vs. new Z-probability without re-running doMatch --
+    # but position3D_center/_centroid (the actual calibrated positions,
+    # the real point of this product) and the per-pair rotation columns
+    # must be properly recomputed via addPosition, not left stale.
+    zSigma, zDelta = 1.7, 0.5
+    oldPos = matchedDat.position3D_center
+    propZ_old = probability(
+        oldPos.sel(dim3D="z") - oldPos.sel(dim3D="z_rotated"), 0, zSigma, zDelta
+    )
+
+    newMatchedDat = addPosition(
+        matchedDat.copy(deep=True), newRotate.to_dict(), newRotateErr.to_dict(), config
+    )
+    newPos = newMatchedDat.position3D_center
+    propZ_new = probability(
+        newPos.sel(dim3D="z") - newPos.sel(dim3D="z_rotated"), 0, zSigma, zDelta
+    )
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rescale = xr.where(propZ_old > 0, propZ_new / propZ_old, 0.0)
+    newMatchedDat["matchScore"] = matchedDat.matchScore * rescale
+
+    if not np.all(np.isfinite(newMatchedDat.matchScore.values)):
+        return None
+
+    log.warning(
+        tools.concat(
+            "refitRotationFromMatches: old rotate", rotate.to_dict(),
+            "new rotate", newRotate.to_dict(),
+            "old median matchScore", float(matchedDat.matchScore.median()),
+            "new median matchScore", float(newMatchedDat.matchScore.median()),
+        )
+    )
+    return newMatchedDat, newRotate, newRotateErr
+
+
 def probability(x, mu, sigma, delta):
     """
     Calculate probability using normal distribution.
@@ -2439,11 +2567,28 @@ def matchParticles(
     if nPairs > config.newFileInt:  # i.e at least one match per second
         matchScoreMedian = matchedDats.matchScore.median().values
         if matchScoreMedian < config.quality.minMatchScore:
-            raise RuntimeError(
-                f"median matchScore is only {matchScoreMedian} and smaller than "
-                f"minMatchScore {config.quality.minMatchScore} even though we "
-                f"found {nPairs} particles"
+            log.warning(
+                tools.concat(
+                    "median matchScore is only", matchScoreMedian,
+                    "smaller than minMatchScore", config.quality.minMatchScore,
+                    "even though we found", nPairs, "particles -- trying a "
+                    "cheap rotation refit against the existing matches "
+                    "before giving up",
+                )
             )
+            healed = refitRotationFromMatches(
+                matchedDats, rotate_final, rotate_err_final, config, sigma=sigma,
+                nSamples4rot=nSamples4rot, y_cov_diag=y_cov_diag,
+            )
+            if healed is not None:
+                matchedDats, rotate_final, rotate_err_final = healed
+                matchScoreMedian = matchedDats.matchScore.median().values
+            if matchScoreMedian < config.quality.minMatchScore:
+                raise RuntimeError(
+                    f"median matchScore is only {matchScoreMedian} and smaller than "
+                    f"minMatchScore {config.quality.minMatchScore} even though we "
+                    f"found {nPairs} particles"
+                )
 
     matchedDats = tools.finishNc(matchedDats, config.site, config.visssGen)
 
@@ -2820,7 +2965,7 @@ def createMetaRotation(
         else:
             rot = None
             try:
-                _, _, rot, rot_err, nL, nF, nM, errors = matchParticles(
+                _, matchedDat4Rot, rot, rot_err, nL, nF, nM, errors = matchParticles(
                     fname1L,
                     config,
                     y_cov_diag=y_cov_diag,
@@ -2838,6 +2983,34 @@ def createMetaRotation(
                     singleParticleFramesOnly=True,
                     doRot=True,
                 )
+
+                # rotationOnly's own convergence check (change smaller
+                # than its own uncertainty, see _refineRotationIteration)
+                # is a different, looser bar than what level1match will
+                # later require of the full, unfiltered particle
+                # population (config.quality.minMatchScore) -- a rotation
+                # can converge on the restricted single-particle-frame
+                # subset used here and still not be accurate enough for
+                # production matching. Proactively check that now (cheap:
+                # matchedDat4Rot and its matchScore already exist) and
+                # refit if needed, so metaRotation doesn't carry forward
+                # a converged-but-not-quite-right estimate that would
+                # only surface as a level1match failure later.
+                if (
+                    (rot is not None)
+                    and (matchedDat4Rot is not None)
+                    and (len(matchedDat4Rot.pair_id) > 0)
+                    and (
+                        matchedDat4Rot.matchScore.median().values
+                        < config.quality.minMatchScore
+                    )
+                ):
+                    healed = refitRotationFromMatches(
+                        matchedDat4Rot, rot, rot_err, config, sigma=sigma,
+                        nSamples4rot=nSamples4rot, y_cov_diag=y_cov_diag,
+                    )
+                    if healed is not None:
+                        _, rot, rot_err = healed
 
                 # metaRotation.append(xr.DataArray([rot], ))
                 # metaRotationErr.append(xr.DataArray())
@@ -2976,6 +3149,7 @@ def manualRotationEstimate(
     nPoints=1000,
     iterations=4,
     minSamples4rot=90,
+    minDMax4rot=None,
     returnResultOnly=True,
 ):
     """
@@ -2995,6 +3169,16 @@ def manualRotationEstimate(
         Number of points to use in matching (default=1000)
     iterations : int, optional
         Number of iterations (default=4)
+    minDMax4rot : float, optional
+        Minimum particle size (Dmax, pixels) to admit into the first
+        iteration's fit. If None (default), auto-computed per case from
+        the file's own size distribution (the size above which there are
+        at least 5000 blur>100 particles, falling back to 15 if the file
+        doesn't have that many). Pass this explicitly to retry a case
+        that fails with the auto-computed size using a smaller, more
+        permissive one -- e.g. when there simply aren't enough
+        large particles in a file for the auto-computed threshold to
+        yield a usable fit.
 
     Returns
     -------
@@ -3028,12 +3212,15 @@ def manualRotationEstimate(
     fl = files.FindFiles(case, config.leader, config)
     fname1L = fl.listFiles("level1detect")[0]
 
-    # Precompute minSize once per case
-    with xr.open_dataset(fname1L) as l1dat:
-        try:
-            minSize = np.sort(l1dat.isel(pid=(l1dat.blur > 100)).Dmax)[-500 * 10]
-        except IndexError:
-            minSize = 15
+    if minDMax4rot is not None:
+        minSize = minDMax4rot
+    else:
+        # Precompute minSize once per case
+        with xr.open_dataset(fname1L) as l1dat:
+            try:
+                minSize = np.sort(l1dat.isel(pid=(l1dat.blur > 100)).Dmax)[-500 * 10]
+            except IndexError:
+                minSize = 15
     log.info("minSize %i" % minSize)
 
     # Initialize rotation parameters

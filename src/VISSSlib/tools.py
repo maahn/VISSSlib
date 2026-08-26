@@ -2173,6 +2173,153 @@ def concatImgX(im1, im2, background=0):
     return imT
 
 
+def _levelMarkerPaths(file, config):
+    """
+    Best-effort: resolve the (touch, done) marker paths for the
+    DataProduct level+camera+day that `file` belongs to, so a completed
+    write can invalidate any cached freshness-check summary for that
+    level (see files.FindFiles.markerPath, products.DataProduct).
+
+    Returns (None, None) for anything that isn't a recognized VISSSlib
+    level output -- e.g. files written by level3/aux.py's Cloudnet
+    downloads, which don't follow the "<level>_V<version>_..." naming
+    convention at all -- so marker bookkeeping never blocks or breaks a
+    write it doesn't understand, it just skips it. Sentinel writes
+    (.nodata/.broken.txt) piggyback on a real level's filename, so those
+    are matched too by stripping the suffix first.
+    """
+    base = file
+    for suffix in (".nodata", ".broken.txt"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    try:
+        ff = files.FilenamesFromLevel(base, config)
+    except Exception:
+        return None, None
+    for level, path in ff.fname.items():
+        if path == base:
+            return ff.markerPath(level, "touch"), ff.markerPath(level, "done")
+    return None, None
+
+
+def _touchLevelMarker(file, config):
+    """
+    Bump the "touch" marker for the level+camera+day `file` belongs to
+    (creating it if missing), and drop any cached "done" summary for it.
+
+    Concurrent writers touching the same marker never corrupt it or
+    each other: whichever touch lands last simply wins, and every touch
+    happens right after this process's own write completed, so it is
+    always a valid stand-in for "most recent write to this level" (see
+    files.FindFiles.markerPath and readLevelSummary/writeLevelSummary
+    for how a cached summary is fenced against this marker instead of
+    trusted on its own -- that's what makes it safe under many
+    concurrent SLURM workers writing the same level+camera+day).
+
+    Caveat: this only works if every writer of this level is running
+    code that calls this hook. A write from an un-upgraded worker (e.g.
+    a mixed-version rollout across the realtime and SLURM-batch
+    environments) would not bump the marker, so a cached summary could
+    stay trusted past that write. Roll this out to all writers of a
+    level together, the same way a `version` bump already implicitly
+    requires.
+    """
+    touchPath, donePath = _levelMarkerPaths(file, config)
+    if touchPath is None:
+        return
+    try:
+        os.utime(touchPath, None)
+    except FileNotFoundError:
+        try:
+            createParentDir(touchPath, mode=config.dirMode)
+            open(touchPath, "a").close()
+            os.chmod(touchPath, config.fileMode)
+        except OSError:
+            return
+    # optimization only, not required for correctness: readLevelSummary
+    # already refuses a summary whose fence doesn't match the touch
+    # marker's current mtime, which is now guaranteed to differ from
+    # whatever "done" was fenced against before this write.
+    tryRemovingFile(donePath)
+
+
+def getLevelTouchTime(fn, level):
+    """
+    Current mtime of `level`'s "touch" marker on `fn` (a
+    files.FindFiles instance), or 0 if none exists yet -- i.e. nothing
+    has ever been written for this level+camera+day through the
+    open2/to_netcdf2 hooks. 0 is a legitimate, stable fence value (it
+    only changes once the first such write happens), not an error.
+    """
+    try:
+        return os.path.getmtime(fn.markerPath(level, "touch"))
+    except OSError:
+        return 0
+
+
+def readLevelSummary(fn, level):
+    """
+    Read the cached (n, oldest, newest) freshness summary for `level`
+    on `fn` (a files.FindFiles instance), if one exists and is still
+    valid -- i.e. the "touch" marker it was fenced against has not
+    moved since it was written, so nothing has been (re)written for
+    this level+camera+day since. Returns None on any cache miss
+    (missing, corrupt, or invalidated by a write since it was cached);
+    the caller must then fall back to a real scan. This is purely an
+    optimization, never the source of truth.
+    """
+    fence = getLevelTouchTime(fn, level)
+    try:
+        with open(fn.markerPath(level, "done")) as f:
+            summary = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if summary.get("fence") != fence:
+        return None
+    try:
+        return summary["n"], summary["oldest"], summary["newest"]
+    except KeyError:
+        return None
+
+
+def writeLevelSummary(fn, level, n, oldest, newest, fenceBefore, config):
+    """
+    Cache a freshness summary for `level` on `fn`, fenced against the
+    level's "touch" marker.
+
+    `fenceBefore` must be the value `getLevelTouchTime` returned right
+    before the scan that produced n/oldest/newest started. Only
+    publishes if the touch marker's mtime is still exactly that value
+    -- i.e. nothing was written for this level+camera+day while the
+    scan was running. This is what makes the cache safe under many
+    concurrent SLURM workers: a slow scan can never resurrect stale
+    data after a fast concurrent write already invalidated it, because
+    *publishing* itself is conditional on the fence, not just
+    invalidation-on-write. If the fence moved, the freshly computed
+    summary is discarded instead of published -- the next reader just
+    falls back to a real scan again, same as if nothing had ever been
+    cached. A missed optimization, never a correctness gap.
+    """
+    if getLevelTouchTime(fn, level) != fenceBefore:
+        return
+    donePath = fn.markerPath(level, "done")
+    payload = json.dumps(
+        {"fence": fenceBefore, "n": n, "oldest": oldest, "newest": newest}
+    )
+    createParentDir(donePath, mode=config.dirMode)
+    tmpPath = f"{donePath}.{np.random.randint(0, 99999 + 1)}.tmp"
+    with open(tmpPath, "w") as f:
+        f.write(payload)
+    os.chmod(tmpPath, config.fileMode)
+    # re-check right before publishing: closes the window between the
+    # check above and the rename becoming visible to readers.
+    if getLevelTouchTime(fn, level) != fenceBefore:
+        tryRemovingFile(tmpPath)
+        return
+    os.rename(tmpPath, donePath)
+
+
 def open2(file, config, mode="r", cleanUp=True, **kwargs):
     r"""
     Open file with directory creation and permissions.
@@ -2206,6 +2353,8 @@ def open2(file, config, mode="r", cleanUp=True, **kwargs):
     f = open(file, mode, **kwargs)
     os.chmod(file, config.fileMode)
     log.warning(f"writing {file}")
+    if mode not in ("r", "rb"):
+        _touchLevelMarker(file, config)
     return f
 
 
@@ -2277,6 +2426,7 @@ def to_netcdf2(dat, config, file, **kwargs):
 
     tryRemovingFile(f"{file}.nodata")
     tryRemovingFile(f"{file}.broken.txt")
+    _touchLevelMarker(file, config)
 
     return res
 
@@ -2581,6 +2731,42 @@ def copyCurrentQuicklook(level, ff):
     return
 
 
+def _isLevelGroup(item):
+    """True for a (files.FindFiles, level) pair, as opposed to a plain
+    file path -- see checkForExisting's events/parents docstring."""
+    return (
+        isinstance(item, tuple)
+        and len(item) == 2
+        and isinstance(item[1], str)
+        and hasattr(item[0], "markerPath")
+    )
+
+
+def _newestMtime(items):
+    """
+    Newest mtime across `items`, a list that may freely mix plain file
+    paths with (files.FindFiles, level) pairs (see checkForExisting).
+    A (fn, level) pair is resolved through the on-disk freshness cache
+    (readLevelSummary) when available -- no glob, no per-file stat --
+    falling back to a real scan of that level's files (fn.listFilesExt)
+    only on a cache miss. Empty/None `items` -> 0.
+    """
+    newest = 0.0
+    for item in items or []:
+        if _isLevelGroup(item):
+            fn, level = item
+            cached = readLevelSummary(fn, level)
+            if cached is not None:
+                newest = max(newest, cached[2])  # newest
+                continue
+            item = fn.listFilesExt(level)
+        else:
+            item = [item]
+        if item:
+            newest = max(newest, max(os.path.getmtime(f) for f in item))
+    return newest
+
+
 def checkForExisting(ffOut, level0=None, events=None, parents=None):
     """
     Check if file exists and is up-to-date including potential parents.
@@ -2591,10 +2777,16 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
         Output file path.
     level0 : list, optional
         Level 0 data files, by default None.
-    events : list, optional
-        Event files, by default None.
-    parents : list, optional
-        Parent files, by default None.
+    events, parents : list, optional
+        What `ffOut` must not be older than, by default None. Each
+        element is either a plain file path (stat'd directly, as
+        before), or a (files.FindFiles, level) pair -- e.g.
+        `(fL, "level1match")` in place of pre-globbing
+        `fL.listFilesExt("level1match")` yourself -- resolved through
+        the on-disk freshness-summary cache when possible instead of
+        globbing and stat'ing every one of that level's files (see
+        _newestMtime/readLevelSummary). The two forms can be mixed
+        freely within one list.
 
     Returns
     -------
@@ -2609,17 +2801,11 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
             log.warning(f"no level0 data {ffOut}")
             return True
     if events is not None:
-        if np.any(
-            os.path.getmtime(ffOut)
-            < np.array([0] + [os.path.getmtime(f) for f in events])
-        ):
+        if os.path.getmtime(ffOut) < _newestMtime(events):
             log.warning(f"file exists but older than event file, redoing {ffOut}")
             return False
     if parents is not None:
-        if np.any(
-            os.path.getmtime(ffOut)
-            < np.array([0] + [os.path.getmtime(f) for f in parents])
-        ):
+        if os.path.getmtime(ffOut) < _newestMtime(parents):
             log.warning(f"file exists but older than parents files, redoing {ffOut}")
             return False
     log.warning(f"output file exists already: {ffOut}")

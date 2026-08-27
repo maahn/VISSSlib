@@ -493,11 +493,20 @@ def refitRotationFromMatches(
     # but position3D_center/_centroid (the actual calibrated positions,
     # the real point of this product) and the per-pair rotation columns
     # must be properly recomputed via addPosition, not left stale.
+    #
+    # matchedDat may or may not already have position3D_center -- the
+    # normal (non-rotationOnly) matchParticles path calls addPosition
+    # per segment before this is ever reached, but createMetaRotation's
+    # rotationOnly=True path returns matchedDat4Rot straight out of
+    # _refineRotationIteration, which never calls addPosition at all.
+    # Compute L_z/L_z_estimated directly instead of relying on it having
+    # been added already, so this works either way.
     zSigma, zDelta = 1.7, 0.5
-    oldPos = matchedDat.position3D_center
-    propZ_old = probability(
-        oldPos.sel(dim3D="z") - oldPos.sel(dim3D="z_rotated"), 0, zSigma, zDelta
+    L_x, L_z, F_y, F_z = get3DPosition(
+        matchedDat.sel(camera=config.leader), matchedDat.sel(camera=config.follower), config
     )
+    L_z_est_old = calc_L_z_withOffsets(L_x, F_y, F_z, **rotate.to_dict())
+    propZ_old = probability(L_z - L_z_est_old, 0, zSigma, zDelta)
 
     newMatchedDat = addPosition(
         matchedDat.copy(deep=True), newRotate.to_dict(), newRotateErr.to_dict(), config

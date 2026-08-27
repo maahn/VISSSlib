@@ -2644,6 +2644,33 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
     return success
 
 
+def _queueHasLeasableTask(tq):
+    """
+    Whether the queue currently has at least one task with an expired
+    (or no) lease, i.e. one `tq.poll` could actually lease right now.
+
+    `tq.is_empty()` only checks whether the queue directory has zero
+    files at all, so it stays False as long as a single task is still
+    leased (in-flight, or abandoned by a crashed worker) even though
+    nothing is actually leasable. Calling `tq.poll` in that state makes
+    it busy-spin internally (`QueueEmptyError` never grows its own
+    `tries` counter, so its backoff stays ~0-1s) for up to
+    `leaseSeconds`, which is exactly what blocks a SLURM node once
+    `leaseSeconds` is hours long. Callers should use this instead of
+    `tq.is_empty()` to decide whether to poll at all.
+    """
+    from taskqueue.file_queue_api import get_timestamp, nowfn
+
+    now = nowfn()
+    try:
+        for entry in os.scandir(tq.api.queue_path):
+            if get_timestamp(entry.name) <= now:
+                return True
+    except FileNotFoundError:
+        pass
+    return False
+
+
 def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
     """
     Worker function for processing queue items.
@@ -2683,14 +2710,14 @@ def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
     tq = taskqueue.TaskQueue(f"fq://{queue}")
     out = None
     while True:
-        if not tq.is_empty():
+        if _queueHasLeasableTask(tq):
             if status is not None:
                 status[ww] = 1
             try:
                 out = tq.poll(
                     verbose=True,
                     tally=True,
-                    stop_fn=tq.is_empty,
+                    stop_fn=lambda: not _queueHasLeasableTask(tq),
                     lease_seconds=leaseSeconds,
                     backoff_exceptions=[BlockingIOError],
                 )
@@ -2700,7 +2727,7 @@ def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
                 if status is not None:
                     status[ww] = 0
         else:
-            log.warning(f"worker {ww} queue {queue} empty")
+            log.warning(f"worker {ww} queue {queue} empty or fully leased elsewhere")
         if status is not None:
             if np.all([ss == 0 for ss in status]):
                 log.warning(

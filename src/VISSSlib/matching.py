@@ -2193,6 +2193,7 @@ def matchParticles(
     fname1Match = ffl1.fname["level1match"]
     fnames1F = ffl1.filenamesOtherCamera(graceInterval=-1, level="level1detect")
     fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=-1, level="level0txt")
+    fnameMetaRotation = ffl1.fname["metaRotation"]
 
     rotate_time = None
 
@@ -2203,9 +2204,6 @@ def matchParticles(
             parents=[fnameLv1Detect, fnameMetaRotation] + fnames1F,
         ):
             return fname1Match, None, None, None, None, None, None, errors
-
-        # get rotation estimates and add to config instead of estimating them
-        fnameMetaRotation = ffl1.fname["metaRotation"]
 
         if ffl1.isBroken("metaRotation"):
             raise RuntimeError(f"{fnameMetaRotation}.broken.txt is broken")
@@ -2221,6 +2219,7 @@ def matchParticles(
             errors["noMetaRot"] = True
             return fname1Match, None, None, None, None, None, None, errors
 
+        # get rotation estimates and add to config instead of estimating them
         try:
             metaRotationDat = xr.open_dataset(fnameMetaRotation)
         except FileNotFoundError:

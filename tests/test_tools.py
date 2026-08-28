@@ -34,3 +34,42 @@ def test_block_archive(tmp_path):
             assert img2.shape == (10, 10)
             assert img2.dtype == np.uint8
             assert np.all(img1 == img2)
+
+
+class TestDataFixesMerge:
+    """DEFAULT_SETTINGS['dataFixes'] holds fixes meant to apply to every
+    deployment (see tools.readSettings) regardless of what a specific
+    yaml lists -- unlike every other setting, it must be unioned with the
+    yaml's own value instead of being silently overridden by it.
+    """
+
+    @pytest.mark.unit
+    def test_omitted_dataFixes_gets_the_defaults(self, tmp_path):
+        from helpers import makeSyntheticConfig
+
+        config = makeSyntheticConfig(tmp_path)
+        assert set(config.dataFixes) == set(VISSSlib.tools.DEFAULT_SETTINGS["dataFixes"])
+
+    @pytest.mark.unit
+    def test_empty_dataFixes_still_gets_the_defaults(self, tmp_path):
+        from helpers import makeSyntheticConfig
+
+        config = makeSyntheticConfig(tmp_path, dataFixes=[])
+        assert set(config.dataFixes) == set(VISSSlib.tools.DEFAULT_SETTINGS["dataFixes"])
+
+    @pytest.mark.unit
+    def test_yamls_own_fixes_are_added_not_replaced(self, tmp_path):
+        from helpers import makeSyntheticConfig
+
+        config = makeSyntheticConfig(tmp_path, dataFixes=["makeCaptureTimeEvenBothCameras"])
+        assert set(config.dataFixes) == set(
+            VISSSlib.tools.DEFAULT_SETTINGS["dataFixes"] + ["makeCaptureTimeEvenBothCameras"]
+        )
+
+    @pytest.mark.unit
+    def test_duplicate_entry_is_not_repeated(self, tmp_path):
+        from helpers import makeSyntheticConfig
+
+        default = VISSSlib.tools.DEFAULT_SETTINGS["dataFixes"][0]
+        config = makeSyntheticConfig(tmp_path, dataFixes=[default])
+        assert config.dataFixes.count(default) == 1

@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 from loguru import logger as log
 
-from . import __version__, av, files, metadata, tools
+from . import __version__, av, files, fixes, metadata, tools
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -2035,12 +2035,13 @@ def detectParticles(
     movingObjects = np.zeros((nFrames))
 
     inVid = {}
+    nFramesByThread = {}
     for nThread, fnameV in fnamesV.items():
         assert fnameV.endswith(config.movieExtension)
         inVid[nThread] = cv2.VideoCapture(fnameV)
-        nFrames = int(inVid[nThread].get(cv2.CAP_PROP_FRAME_COUNT))
-        log.info(f"opened {fnameV} with {nFrames} frames.")
-        assert nFrames > 0, f"too few frames: {nFrames}"
+        nFramesByThread[nThread] = int(inVid[nThread].get(cv2.CAP_PROP_FRAME_COUNT))
+        log.info(f"opened {fnameV} with {nFramesByThread[nThread]} frames.")
+        assert nFramesByThread[nThread] > 0, f"too few frames: {nFramesByThread[nThread]}"
 
     frame = None
 
@@ -2102,10 +2103,41 @@ def detectParticles(
                     "level1detect", "nodata", "no data (single frame problem)"
                 )
                 continue
+
+            # the ascii log can end up with a handful more rows than the
+            # movie container actually has decodable frames for -- seen in
+            # production as an off-by-a-few-frames shortfall right at the
+            # tail of a 10 minute recording (e.g. the video encoder's last
+            # buffered frames never got flushed before the file was
+            # closed/rotated). if this thread's video has genuinely run out
+            # of frames (not just fallen behind mid-file) and only a small
+            # number of trailing rows are affected, opt-in deployments can
+            # drop the unrecoverable tail instead of aborting the whole
+            # file -- the frames that were successfully read keep their
+            # original, untouched timestamps either way.
+            atEndOfVideo = (
+                int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES))
+                >= nFramesByThread[nThread]
+            )
+            rowsRemainingForThread = int(
+                np.sum(metaData.nThread.values[pp:] == nThread)
+            )
+            if (
+                "dropUnrecordedTrailingFrames" in config.dataFixes
+                and atEndOfVideo
+                and fixes.isDroppableTrailingFrameShortfall(rowsRemainingForThread)
+            ):
+                log.warning(
+                    "movie file for thread %i ends %i frame(s) before the "
+                    "ascii log does; dropping the unrecoverable trailing "
+                    "row(s) %s thread %i"
+                    % (nThread, rowsRemainingForThread, fname, nThread)
+                )
+                continue
             else:
                 raise ValueError(
                     "TOO FEW FRAMES???? %i of %i, %s thread %i"
-                    % (pp, nFrames, fname, nThread)
+                    % (pp, nFramesByThread[nThread], fname, nThread)
                 )
 
         if not motionChecked:

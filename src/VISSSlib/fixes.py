@@ -611,3 +611,116 @@ def detectCaptureIdDropTimes(
         if 0 < abs(int(valB) - int(valA)) <= maxJump:
             breakTimes.append(times[sB])
     return breakTimes
+
+
+def removeFlippedCaptureTimeFrames(metaDat1, fname):
+    """
+    Drop frames around isolated backwards jumps in one source's capture_time.
+
+    A camera's own onboard clock occasionally stamps two consecutive frames
+    with flipped capture_time (frame k+1 gets a capture_time a few
+    microseconds *earlier* than frame k, even though k was physically
+    written first) -- see the "flipped capture_time" note in metadata.py's
+    module docstring. Left alone, this is not just a cosmetic timestamp
+    error: getMetaData() later concatenates and sorts all camera-thread
+    data by capture_time to interleave threads chronologically, and sorting
+    by a locally-flipped value reorders that one thread's own record_id
+    sequence out of order at exactly that point. detection.py's frame
+    reader walks each thread strictly by increasing record_id and has no
+    way to seek backwards, so this then surfaces downstream as a hard
+    "Cannot go back!" crash for the whole 10 minute file.
+
+    This must be called on a single source's data (e.g. one camera
+    thread's ascii file) while it is still in its own original, unsorted
+    recording order -- calling it after data from multiple sources has
+    already been concatenated and sorted by capture_time is a no-op, since
+    sorted data cannot contain a backwards step by construction (that is
+    exactly what makes the flip invisible again once threads are merged).
+
+    Only rows whose own capture_time is already self-contradictory (stamped
+    earlier than a frame recorded before it, in the same camera's write
+    order) are dropped. No surviving frame's capture_time is ever changed,
+    shifted, or interpolated -- this only removes evidence that was already
+    unusable, it never invents a value that downstream stereo matching
+    could be misled by.
+
+    Parameters
+    ----------
+    metaDat1 : xarray.Dataset
+        Single-source metadata in its original (not capture_time-sorted)
+        recording order, as returned by _getMetaData1().
+    fname : str
+        Source filename, used only for the diagnostic print.
+
+    Returns
+    -------
+    tuple
+        (metaDat1, nDropped) with the frames around each backwards jump
+        removed and the count of dropped frames.
+    """
+    jumps = np.diff(metaDat1.capture_time.astype(int)) < 0
+    nJumps = np.sum(jumps)
+    droppedIndices = []
+    if nJumps > 0:
+        ss = np.where(jumps)[0]
+        assert nJumps < 20, "more than 20 is very fishy..."
+        # Consecutive jump indices belong to one glitch and are repaired
+        # together; separate (non-adjacent) glitches elsewhere in the same
+        # file are independent and each get their own neighbours dropped.
+        # This matters in practice: a handful of isolated single-sample
+        # capture_time flips scattered through one 10 minute file is the
+        # commonly observed pattern, not one contiguous bad patch.
+        groups = np.split(ss, np.where(np.diff(ss) != 1)[0] + 1)
+        for group in groups:
+            log.warning(
+                "%s: capture_time flip, DROPPING FRAMES around %i-%i"
+                % (fname, group[0], group[-1])
+            )
+            droppedIndices.append(group[0] - 1)
+            droppedIndices.extend(group.tolist())
+            droppedIndices.append(group[-1] + 1)
+        droppedIndices = np.unique(droppedIndices)
+        metaDat1 = metaDat1.drop_isel(capture_time=droppedIndices)
+
+    return metaDat1, len(droppedIndices)
+
+
+# a movie file occasionally ends a handful of frames before the ascii log
+# does (e.g. the video encoder's last buffered frames never got flushed
+# before the file was closed/rotated). Once the video has genuinely run
+# out of frames, treat up to this many orphaned trailing ascii rows as an
+# acceptable, unrecoverable tail loss rather than aborting the whole file.
+# Observed shortfalls in production (hyytiala2_v3, nyaalesund) are 1-6
+# frames; this cap is kept well below that to avoid ever masking a real
+# mid-file corruption instead.
+_MAX_TRAILING_FRAMES_TO_DROP = 25
+
+
+def isDroppableTrailingFrameShortfall(
+    rowsRemainingForThread, maxFrames=_MAX_TRAILING_FRAMES_TO_DROP
+):
+    """
+    Is an end-of-video frame shortfall small enough to treat as benign?
+
+    detection.py calls this once a camera thread's video has genuinely run
+    out of decodable frames while the ascii log still has more rows for
+    that thread. A shortfall of a handful of frames right at the tail of a
+    10 minute recording is expected/benign (e.g. the video encoder's last
+    buffered frames never got flushed before the file was closed/
+    rotated); a shortfall spanning a large fraction of the file instead
+    indicates real, unrelated corruption that should still fail loudly
+    rather than be silently swallowed.
+
+    Parameters
+    ----------
+    rowsRemainingForThread : int
+        Number of ascii rows for this thread, from the current position to
+        the end of the file, that have no corresponding video frame.
+    maxFrames : int, optional
+        Upper bound on what counts as a benign trailing shortfall.
+
+    Returns
+    -------
+    bool
+    """
+    return rowsRemainingForThread <= maxFrames

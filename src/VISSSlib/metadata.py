@@ -105,6 +105,7 @@ def getMetaData(
 
     beyondRepair = False
     metaDat = []
+    droppedFrames = 0
     for ii in range(len(fnames)):
         metaDat1 = _getMetaData1(
             fnames[ii],
@@ -116,15 +117,23 @@ def getMetaData(
             includeHeader=includeHeader,
         )
         if (metaDat1 is not None) and (len(metaDat1.capture_time) > 0):
-            metaDat.append(metaDat1)
+            # must run on each source individually, in its own original
+            # recording order, and before the cross-source concat+sort
+            # below: a capture_time flip is only visible while the data is
+            # still in the order it was physically written in (see
+            # fixes.removeFlippedCaptureTimeFrames docstring).
+            if "removeFlippedCaptureTimeFrames" in config.dataFixes:
+                metaDat1, nDropped = fixes.removeFlippedCaptureTimeFrames(
+                    metaDat1, fnames[ii]
+                )
+                droppedFrames += nDropped
+            if len(metaDat1.capture_time) > 0:
+                metaDat.append(metaDat1)
 
     if len(metaDat) == 0:
         metaDat = None
-        droppedFrames = 0
     else:
         metaDat = xr.concat(metaDat, dim="capture_time").sortby("capture_time")
-
-        droppedFrames = 0
 
         metaDat, nDropped = _repairTimeJumps(metaDat, fnames, config)
         droppedFrames += nDropped

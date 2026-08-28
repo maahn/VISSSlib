@@ -2615,14 +2615,27 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     graceTime = 2  # s
     newfiles1 = event1.isel(file_starttime=(event1.event == "newfile"))
 
+    # actual recorded span of each file, not the nominal newFileInt-length
+    # window: a file that crashed early (e.g. a camera restart) stops
+    # covering minutes well before file_starttime + newFileInt would
+    # suggest. Fall back to the nominal duration when capture_lasttime is
+    # unavailable (e.g. an in-progress file).
+    fileDuration = (
+        newfiles1.capture_lasttime - newfiles1.file_starttime
+    ).values / np.timedelta64(1, "s")
+    fileDuration = np.where(
+        np.isnan(fileDuration), config.newFileInt, fileDuration
+    )
+
     dataRecorded = []
     processingFailed = []
     for tt, tI1min in enumerate(timeIndex):
         tDiff1 = (
             np.datetime64(tI1min) - newfiles1.file_starttime
         ).values / np.timedelta64(1, "s")
+        inWindow = tDiff1 >= -graceTime
         dataRecorded1 = np.any(
-            tDiff1[tDiff1 >= -graceTime] < (config.newFileInt - graceTime)
+            tDiff1[inWindow] < (fileDuration[inWindow] - graceTime)
         )
         #     print(tI1min, dataRecordedF, dataRecorded)
         dataRecorded.append(dataRecorded1)

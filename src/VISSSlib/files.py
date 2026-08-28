@@ -647,6 +647,25 @@ class FindFiles(object):
             self.fnamesPatternExt[level], search=".[b,n][r,o]*", replace=".nodata"
         )
 
+    def writeStatus(self, level, status, message):
+        """
+        Write a `.nodata`/`.broken.txt`/`.notenoughframes` sentinel for
+        this case's daily `level` output.
+
+        Parameters
+        ----------
+        level : str
+            Daily processing level whose output should be marked (e.g.
+            'metaEvents', 'metaRotation', 'level2match').
+        status : str
+            "nodata", "broken.txt", or "notenoughframes".
+        message : str
+            Human-readable reason, written into the sentinel file.
+        """
+        assert status in ("nodata", "broken.txt", "notenoughframes")
+        with open2(f"{self.fnamesDaily[level]}.{status}", self.config, "w") as f:
+            f.write(message)
+
     @functools.cache
     def listFilesWithNeighbors(self, level):
         """

@@ -2270,8 +2270,9 @@ def matchParticles(
 
     if leader1D is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no leader data in {fnameLv1Detect}")
+            ffl1.writeStatus(
+                "level1match", "nodata", f"no leader data in {fnameLv1Detect}"
+            )
         log.error(tools.concat(f"no leader data in {fnameLv1Detect}"))
         errors["tooFewObs"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2280,8 +2281,9 @@ def matchParticles(
 
     if len(leader1D.pid) <= 1:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"only one particle in  {fnameLv1Detect}")
+            ffl1.writeStatus(
+                "level1match", "nodata", f"only one particle in  {fnameLv1Detect}"
+            )
         log.error(tools.concat(f"only one particle in {fnameLv1Detect}"))
         errors["tooFewObs"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2299,8 +2301,9 @@ def matchParticles(
         return fname1Match, np.nan, None, None, None, None, None, errors
     if len(fnames1F) == 0:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no follower data for {fnameLv1Detect}")
+            ffl1.writeStatus(
+                "level1match", "nodata", f"no follower data for {fnameLv1Detect}"
+            )
         log.error(tools.concat(f"no follower data for {fnameLv1Detect}"))
         errors["openingData"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2346,16 +2349,22 @@ def matchParticles(
 
     if follower1DAll is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no follower data after removal of blocked data {fname1Match}")
+            ffl1.writeStatus(
+                "level1match",
+                "nodata",
+                f"no follower data after removal of blocked data {fname1Match}",
+            )
         log.error(f"no follower data after removal of blocked data {fname1Match}")
         errors["followerBlocked"] = True
         return fname1Match, None, None, None, None, None, None, errors
 
     if leader1D is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no leader data after removal of blocked data {fname1Match}")
+            ffl1.writeStatus(
+                "level1match",
+                "nodata",
+                f"no leader data after removal of blocked data {fname1Match}",
+            )
         log.error(f"no leader data after removal of blocked data {fname1Match}")
         errors["leaderBlocked"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2369,10 +2378,11 @@ def matchParticles(
                 fpid=~np.isin(lEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
             )
             if not rotationOnly:
-                with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                    f.write(
-                        f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
-                    )
+                ffl1.writeStatus(
+                    "level1match",
+                    "nodata",
+                    f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}",
+                )
             log.error(
                 f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
             )
@@ -2388,10 +2398,11 @@ def matchParticles(
                 fpid=~np.isin(fEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
             )
             if not rotationOnly:
-                with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                    f.write(
-                        f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
-                    )
+                ffl1.writeStatus(
+                    "level1match",
+                    "nodata",
+                    f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}",
+                )
             log.error(
                 f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
             )
@@ -2561,8 +2572,7 @@ def matchParticles(
                     log.warning(f"error in {errRatio*100}% of the data")
 
     if len(matchedDats) == 0:
-        with tools.open2(f"{fname1Match}.nodata", config, "w") as f:
-            f.write("no data")
+        ffl1.writeStatus("level1match", "nodata", "no data")
         log.error(tools.concat("NO DATA", fname1Match))
 
         return (
@@ -2746,8 +2756,9 @@ def createMetaRotation(
 
     if eventFile.endswith("nodata"):
         log.warning(f"No data available for {case}: {eventFile}")
-        with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
-            f.write(f"No data available for {case}: {eventFile}")
+        fflM.writeStatus(
+            "metaRotation", "nodata", f"No data available for {case}: {eventFile}"
+        )
         return None, None
 
     isBad, reason = tools.isBadPeriod(case, config, product="metaRotation")
@@ -2771,8 +2782,9 @@ def createMetaRotation(
             log.warning(
                 f"Newer leader L0 files have been found, likely data gap on {case}"
             )
-            with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
-                f.write(f"No leader level 0 data available for {case}")
+            fflM.writeStatus(
+                "metaRotation", "nodata", f"No leader level 0 data available for {case}"
+            )
             return None, None
         log.warning(
             "L1 LEADER NOT COMPLETE YET %i of %i "
@@ -2786,8 +2798,9 @@ def createMetaRotation(
             log.warning(
                 f"Newer follower L0 files have been found, likely data gap on {case}"
             )
-            with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
-                f.write(f"No follower level 0 data available for {case}")
+            fflM.writeStatus(
+                "metaRotation", "nodata", f"No follower level 0 data available for {case}"
+            )
             return None, None
         log.warning(
             "L1 FOLLOWER NOT COMPLETE YET %i of %i "

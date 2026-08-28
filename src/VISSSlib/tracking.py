@@ -1437,8 +1437,9 @@ def trackParticles(
 
     if matchCond.sum() == 0:
         log.error("matchCond applies to ALL data")
-        with tools.open2(f"{fnameTracking}.nodata", config, "w") as f:
-            f.write("no data, matchCond applies to ALL data")
+        ffl1.writeStatus(
+            "level1track", "nodata", "no data, matchCond applies to ALL data"
+        )
         log.error(f"NO DATA {fnameTracking}")
         return None, fnameTracking
 

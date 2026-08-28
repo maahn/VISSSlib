@@ -1419,7 +1419,6 @@ def createEvent(
         if fn.isGenuineDataGap("level0"):
             mes = f"Newer L0 files have been found, likely data gap on {fn.case}"
             log.warning(mes)
-            with tools.open2(eventFile + ".nodata", config, "w") as f:
-                f.write(mes)
+            fn.writeStatus("metaEvents", "nodata", mes)
 
     return metaDats

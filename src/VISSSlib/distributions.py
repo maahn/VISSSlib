@@ -519,8 +519,7 @@ def _createLevel2(
         return None, None
 
     if len(fL.listFilesExt(f"level0txt")) == 0:
-        with tools.open2("%s.nodata" % lv2File, config, "w") as f:
-            f.write("no level 0 data for %s" % case)
+        fL.writeStatus(f"level2{sublevel}", "nodata", "no level 0 data for %s" % case)
         log.warning("no level 0 data for %s" % case)
         return None, None
 
@@ -642,8 +641,7 @@ def _createLevel2(
         except:
             allEmpty = True
     if allEmpty:
-        with tools.open2("%s.nodata" % lv2File, config, "w") as f:
-            f.write("no data for %s" % case)
+        fL.writeStatus(f"level2{sublevel}", "nodata", "no data for %s" % case)
         log.warning("no data for %s" % case)
         log.warning("written: %s.nodata" % lv2File)
         return lv2Dat, lv2File

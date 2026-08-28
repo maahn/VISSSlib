@@ -2075,7 +2075,11 @@ def detectParticles(
                     "fast forwarding %i %i"
                     % (int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)), rr)
                 )
-                _, _ = inVid[nThread].read()
+                ret, _ = inVid[nThread].read()
+                if not ret:
+                    # end of video reached before catching up to rr; let the
+                    # frame-is-None handling below deal with it
+                    break
         elif int(inVid[nThread].get(cv2.CAP_PROP_POS_FRAMES)) > rr:
             raise RuntimeError("Cannot go back!")
 

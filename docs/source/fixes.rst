@@ -21,13 +21,18 @@ in config.dataFixes:`` at the call sites (in :mod:`VISSSlib.tools`'s
 fix names are actually referenced anywhere outside this file:
 
 - **Live, opt-in**: :func:`VISSSlib.fixes.captureIdOverflows` (16-bit
-  ``capture_id`` wraparound on M1280 cameras) and
-  :func:`VISSSlib.fixes.makeCaptureTimeEven`, both gated on
-  ``config.dataFixes``. :func:`VISSSlib.fixes.revertIdOverflowFix` undoes
-  the id-overflow correction again right before
-  :func:`VISSSlib.matching.matchParticles` writes its output, so the
-  *shifted* ids used internally for matching don't leak into the product
-  and confuse anyone comparing against the raw ``capture_id``.
+  ``capture_id`` wraparound on M1280 cameras),
+  :func:`VISSSlib.fixes.makeCaptureTimeEven` (follower-only clock drift),
+  and :func:`VISSSlib.fixes.makeCaptureTimeEvenBothCameras`
+  (leader-*and*-follower clock drift ahead of leader-follower capture_id
+  offset estimation in :func:`VISSSlib.matching._resolveMatchingOffset`
+  -- for deployments where the *leader's* own onboard clock drifts too,
+  not just the follower's), all gated on ``config.dataFixes``.
+  :func:`VISSSlib.fixes.revertIdOverflowFix` undoes the id-overflow
+  correction again right before :func:`VISSSlib.matching.matchParticles`
+  writes its output, so the *shifted* ids used internally for matching
+  don't leak into the product and confuse anyone comparing against the
+  raw ``capture_id``.
 - **Live, unconditional**: :func:`VISSSlib.fixes.delayedClockReset` is
   called directly from :mod:`VISSSlib.metadata` without a ``dataFixes``
   check — it always runs.

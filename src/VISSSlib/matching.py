@@ -1451,6 +1451,29 @@ def _resolveMatchingOffset(
     except Exception as e:
         captureIdOffset1 = nMatched1 = -99
         error1 = str(e)
+        # self-heal: the plain capture_time-based estimate failed (e.g.
+        # "capture_id varies too much") -- if this deployment is known to
+        # need it, retry once with both cameras' capture_time rebuilt
+        # from capture_id, which removes independent per-camera clock
+        # drift. Only ever runs on an already-failed estimate, so a file
+        # that succeeds on the first try is completely unaffected.
+        if "makeCaptureTimeEvenBothCameras" in config.dataFixes:
+            try:
+                leader1DEven, follower1DEven = fixes.makeCaptureTimeEvenBothCameras(
+                    leader1D, follower1D, config
+                )
+                captureIdOffset1, nMatched1 = tools.estimateCaptureIdDiffCore(
+                    leader1DEven,
+                    follower1DEven,
+                    "fpid",
+                    maxDiffMs=maxDiffMs,
+                    nPoints=nPoints,
+                    timeDim="capture_time",
+                )
+                error1 = None
+            except Exception as e2:
+                captureIdOffset1 = nMatched1 = -99
+                error1 = f"{error1}\r(makeCaptureTimeEvenBothCameras retry also failed) {e2}"
     try:
         captureIdOffset2, nMatched2 = tools.estimateCaptureIdDiffCore(
             leader1D,

@@ -449,6 +449,57 @@ def makeCaptureTimeEven(datF, config, dim="capture_time"):
     return datF
 
 
+def makeCaptureTimeEvenBothCameras(leaderDat, followerDat, config):
+    """
+    Reconstruct an evenly-spaced ``capture_time_even`` from ``capture_id``
+    for *both* leader and follower, each anchored at its own first sample.
+
+    Unlike :func:`makeCaptureTimeEven`, this does not validate the
+    reconstructed slope against ``config.fps`` (no assertions) -- some
+    M2050 deployments' actual frame interval differs from the nominal
+    ``1/config.fps`` by a few microseconds, more than
+    :func:`makeCaptureTimeEven`'s tolerance allows, which would otherwise
+    reject perfectly usable segments. It also does not deduplicate by
+    ``capture_time`` first, since callers here already pass 1D
+    (``fpid``-indexed) arrays without the multiple-particles-per-frame
+    complication :func:`makeCaptureTimeEven` guards against for
+    ``pid``-indexed level1detect data.
+
+    Grounded in the hardware sync: the follower is pulse-triggered by the
+    leader at capture time, so both cameras' true capture instants are
+    tied to a shared, evenly-spaced ``capture_id`` sequence -- only each
+    camera's *own* onboard clock (``capture_time``) can drift from that
+    sequence independently. Reconstructing time from ``capture_id``
+    removes that per-camera clock drift from the offset estimate.
+
+    Parameters
+    ----------
+    leaderDat, followerDat : xarray.Dataset
+        Datasets with ``capture_time`` and ``capture_id`` variables along
+        their (matching) leading dimension.
+    config : object
+        Configuration object containing the ``fps`` parameter.
+
+    Returns
+    -------
+    tuple(xarray.Dataset, xarray.Dataset)
+        (leaderDat, followerDat), each with a new ``capture_time_even``
+        variable.
+    """
+    configSlope = int(round(1e9 / config.fps, -3))
+
+    def _evenTime(dat):
+        offset = dat.capture_time.values[0]
+        return ((dat.capture_id - dat.capture_id[0]) * configSlope) + offset
+
+    leaderDat = leaderDat.copy()
+    leaderDat["capture_time_even"] = _evenTime(leaderDat)
+    followerDat = followerDat.copy()
+    followerDat["capture_time_even"] = _evenTime(followerDat)
+
+    return leaderDat, followerDat
+
+
 # def revertMakeCaptureTimeEven(dat):
 #     dat = dat.rename({"capture_time": "capture_time_even"})
 #     dat = dat.rename({"capture_time_orig": "capture_time"})

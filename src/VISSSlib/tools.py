@@ -1168,6 +1168,10 @@ def estimateCaptureIdDiffCore(
         timeDimFollower = "capture_time_even"
     else:
         timeDimFollower = timeDim
+    if (timeDim == "capture_time") and ("capture_time_even" in leaderDat.data_vars):
+        timeDimLeader = "capture_time_even"
+    else:
+        timeDimLeader = timeDim
 
     # cut number of investigated points in time if required
     if len(leaderDat[dim]) > nPoints:
@@ -1191,7 +1195,7 @@ def estimateCaptureIdDiffCore(
         f"followerDat.{timeDimFollower} is not sorted"
     )
 
-    leaderTimes = leaderDat[timeDim].isel(**{dim: points}).values
+    leaderTimes = leaderDat[timeDimLeader].isel(**{dim: points}).values
     leaderCaptureId = leaderDat.capture_id.isel(**{dim: points}).values
 
     nFollower = len(followerTimes)

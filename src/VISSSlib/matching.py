@@ -398,8 +398,14 @@ def retrieveRotation(
 
 
 def refitRotationFromMatches(
-    matchedDat, rotate, rotate_err, config, sigma="default",
-    nSamples4rot=300, y_cov_diag=1.65**2, minPairs=10,
+    matchedDat,
+    rotate,
+    rotate_err,
+    config,
+    sigma="default",
+    nSamples4rot=300,
+    y_cov_diag=1.65**2,
+    minPairs=10,
 ):
     """
     Try to recover a low-matchScore result by refitting the rotation
@@ -476,12 +482,14 @@ def refitRotationFromMatches(
     rotate_err = pd.Series(dict(rotate_err))
 
     n = min(nSamples4rot, len(matchedDat.pair_id))
-    top = matchedDat.isel(
-        pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:])
-    )
+    top = matchedDat.isel(pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:]))
     try:
         newRotate, newRotateErr, _ = retrieveRotation(
-            top, rotate, (rotate_err * 10) ** 2, y_cov_diag, config,
+            top,
+            rotate,
+            (rotate_err * 10) ** 2,
+            y_cov_diag,
+            config,
         )
     except AssertionError as e:
         log.warning(tools.concat("refitRotationFromMatches: OE refit failed", str(e)))
@@ -503,7 +511,9 @@ def refitRotationFromMatches(
     # been added already, so this works either way.
     zSigma, zDelta = 1.7, 0.5
     L_x, L_z, F_y, F_z = get3DPosition(
-        matchedDat.sel(camera=config.leader), matchedDat.sel(camera=config.follower), config
+        matchedDat.sel(camera=config.leader),
+        matchedDat.sel(camera=config.follower),
+        config,
     )
     L_z_est_old = calc_L_z_withOffsets(L_x, F_y, F_z, **rotate.to_dict())
     propZ_old = probability(L_z - L_z_est_old, 0, zSigma, zDelta)
@@ -525,10 +535,14 @@ def refitRotationFromMatches(
 
     log.warning(
         tools.concat(
-            "refitRotationFromMatches: old rotate", rotate.to_dict(),
-            "new rotate", newRotate.to_dict(),
-            "old median matchScore", float(matchedDat.matchScore.median()),
-            "new median matchScore", float(newMatchedDat.matchScore.median()),
+            "refitRotationFromMatches: old rotate",
+            rotate.to_dict(),
+            "new rotate",
+            newRotate.to_dict(),
+            "old median matchScore",
+            float(matchedDat.matchScore.median()),
+            "new median matchScore",
+            float(newMatchedDat.matchScore.median()),
         )
     )
     return newMatchedDat, newRotate, newRotateErr
@@ -920,9 +934,7 @@ def doMatch(
     # sort pairs together
     dats = []
     dats.append(leader1D.isel(fpid=matchedOwnIdx[config["leader"]].astype(int)))
-    dats.append(
-        follower1D.isel(fpid=matchedParticles[config["leader"]].astype(int))
-    )
+    dats.append(follower1D.isel(fpid=matchedParticles[config["leader"]].astype(int)))
 
     for dd, d1 in enumerate(dats):
         pid = deepcopy(d1.pid.values)
@@ -1269,7 +1281,9 @@ class _MatchEarlyReturn(Exception):
         self.result = result
 
 
-def _sliceFollowerSegment(FR1, FR2, follower1DAll, leaderMinTime, leaderMaxTime, tt, nSegments):
+def _sliceFollowerSegment(
+    FR1, FR2, follower1DAll, leaderMinTime, leaderMaxTime, tt, nSegments
+):
     """
     Select the follower1DAll subset covering one follower-restart-to-
     restart segment [FR1, FR2] and decide whether it overlaps the leader's
@@ -1422,12 +1436,10 @@ def _resolveMatchingOffset(
         or ("ptpStatus" not in lEvents.data_vars)
         or ("ptpStatus" not in fEvents.data_vars)
         or np.any(
-            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
-            == "Disabled"
+            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True) == "Disabled"
         ).values
         or np.any(
-            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
-            == "Disabled"
+            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True) == "Disabled"
         ).values
     )
 
@@ -1748,9 +1760,7 @@ def _refineRotationIteration(
 
             if ii > 0:
                 # if the change of the coefficients is smaller than their 1std errors for all of them, stop
-                if np.all(
-                    np.abs(rotates[ii - 1] - rotate_result) < rotate_err_result
-                ):
+                if np.all(np.abs(rotates[ii - 1] - rotate_result) < rotate_err_result):
                     log.info(tools.concat("interupting loop"))
                     log.info(tools.concat(rotate_result))
                     break
@@ -1971,43 +1981,49 @@ def _matchSegments(
         mu, delta, ptpTime, maxDiffMs = offsetResult
 
         # figure out how cameras ae rotated, first prepare data
-        leader1D4rot, follower1D4rot, dataTruncated4rot, doRot = (
-            _prepareDataForRotation(
-                leader1D,
-                follower1D,
-                leader1D4rot,
-                follower1D4rot,
-                doRot,
-                minDMax4rot,
-                singleParticleFramesOnly,
-                nSamples4rot,
-                minSamples4rot,
-            )
+        (
+            leader1D4rot,
+            follower1D4rot,
+            dataTruncated4rot,
+            doRot,
+        ) = _prepareDataForRotation(
+            leader1D,
+            follower1D,
+            leader1D4rot,
+            follower1D4rot,
+            doRot,
+            minDMax4rot,
+            singleParticleFramesOnly,
+            nSamples4rot,
+            minSamples4rot,
         )
         # iterate to rotation coefficients in max. 20 steps
         if doRot:
-            matchedDat, matchedDat4Rot, rotate_result, rotate_err_result = (
-                _refineRotationIteration(
-                    leader1D4rot,
-                    follower1D4rot,
-                    sigma,
-                    mu,
-                    delta,
-                    config,
-                    rotate,
-                    rotate_err,
-                    ptpTime,
-                    testing,
-                    nSamples4rot,
-                    minSamples4rot,
-                    y_cov_diag,
-                    maxIter,
-                    errors,
-                    matchedDat,
-                    matchedDat4Rot,
-                    rotate_result,
-                    rotate_err_result,
-                )
+            (
+                matchedDat,
+                matchedDat4Rot,
+                rotate_result,
+                rotate_err_result,
+            ) = _refineRotationIteration(
+                leader1D4rot,
+                follower1D4rot,
+                sigma,
+                mu,
+                delta,
+                config,
+                rotate,
+                rotate_err,
+                ptpTime,
+                testing,
+                nSamples4rot,
+                minSamples4rot,
+                y_cov_diag,
+                maxIter,
+                errors,
+                matchedDat,
+                matchedDat4Rot,
+                rotate_result,
+                rotate_err_result,
             )
         else:
             log.warning(
@@ -2184,7 +2200,7 @@ def matchParticles(
         # check whether output exists
         if skipExisting and tools.checkForExisting(
             fname1Match,
-            parents=[fnameLv1Detect] + fnames1F,
+            parents=[fnameLv1Detect, fnameMetaRotation] + fnames1F,
         ):
             return fname1Match, None, None, None, None, None, None, errors
 
@@ -2410,12 +2426,10 @@ def matchParticles(
         ("ptpStatus" not in lEvents.data_vars)
         or ("ptpStatus" not in fEvents.data_vars)
         or np.any(
-            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
-            == "Disabled"
+            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True) == "Disabled"
         ).values
         or np.any(
-            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
-            == "Disabled"
+            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True) == "Disabled"
         ).values
     )
     captureIdDropTimes = []
@@ -2578,16 +2592,25 @@ def matchParticles(
         if matchScoreMedian < config.quality.minMatchScore:
             log.warning(
                 tools.concat(
-                    "median matchScore is only", matchScoreMedian,
-                    "smaller than minMatchScore", config.quality.minMatchScore,
-                    "even though we found", nPairs, "particles -- trying a "
+                    "median matchScore is only",
+                    matchScoreMedian,
+                    "smaller than minMatchScore",
+                    config.quality.minMatchScore,
+                    "even though we found",
+                    nPairs,
+                    "particles -- trying a "
                     "cheap rotation refit against the existing matches "
                     "before giving up",
                 )
             )
             healed = refitRotationFromMatches(
-                matchedDats, rotate_final, rotate_err_final, config, sigma=sigma,
-                nSamples4rot=nSamples4rot, y_cov_diag=y_cov_diag,
+                matchedDats,
+                rotate_final,
+                rotate_err_final,
+                config,
+                sigma=sigma,
+                nSamples4rot=nSamples4rot,
+                y_cov_diag=y_cov_diag,
             )
             if healed is not None:
                 matchedDats, rotate_final, rotate_err_final = healed
@@ -2939,7 +2962,9 @@ def createMetaRotation(
             log.error(f"fixing attempt FAILED for {ffl1.case}")
             consecutiveFixFailures += 1
             return None, None
-        log.warning(f"fixed rotation from scratch for {ffl1.case}: {fixed['transformation']}")
+        log.warning(
+            f"fixed rotation from scratch for {ffl1.case}: {fixed['transformation']}"
+        )
         return (
             pd.Series(fixed["transformation"]),
             pd.Series(fixed["transformation_err"]),
@@ -3015,8 +3040,13 @@ def createMetaRotation(
                     )
                 ):
                     healed = refitRotationFromMatches(
-                        matchedDat4Rot, rot, rot_err, config, sigma=sigma,
-                        nSamples4rot=nSamples4rot, y_cov_diag=y_cov_diag,
+                        matchedDat4Rot,
+                        rot,
+                        rot_err,
+                        config,
+                        sigma=sigma,
+                        nSamples4rot=nSamples4rot,
+                        y_cov_diag=y_cov_diag,
                     )
                     if healed is not None:
                         _, rot, rot_err = healed

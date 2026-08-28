@@ -398,8 +398,14 @@ def retrieveRotation(
 
 
 def refitRotationFromMatches(
-    matchedDat, rotate, rotate_err, config, sigma="default",
-    nSamples4rot=300, y_cov_diag=1.65**2, minPairs=10,
+    matchedDat,
+    rotate,
+    rotate_err,
+    config,
+    sigma="default",
+    nSamples4rot=300,
+    y_cov_diag=1.65**2,
+    minPairs=10,
 ):
     """
     Try to recover a low-matchScore result by refitting the rotation
@@ -476,12 +482,14 @@ def refitRotationFromMatches(
     rotate_err = pd.Series(dict(rotate_err))
 
     n = min(nSamples4rot, len(matchedDat.pair_id))
-    top = matchedDat.isel(
-        pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:])
-    )
+    top = matchedDat.isel(pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:]))
     try:
         newRotate, newRotateErr, _ = retrieveRotation(
-            top, rotate, (rotate_err * 10) ** 2, y_cov_diag, config,
+            top,
+            rotate,
+            (rotate_err * 10) ** 2,
+            y_cov_diag,
+            config,
         )
     except AssertionError as e:
         log.warning(tools.concat("refitRotationFromMatches: OE refit failed", str(e)))
@@ -503,7 +511,9 @@ def refitRotationFromMatches(
     # been added already, so this works either way.
     zSigma, zDelta = 1.7, 0.5
     L_x, L_z, F_y, F_z = get3DPosition(
-        matchedDat.sel(camera=config.leader), matchedDat.sel(camera=config.follower), config
+        matchedDat.sel(camera=config.leader),
+        matchedDat.sel(camera=config.follower),
+        config,
     )
     L_z_est_old = calc_L_z_withOffsets(L_x, F_y, F_z, **rotate.to_dict())
     propZ_old = probability(L_z - L_z_est_old, 0, zSigma, zDelta)
@@ -525,10 +535,14 @@ def refitRotationFromMatches(
 
     log.warning(
         tools.concat(
-            "refitRotationFromMatches: old rotate", rotate.to_dict(),
-            "new rotate", newRotate.to_dict(),
-            "old median matchScore", float(matchedDat.matchScore.median()),
-            "new median matchScore", float(newMatchedDat.matchScore.median()),
+            "refitRotationFromMatches: old rotate",
+            rotate.to_dict(),
+            "new rotate",
+            newRotate.to_dict(),
+            "old median matchScore",
+            float(matchedDat.matchScore.median()),
+            "new median matchScore",
+            float(newMatchedDat.matchScore.median()),
         )
     )
     return newMatchedDat, newRotate, newRotateErr
@@ -920,9 +934,7 @@ def doMatch(
     # sort pairs together
     dats = []
     dats.append(leader1D.isel(fpid=matchedOwnIdx[config["leader"]].astype(int)))
-    dats.append(
-        follower1D.isel(fpid=matchedParticles[config["leader"]].astype(int))
-    )
+    dats.append(follower1D.isel(fpid=matchedParticles[config["leader"]].astype(int)))
 
     for dd, d1 in enumerate(dats):
         pid = deepcopy(d1.pid.values)
@@ -1269,7 +1281,9 @@ class _MatchEarlyReturn(Exception):
         self.result = result
 
 
-def _sliceFollowerSegment(FR1, FR2, follower1DAll, leaderMinTime, leaderMaxTime, tt, nSegments):
+def _sliceFollowerSegment(
+    FR1, FR2, follower1DAll, leaderMinTime, leaderMaxTime, tt, nSegments
+):
     """
     Select the follower1DAll subset covering one follower-restart-to-
     restart segment [FR1, FR2] and decide whether it overlaps the leader's
@@ -1422,12 +1436,10 @@ def _resolveMatchingOffset(
         or ("ptpStatus" not in lEvents.data_vars)
         or ("ptpStatus" not in fEvents.data_vars)
         or np.any(
-            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
-            == "Disabled"
+            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True) == "Disabled"
         ).values
         or np.any(
-            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
-            == "Disabled"
+            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True) == "Disabled"
         ).values
     )
 
@@ -1771,9 +1783,7 @@ def _refineRotationIteration(
 
             if ii > 0:
                 # if the change of the coefficients is smaller than their 1std errors for all of them, stop
-                if np.all(
-                    np.abs(rotates[ii - 1] - rotate_result) < rotate_err_result
-                ):
+                if np.all(np.abs(rotates[ii - 1] - rotate_result) < rotate_err_result):
                     log.info(tools.concat("interupting loop"))
                     log.info(tools.concat(rotate_result))
                     break
@@ -1994,43 +2004,49 @@ def _matchSegments(
         mu, delta, ptpTime, maxDiffMs = offsetResult
 
         # figure out how cameras ae rotated, first prepare data
-        leader1D4rot, follower1D4rot, dataTruncated4rot, doRot = (
-            _prepareDataForRotation(
-                leader1D,
-                follower1D,
-                leader1D4rot,
-                follower1D4rot,
-                doRot,
-                minDMax4rot,
-                singleParticleFramesOnly,
-                nSamples4rot,
-                minSamples4rot,
-            )
+        (
+            leader1D4rot,
+            follower1D4rot,
+            dataTruncated4rot,
+            doRot,
+        ) = _prepareDataForRotation(
+            leader1D,
+            follower1D,
+            leader1D4rot,
+            follower1D4rot,
+            doRot,
+            minDMax4rot,
+            singleParticleFramesOnly,
+            nSamples4rot,
+            minSamples4rot,
         )
         # iterate to rotation coefficients in max. 20 steps
         if doRot:
-            matchedDat, matchedDat4Rot, rotate_result, rotate_err_result = (
-                _refineRotationIteration(
-                    leader1D4rot,
-                    follower1D4rot,
-                    sigma,
-                    mu,
-                    delta,
-                    config,
-                    rotate,
-                    rotate_err,
-                    ptpTime,
-                    testing,
-                    nSamples4rot,
-                    minSamples4rot,
-                    y_cov_diag,
-                    maxIter,
-                    errors,
-                    matchedDat,
-                    matchedDat4Rot,
-                    rotate_result,
-                    rotate_err_result,
-                )
+            (
+                matchedDat,
+                matchedDat4Rot,
+                rotate_result,
+                rotate_err_result,
+            ) = _refineRotationIteration(
+                leader1D4rot,
+                follower1D4rot,
+                sigma,
+                mu,
+                delta,
+                config,
+                rotate,
+                rotate_err,
+                ptpTime,
+                testing,
+                nSamples4rot,
+                minSamples4rot,
+                y_cov_diag,
+                maxIter,
+                errors,
+                matchedDat,
+                matchedDat4Rot,
+                rotate_result,
+                rotate_err_result,
             )
         else:
             log.warning(
@@ -2200,6 +2216,7 @@ def matchParticles(
     fname1Match = ffl1.fname["level1match"]
     fnames1F = ffl1.filenamesOtherCamera(graceInterval=-1, level="level1detect")
     fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=-1, level="level0txt")
+    fnameMetaRotation = ffl1.fname["metaRotation"]
 
     rotate_time = None
 
@@ -2207,12 +2224,9 @@ def matchParticles(
         # check whether output exists
         if skipExisting and tools.checkForExisting(
             fname1Match,
-            parents=[fnameLv1Detect] + fnames1F,
+            parents=[fnameLv1Detect, fnameMetaRotation] + fnames1F,
         ):
             return fname1Match, None, None, None, None, None, None, errors
-
-        # get rotation estimates and add to config instead of estimating them
-        fnameMetaRotation = ffl1.fname["metaRotation"]
 
         if ffl1.isBroken("metaRotation"):
             raise RuntimeError(f"{fnameMetaRotation}.broken.txt is broken")
@@ -2228,6 +2242,7 @@ def matchParticles(
             errors["noMetaRot"] = True
             return fname1Match, None, None, None, None, None, None, errors
 
+        # get rotation estimates and add to config instead of estimating them
         try:
             metaRotationDat = xr.open_dataset(fnameMetaRotation)
         except FileNotFoundError:
@@ -2278,8 +2293,9 @@ def matchParticles(
 
     if leader1D is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no leader data in {fnameLv1Detect}")
+            ffl1.writeStatus(
+                "level1match", "nodata", f"no leader data in {fnameLv1Detect}"
+            )
         log.error(tools.concat(f"no leader data in {fnameLv1Detect}"))
         errors["tooFewObs"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2288,8 +2304,9 @@ def matchParticles(
 
     if len(leader1D.pid) <= 1:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"only one particle in  {fnameLv1Detect}")
+            ffl1.writeStatus(
+                "level1match", "nodata", f"only one particle in  {fnameLv1Detect}"
+            )
         log.error(tools.concat(f"only one particle in {fnameLv1Detect}"))
         errors["tooFewObs"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2307,8 +2324,9 @@ def matchParticles(
         return fname1Match, np.nan, None, None, None, None, None, errors
     if len(fnames1F) == 0:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no follower data for {fnameLv1Detect}")
+            ffl1.writeStatus(
+                "level1match", "nodata", f"no follower data for {fnameLv1Detect}"
+            )
         log.error(tools.concat(f"no follower data for {fnameLv1Detect}"))
         errors["openingData"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2354,16 +2372,22 @@ def matchParticles(
 
     if follower1DAll is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no follower data after removal of blocked data {fname1Match}")
+            ffl1.writeStatus(
+                "level1match",
+                "nodata",
+                f"no follower data after removal of blocked data {fname1Match}",
+            )
         log.error(f"no follower data after removal of blocked data {fname1Match}")
         errors["followerBlocked"] = True
         return fname1Match, None, None, None, None, None, None, errors
 
     if leader1D is None:
         if not rotationOnly:
-            with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                f.write(f"no leader data after removal of blocked data {fname1Match}")
+            ffl1.writeStatus(
+                "level1match",
+                "nodata",
+                f"no leader data after removal of blocked data {fname1Match}",
+            )
         log.error(f"no leader data after removal of blocked data {fname1Match}")
         errors["leaderBlocked"] = True
         return fname1Match, None, None, None, None, None, None, errors
@@ -2377,10 +2401,11 @@ def matchParticles(
                 fpid=~np.isin(lEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
             )
             if not rotationOnly:
-                with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                    f.write(
-                        f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
-                    )
+                ffl1.writeStatus(
+                    "level1match",
+                    "nodata",
+                    f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}",
+                )
             log.error(
                 f"Leader ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
             )
@@ -2396,10 +2421,11 @@ def matchParticles(
                 fpid=~np.isin(fEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
             )
             if not rotationOnly:
-                with tools.open2("%s.nodata" % fname1Match, config, "w") as f:
-                    f.write(
-                        f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
-                    )
+                ffl1.writeStatus(
+                    "level1match",
+                    "nodata",
+                    f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}",
+                )
             log.error(
                 f"Follower ptpStatus is not Slave: {brokenDat.values} at {brokenDat.file_starttime.values}"
             )
@@ -2433,12 +2459,10 @@ def matchParticles(
         ("ptpStatus" not in lEvents.data_vars)
         or ("ptpStatus" not in fEvents.data_vars)
         or np.any(
-            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True)
-            == "Disabled"
+            lEvents.ptpStatus.where(lEvents.event == "newfile", drop=True) == "Disabled"
         ).values
         or np.any(
-            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True)
-            == "Disabled"
+            fEvents.ptpStatus.where(fEvents.event == "newfile", drop=True) == "Disabled"
         ).values
     )
     captureIdDropTimes = []
@@ -2571,8 +2595,7 @@ def matchParticles(
                     log.warning(f"error in {errRatio*100}% of the data")
 
     if len(matchedDats) == 0:
-        with tools.open2(f"{fname1Match}.nodata", config, "w") as f:
-            f.write("no data")
+        ffl1.writeStatus("level1match", "nodata", "no data")
         log.error(tools.concat("NO DATA", fname1Match))
 
         return (
@@ -2601,16 +2624,25 @@ def matchParticles(
         if matchScoreMedian < config.quality.minMatchScore:
             log.warning(
                 tools.concat(
-                    "median matchScore is only", matchScoreMedian,
-                    "smaller than minMatchScore", config.quality.minMatchScore,
-                    "even though we found", nPairs, "particles -- trying a "
+                    "median matchScore is only",
+                    matchScoreMedian,
+                    "smaller than minMatchScore",
+                    config.quality.minMatchScore,
+                    "even though we found",
+                    nPairs,
+                    "particles -- trying a "
                     "cheap rotation refit against the existing matches "
                     "before giving up",
                 )
             )
             healed = refitRotationFromMatches(
-                matchedDats, rotate_final, rotate_err_final, config, sigma=sigma,
-                nSamples4rot=nSamples4rot, y_cov_diag=y_cov_diag,
+                matchedDats,
+                rotate_final,
+                rotate_err_final,
+                config,
+                sigma=sigma,
+                nSamples4rot=nSamples4rot,
+                y_cov_diag=y_cov_diag,
             )
             if healed is not None:
                 matchedDats, rotate_final, rotate_err_final = healed
@@ -2747,8 +2779,9 @@ def createMetaRotation(
 
     if eventFile.endswith("nodata"):
         log.warning(f"No data available for {case}: {eventFile}")
-        with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
-            f.write(f"No data available for {case}: {eventFile}")
+        fflM.writeStatus(
+            "metaRotation", "nodata", f"No data available for {case}: {eventFile}"
+        )
         return None, None
 
     isBad, reason = tools.isBadPeriod(case, config, product="metaRotation")
@@ -2772,8 +2805,9 @@ def createMetaRotation(
             log.warning(
                 f"Newer leader L0 files have been found, likely data gap on {case}"
             )
-            with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
-                f.write(f"No leader level 0 data available for {case}")
+            fflM.writeStatus(
+                "metaRotation", "nodata", f"No leader level 0 data available for {case}"
+            )
             return None, None
         log.warning(
             "L1 LEADER NOT COMPLETE YET %i of %i "
@@ -2787,8 +2821,9 @@ def createMetaRotation(
             log.warning(
                 f"Newer follower L0 files have been found, likely data gap on {case}"
             )
-            with tools.open2(f"{fnameMetaRotation}.nodata", config, "w") as f:
-                f.write(f"No follower level 0 data available for {case}")
+            fflM.writeStatus(
+                "metaRotation", "nodata", f"No follower level 0 data available for {case}"
+            )
             return None, None
         log.warning(
             "L1 FOLLOWER NOT COMPLETE YET %i of %i "
@@ -2962,7 +2997,9 @@ def createMetaRotation(
             log.error(f"fixing attempt FAILED for {ffl1.case}")
             consecutiveFixFailures += 1
             return None, None
-        log.warning(f"fixed rotation from scratch for {ffl1.case}: {fixed['transformation']}")
+        log.warning(
+            f"fixed rotation from scratch for {ffl1.case}: {fixed['transformation']}"
+        )
         return (
             pd.Series(fixed["transformation"]),
             pd.Series(fixed["transformation_err"]),
@@ -3038,8 +3075,13 @@ def createMetaRotation(
                     )
                 ):
                     healed = refitRotationFromMatches(
-                        matchedDat4Rot, rot, rot_err, config, sigma=sigma,
-                        nSamples4rot=nSamples4rot, y_cov_diag=y_cov_diag,
+                        matchedDat4Rot,
+                        rot,
+                        rot_err,
+                        config,
+                        sigma=sigma,
+                        nSamples4rot=nSamples4rot,
+                        y_cov_diag=y_cov_diag,
                     )
                     if healed is not None:
                         _, rot, rot_err = healed

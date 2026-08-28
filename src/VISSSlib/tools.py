@@ -2637,11 +2637,13 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
 
     if not success:
         shutil.copy(tmpFile, "%s.broken.txt" % tmpFile)
+        tryRemovingFile(fOut)
         try:
             createParentDir(fOut)
             shutil.copy(tmpFile, "%s.broken.txt" % fOut)
         except:
             pass
+
     if not running:
         tryRemovingFile(tmpFile)
 

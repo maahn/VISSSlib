@@ -2615,28 +2615,35 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     graceTime = 2  # s
     newfiles1 = event1.isel(file_starttime=(event1.event == "newfile"))
 
-    # actual recorded span of each file, not the nominal newFileInt-length
-    # window: a file that crashed early (e.g. a camera restart) stops
-    # covering minutes well before file_starttime + newFileInt would
-    # suggest. Fall back to the nominal duration when capture_lasttime is
-    # unavailable (e.g. an in-progress file).
-    fileDuration = (
-        newfiles1.capture_lasttime - newfiles1.file_starttime
-    ).values / np.timedelta64(1, "s")
-    fileDuration = np.where(
-        np.isnan(fileDuration), config.newFileInt, fileDuration
-    )
+    # VISSS only stores frames with detected motion, so a minute with zero
+    # stored frames is not by itself evidence the camera was down -- it
+    # could just be clear sky. What *is* evidence, regardless of motion, is
+    # the acquisition software's own per-file start/end bookkeeping
+    # (file_starttime/capture_lasttime), which is written continuously.
+    # Sum each file's actual recorded span overlapping this minute (a file
+    # that crashed early, e.g. a camera restart, stops covering minutes
+    # well before file_starttime + newFileInt would suggest) and flag the
+    # minute whenever more than graceTime seconds of it aren't covered by
+    # any file's actual span -- catching both fully-missing minutes and
+    # partially-covered ("incomplete") ones. Falls back to the nominal
+    # duration when capture_lasttime is unavailable (e.g. an in-progress
+    # file).
+    freqSeconds = int(timeIndex.freq.nanos * 1e-9)
+    fileStart = newfiles1.file_starttime.values
+    fileEndRaw = newfiles1.capture_lasttime.values
+    nominalEnd = fileStart + np.timedelta64(config.newFileInt, "s")
+    fileEnd = np.where(np.isnat(fileEndRaw), nominalEnd, fileEndRaw)
 
     dataRecorded = []
     processingFailed = []
     for tt, tI1min in enumerate(timeIndex):
-        tDiff1 = (
-            np.datetime64(tI1min) - newfiles1.file_starttime
-        ).values / np.timedelta64(1, "s")
-        inWindow = tDiff1 >= -graceTime
-        dataRecorded1 = np.any(
-            tDiff1[inWindow] < (fileDuration[inWindow] - graceTime)
-        )
+        minuteStart = np.datetime64(tI1min)
+        minuteEnd = minuteStart + np.timedelta64(freqSeconds, "s")
+        overlapStart = np.maximum(fileStart, minuteStart)
+        overlapEnd = np.minimum(fileEnd, minuteEnd)
+        overlapSeconds = (overlapEnd - overlapStart) / np.timedelta64(1, "s")
+        covered = np.clip(overlapSeconds, 0, None).sum()
+        dataRecorded1 = (freqSeconds - covered) <= graceTime
         #     print(tI1min, dataRecordedF, dataRecorded)
         dataRecorded.append(dataRecorded1)
 

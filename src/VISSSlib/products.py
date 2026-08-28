@@ -1369,6 +1369,22 @@ class DataProductRange(DataProduct):
         """
         return all(dp.allComplete for dp in self._instances)
 
+    def report(self, withParents=True):
+        """Print a report about this product's status for all instances.
+
+        DataProduct.report relies on per-case attributes (self.fn,
+        self.newestFileCreation, self.parents, ...) that a DataProductRange
+        does not have, so it cannot simply be inherited -- it needs to be
+        run per case instance, same as reportBroken/listBroken.
+
+        Parameters
+        ----------
+        withParents : bool, default True
+            Whether to include parent reports
+        """
+        for dp in self._instances:
+            dp.report(withParents=withParents)
+
     def reportBroken(self, withParents=False, returnAllInformation=True):
         """Report broken files for all instances.
 

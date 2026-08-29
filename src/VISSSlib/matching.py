@@ -397,84 +397,31 @@ def retrieveRotation(
     return oe.x_op, oe.x_op_err, oe.dgf_x
 
 
-def refitRotationFromMatches(
+def _refitRotationWindow(
     matchedDat,
     rotate,
     rotate_err,
     config,
-    sigma="default",
-    nSamples4rot=300,
-    y_cov_diag=1.65**2,
-    minPairs=10,
+    nSamples4rot,
+    y_cov_diag,
+    minPairs,
 ):
     """
-    Try to recover a low-matchScore result by refitting the rotation
-    directly from the already-matched pairs, instead of re-matching from
-    scratch.
-
-    Rationale (see docs/source/metaRotation.rst and the investigation
-    that motivated this): matchScore is the product of independent
-    per-dimension probability terms (Y, T or I, H, Z), and only the Z
-    term (particle height via the stereo geometry, calc_L_z_withOffsets)
-    depends on the rotation. Y/H/T/I terms only depend on frame position,
-    height-in-frame, and capture_id/time -- none of which change when the
-    rotation is refit. So a file where correspondence is trustworthy
-    (Y/H/T/I already look fine) but matchScore is dragged down by a
-    tight, systematic (not noisy) Z offset is a sign the rotation
-    calibration has drifted for this window, not that the matches are
-    wrong -- and can be fixed with a single Optimal Estimation refit
-    against the existing pairs (retrieveRotation), which is fast and
-    independent of file size, rather than the much slower alternative of
-    re-matching from a blind prior (manualRotationEstimate).
-
-    This only recomputes the Z-dependent term of matchScore for the
-    existing pairs -- it does not re-run doMatch, so it cannot find new
-    correspondences the original (wrong-rotation) match missed, only
-    rescue/rescore the ones it already found. It is only valid for the
-    "default" sigma/delta used everywhere in this codebase (Z: sigma=1.7,
-    delta=0.5, the same constant in both the ptpTime and non-ptpTime
-    default branches of doMatch) -- skipped for a custom sigma, since
-    this function has no way to know what Z sigma/delta that used.
-
-    Parameters
-    ----------
-    matchedDat : xarray.Dataset
-        The (low-scoring) matched-pairs dataset from doMatch/doMatchSlicer,
-        with a "camera" dimension holding the leader/follower rows and a
-        pair_id-indexed "matchScore".
-    rotate : dict or pandas.Series
-        The rotation that was used to produce matchedDat.
-    rotate_err : dict or pandas.Series
-        Its uncertainty.
-    config : dict
-        Configuration settings.
-    sigma : str or dict, optional
-        The sigma the original match used (default "default"); refit is
-        skipped for anything else, see Notes above.
-    nSamples4rot : int, optional
-        Number of best-scoring pairs to refit from, same default as
-        metaRotation's own refinement (default 300).
-    y_cov_diag : float, optional
-        Observation covariance diagonal for the OE fit (default 1.65**2,
-        matchParticles' own default).
-    minPairs : int, optional
-        Minimum number of pairs required to even attempt a refit
-        (default 10).
+    Single-window implementation behind `refitRotationFromMatches`: fit
+    one rotation against every pair in `matchedDat` and rescale
+    matchScore accordingly. Factored out so `refitRotationFromMatches`
+    can also apply it per time-segment (see `nSegments`) for files whose
+    true rotation drifts smoothly within the file itself, rather than
+    being one constant offset -- see that function's docstring.
 
     Returns
     -------
     tuple or None
-        (newMatchedDat, newRotate, newRotateErr) -- matchedDat with
-        "matchScore", "position3D_center"/"position3D_centroid" (via
-        addPosition), and the per-pair rotation columns all recomputed
-        for the refit rotation -- if the refit ran and produced a finite
-        result; None if there were too few pairs, sigma wasn't
-        "default", or the OE fit itself failed.
+        (newMatchedDat, newRotate, newRotateErr), or None if there were
+        too few pairs or the OE fit itself failed.
     """
     import pandas as pd
 
-    if sigma != "default":
-        return None
     if len(matchedDat.pair_id) < minPairs:
         return None
 
@@ -546,6 +493,163 @@ def refitRotationFromMatches(
         )
     )
     return newMatchedDat, newRotate, newRotateErr
+
+
+def refitRotationFromMatches(
+    matchedDat,
+    rotate,
+    rotate_err,
+    config,
+    sigma="default",
+    nSamples4rot=300,
+    y_cov_diag=1.65**2,
+    minPairs=10,
+    nSegments=1,
+):
+    """
+    Try to recover a low-matchScore result by refitting the rotation
+    directly from the already-matched pairs, instead of re-matching from
+    scratch.
+
+    Rationale (see docs/source/metaRotation.rst and the investigation
+    that motivated this): matchScore is the product of independent
+    per-dimension probability terms (Y, T or I, H, Z), and only the Z
+    term (particle height via the stereo geometry, calc_L_z_withOffsets)
+    depends on the rotation. Y/H/T/I terms only depend on frame position,
+    height-in-frame, and capture_id/time -- none of which change when the
+    rotation is refit. So a file where correspondence is trustworthy
+    (Y/H/T/I already look fine) but matchScore is dragged down by a
+    tight, systematic (not noisy) Z offset is a sign the rotation
+    calibration has drifted for this window, not that the matches are
+    wrong -- and can be fixed with a single Optimal Estimation refit
+    against the existing pairs (retrieveRotation), which is fast and
+    independent of file size, rather than the much slower alternative of
+    re-matching from a blind prior (manualRotationEstimate).
+
+    This only recomputes the Z-dependent term of matchScore for the
+    existing pairs -- it does not re-run doMatch, so it cannot find new
+    correspondences the original (wrong-rotation) match missed, only
+    rescue/rescore the ones it already found. It is only valid for the
+    "default" sigma/delta used everywhere in this codebase (Z: sigma=1.7,
+    delta=0.5, the same constant in both the ptpTime and non-ptpTime
+    default branches of doMatch) -- skipped for a custom sigma, since
+    this function has no way to know what Z sigma/delta that used.
+
+    With `nSegments > 1`, instead of fitting one rotation for the whole
+    file, the pairs are split into `nSegments` contiguous, time-ordered
+    chunks (by the leader's capture_time) and each chunk gets its own
+    independent refit -- for files where the *true* rotation drifts
+    smoothly within the file itself (e.g. progressive snow loading,
+    thermal settling during a long, heavy-precipitation file), a single
+    global rotation is structurally the wrong model: it necessarily lands
+    on a compromise that fits neither the start nor the end well, however
+    good the OE fit machinery is. See the investigation notes this
+    followed up on (self-heal work, matchScore failures with slow
+    within-file drift) for the empirical basis. Each segment that has too
+    few pairs or fails its own refit falls back to its original
+    (unrefit) scores/positions rather than failing the whole file --
+    partial recovery from the segments that do refit successfully is
+    still better than none.
+
+    Parameters
+    ----------
+    matchedDat : xarray.Dataset
+        The (low-scoring) matched-pairs dataset from doMatch/doMatchSlicer,
+        with a "camera" dimension holding the leader/follower rows and a
+        pair_id-indexed "matchScore".
+    rotate : dict or pandas.Series
+        The rotation that was used to produce matchedDat.
+    rotate_err : dict or pandas.Series
+        Its uncertainty.
+    config : dict
+        Configuration settings.
+    sigma : str or dict, optional
+        The sigma the original match used (default "default"); refit is
+        skipped for anything else, see Notes above.
+    nSamples4rot : int, optional
+        Number of best-scoring pairs to refit from per window, same
+        default as metaRotation's own refinement (default 300).
+    y_cov_diag : float, optional
+        Observation covariance diagonal for the OE fit (default 1.65**2,
+        matchParticles' own default).
+    minPairs : int, optional
+        Minimum number of pairs required to even attempt a refit, per
+        window (default 10).
+    nSegments : int, optional
+        Number of contiguous time-ordered chunks to split `matchedDat`
+        into and refit independently (default 1, i.e. today's
+        single-window behavior).
+
+    Returns
+    -------
+    tuple or None
+        (newMatchedDat, newRotate, newRotateErr) -- matchedDat with
+        "matchScore", "position3D_center"/"position3D_centroid" (via
+        addPosition), and the per-pair rotation columns all recomputed
+        for the refit rotation(s) -- if at least one window's refit ran
+        and produced a finite result; None if there were too few pairs
+        overall, sigma wasn't "default", or every window's OE fit
+        failed. With `nSegments > 1`, newRotate/newRotateErr are the
+        last successfully-refit segment's values (there is no single
+        rotation to report -- only per-pair positions/scores are
+        meaningful in that case, and those are all correctly set on
+        newMatchedDat regardless of segment).
+    """
+    if sigma != "default":
+        return None
+    if len(matchedDat.pair_id) < minPairs:
+        return None
+
+    if nSegments <= 1:
+        return _refitRotationWindow(
+            matchedDat, rotate, rotate_err, config, nSamples4rot, y_cov_diag, minPairs
+        )
+
+    leaderTime = matchedDat.capture_time.sel(camera=config.leader).values
+    order = np.argsort(leaderTime, kind="stable")
+    n = len(matchedDat.pair_id)
+    edges = np.linspace(0, n, nSegments + 1, dtype=int)
+
+    segments = []
+    lastRotate, lastRotateErr = rotate, rotate_err
+    anyRefit = False
+    for i in range(nSegments):
+        idx = order[edges[i] : edges[i + 1]]
+        if len(idx) == 0:
+            continue
+        segDat = matchedDat.isel(pair_id=idx)
+        healed = _refitRotationWindow(
+            segDat,
+            rotate,
+            rotate_err,
+            config,
+            min(nSamples4rot, len(idx)),
+            y_cov_diag,
+            minPairs,
+        )
+        if healed is not None:
+            segDat, lastRotate, lastRotateErr = healed
+            anyRefit = True
+        segments.append(segDat)
+
+    if not anyRefit:
+        return None
+
+    newMatchedDat = xr.concat(segments, dim="pair_id").sortby("pair_id")
+    if not np.all(np.isfinite(newMatchedDat.matchScore.values)):
+        return None
+
+    log.warning(
+        tools.concat(
+            "refitRotationFromMatches: segmented refit",
+            f"nSegments={nSegments}",
+            "old median matchScore",
+            float(matchedDat.matchScore.median()),
+            "new median matchScore",
+            float(newMatchedDat.matchScore.median()),
+        )
+    )
+    return newMatchedDat, lastRotate, lastRotateErr
 
 
 def probability(x, mu, sigma, delta):
@@ -2635,6 +2739,7 @@ def matchParticles(
                     "before giving up",
                 )
             )
+            preRefitMatchedDats = matchedDats
             healed = refitRotationFromMatches(
                 matchedDats,
                 rotate_final,
@@ -2647,6 +2752,34 @@ def matchParticles(
             if healed is not None:
                 matchedDats, rotate_final, rotate_err_final = healed
                 matchScoreMedian = matchedDats.matchScore.median().values
+            if matchScoreMedian < config.quality.minMatchScore:
+                # single global rotation still isn't enough -- for a
+                # large file, that can mean the true rotation drifts
+                # smoothly within the file itself (progressive snow
+                # loading, thermal settling), which no single-rotation
+                # refit can fit well. Escalate to a time-segmented refit
+                # (independent rotation per time chunk) before giving
+                # up; refit from the pre-refit pairs, since segmenting
+                # is a different, not additive, strategy.
+                log.warning(
+                    tools.concat(
+                        "single-window refit still below minMatchScore, "
+                        "trying a time-segmented refit"
+                    )
+                )
+                healedSeg = refitRotationFromMatches(
+                    preRefitMatchedDats,
+                    rotate_final,
+                    rotate_err_final,
+                    config,
+                    sigma=sigma,
+                    nSamples4rot=nSamples4rot,
+                    y_cov_diag=y_cov_diag,
+                    nSegments=15,
+                )
+                if healedSeg is not None:
+                    matchedDats, rotate_final, rotate_err_final = healedSeg
+                    matchScoreMedian = matchedDats.matchScore.median().values
             if matchScoreMedian < config.quality.minMatchScore:
                 raise RuntimeError(
                     f"median matchScore is only {matchScoreMedian} and smaller than "

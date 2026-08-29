@@ -78,7 +78,10 @@ DEFAULT_SETTINGS = {
         "slope": None,
         "slope_err": None,
     },
-    "dataFixes": [],
+    # applied to every deployment regardless of what a yaml's own dataFixes
+    # lists -- see the merge in readSettings(), which unions this with the
+    # yaml's value instead of letting it be overridden like other settings
+    "dataFixes": ["removeFlippedCaptureTimeFrames", "dropUnrecordedTrailingFrames"],
     "dirMode": 0o775,  # 509
     "fileMode": 0o664,  # 436
     "goodFiles": ["None", "None"],
@@ -368,6 +371,19 @@ def readSettings(fname):
                     log.warning(
                         f"Key {key} in settings file is not in the default settings and might be unused."
                     )
+            # dataFixes is additive, not overridden like every other setting:
+            # DEFAULT_SETTINGS["dataFixes"] holds fixes meant to apply to every
+            # deployment regardless of what a specific yaml lists, so union it
+            # with the yaml's own value instead of letting the plain update()
+            # below silently drop the defaults whenever a yaml declares its
+            # own (even empty) dataFixes list.
+            dataFixesKey = ("dataFixes",)
+            if dataFixesKey in loadedSettings:
+                merged = list(DEFAULT_SETTINGS["dataFixes"])
+                for fix in loadedSettings[dataFixesKey] or []:
+                    if fix not in merged:
+                        merged.append(fix)
+                loadedSettings[dataFixesKey] = merged
             config.update(loadedSettings)
         # unflatten again and convert to addict.Dict
         config = DictNoDefault(flatten_dict.unflatten(config))

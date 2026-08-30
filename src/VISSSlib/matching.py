@@ -397,6 +397,69 @@ def retrieveRotation(
     return oe.x_op, oe.x_op_err, oe.dgf_x
 
 
+def _selectRefitSample(matchedDat, config, nSamples4rot, minPairs):
+    """
+    Pick which pairs `_refitRotationWindow` should fit the OE retrieval
+    against.
+
+    The obvious choice -- the `nSamples4rot` pairs with the highest
+    *current* matchScore -- breaks down as the pair count grows: with
+    hundreds of thousands of pairs, there is essentially always a small
+    tail whose noise happens to cancel a real systematic rotation bias by
+    pure chance, so "top by current score" preferentially selects exactly
+    those already-lucky pairs and the OE fit just confirms the bias
+    instead of correcting it (confirmed on a real file: the "top 300"
+    subset had matchScore ~0.038 -- already far above the 0.001 threshold
+    -- while the file's true median was ~9e-5, and refitting against it
+    left the rotation and the file's real median matchScore essentially
+    unchanged).
+
+    Prefer pairs from single-particle frames instead: frames where the
+    leader detected exactly one particle have no correspondence ambiguity
+    at all (the same principle `manualRotationEstimate`'s
+    `singleParticleFramesOnly` already relies on elsewhere in this
+    module), so their Z-residual reflects the rotation error directly
+    rather than either a lucky coincidence or a possible mismatch. Within
+    that pool, prefer the largest particles (Dmax), since a bigger
+    particle's centroid is measured more precisely, further reducing
+    noise unrelated to the rotation itself. Falls back to the previous
+    top-by-matchScore behavior when fewer than `minPairs` single-particle-
+    frame pairs are available (e.g. small/sparse files, where that was
+    never broken in the first place).
+
+    Parameters
+    ----------
+    matchedDat : xarray.Dataset
+        The matched-pairs dataset to select from.
+    config : dict
+        Configuration settings (for `config.leader`).
+    nSamples4rot : int
+        Maximum number of pairs to return.
+    minPairs : int
+        Minimum number of single-particle-frame pairs required before
+        preferring them over the matchScore-based fallback.
+
+    Returns
+    -------
+    xarray.Dataset
+        Up to `nSamples4rot` pairs from `matchedDat`.
+    """
+    n = min(nSamples4rot, len(matchedDat.pair_id))
+
+    captureId = matchedDat.sel(camera=config.leader).capture_id.values
+    _, inverse, counts = np.unique(captureId, return_inverse=True, return_counts=True)
+    singleParticleMask = counts[inverse] == 1
+    nSingle = int(np.sum(singleParticleMask))
+
+    if nSingle >= minPairs:
+        idx = np.where(singleParticleMask)[0]
+        dmax = matchedDat.sel(camera=config.leader).Dmax.values[idx]
+        idx = idx[np.argsort(dmax)[::-1][:n]]
+        return matchedDat.isel(pair_id=sorted(idx))
+
+    return matchedDat.isel(pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:]))
+
+
 def _refitRotationWindow(
     matchedDat,
     rotate,
@@ -428,8 +491,7 @@ def _refitRotationWindow(
     rotate = pd.Series(dict(rotate))
     rotate_err = pd.Series(dict(rotate_err))
 
-    n = min(nSamples4rot, len(matchedDat.pair_id))
-    top = matchedDat.isel(pair_id=sorted(np.argsort(matchedDat.matchScore.values)[-n:]))
+    top = _selectRefitSample(matchedDat, config, nSamples4rot, minPairs)
     try:
         newRotate, newRotateErr, _ = retrieveRotation(
             top,

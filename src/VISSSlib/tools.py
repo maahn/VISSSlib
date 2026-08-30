@@ -2639,6 +2639,22 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
             if exitCode != 0:
                 success = False
                 log.error(f"BROKEN {fOut} {exitCode}")
+            elif not (
+                os.path.isfile(fOut)
+                or os.path.isfile(f"{fOut}.nodata")
+                or os.path.isfile(f"{fOut}.broken.txt")
+            ):
+                # exited cleanly but produced none of the three recognized
+                # terminal artifacts (the real output, a .nodata sentinel, or
+                # its own .broken.txt). A clean exit code alone used to be
+                # treated as success, so a task that ever hit an edge case
+                # exiting 0 without writing anything recognizable would be
+                # silently deleted from the queue with zero trace of what
+                # happened. Surface it as broken instead so it's visible.
+                success = False
+                log.error(
+                    f"BROKEN {fOut} exited 0 but produced no output/nodata/broken.txt"
+                )
             else:
                 log.info(f"SUCCESS {fOut} {exitCode}")
 

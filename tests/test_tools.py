@@ -73,3 +73,60 @@ class TestDataFixesMerge:
         default = VISSSlib.tools.DEFAULT_SETTINGS["dataFixes"][0]
         config = makeSyntheticConfig(tmp_path, dataFixes=[default])
         assert config.dataFixes.count(default) == 1
+
+
+class TestRunCommandInQueueTerminalArtifact:
+    """runCommandInQueue used to treat a clean subprocess exit code alone as
+    success, even if the command produced none of the three artifacts that
+    actually mark a VISSSlib task as finished (the real output file, a
+    .nodata sentinel, or its own .broken.txt) -- see
+    [[project-level1detect-sync-fixes]]. That let a task silently vanish
+    from the task queue (delete()'d as "done") with zero trace if it ever
+    hit an edge case exiting 0 without writing anything recognizable.
+    """
+
+    @pytest.mark.unit
+    def test_success_when_real_output_written(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        fOut = str(tmp_path / "result.nc")
+        cmd = f"touch {fOut}"
+        assert VISSSlib.tools.runCommandInQueue((cmd, fOut)) is True
+        assert os.path.isfile(fOut)
+        assert not os.path.isfile(f"{fOut}.broken.txt")
+
+    @pytest.mark.unit
+    def test_success_when_nodata_sentinel_written(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        fOut = str(tmp_path / "result.nc")
+        cmd = f"touch {fOut}.nodata"
+        assert VISSSlib.tools.runCommandInQueue((cmd, fOut)) is True
+        assert not os.path.isfile(f"{fOut}.broken.txt")
+
+    @pytest.mark.unit
+    def test_success_when_command_writes_its_own_broken_txt(self, tmp_path, monkeypatch):
+        # a command that already did its own failure bookkeeping (wrote its
+        # own .broken.txt) but still exits 0 shouldn't get a second,
+        # redundant outer .broken.txt piled on top
+        monkeypatch.chdir(tmp_path)
+        fOut = str(tmp_path / "result.nc")
+        cmd = f"touch {fOut}.broken.txt"
+        assert VISSSlib.tools.runCommandInQueue((cmd, fOut)) is True
+
+    @pytest.mark.unit
+    def test_failure_when_exit_code_nonzero(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        fOut = str(tmp_path / "result.nc")
+        cmd = "exit 1"
+        assert VISSSlib.tools.runCommandInQueue((cmd, fOut)) is False
+        assert os.path.isfile(f"{fOut}.broken.txt")
+
+    @pytest.mark.unit
+    def test_failure_when_exit_zero_but_nothing_written(self, tmp_path, monkeypatch):
+        # the bug this fix addresses: a clean exit with no recognized
+        # terminal artifact must not be silently treated as success
+        monkeypatch.chdir(tmp_path)
+        fOut = str(tmp_path / "result.nc")
+        cmd = "true"
+        assert VISSSlib.tools.runCommandInQueue((cmd, fOut)) is False
+        assert os.path.isfile(f"{fOut}.broken.txt")
+        assert not os.path.isfile(fOut)

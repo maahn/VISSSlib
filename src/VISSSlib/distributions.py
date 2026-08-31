@@ -847,7 +847,9 @@ def _createLevel2(
             long_name="binary quality Flags",
             comment="For recordingFailed, "
             "processingFailed, cameraBlocked, blowingSnow, obervationsDiffer, "
-            "and tracksTooShort. "
+            "tracksTooShort, and zResidualTooWide (matched leader/follower "
+            "pairs disagree with each other more than a rotation refit "
+            "could fix, see config.quality.maxZSigma). "
             "Use VISSSlib.tools.unpackQualityFlags to unpack",
         )
     )
@@ -2023,6 +2025,19 @@ def addVariables(
     ) = getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=camera)
     assert np.all(blockedPixels.time == calibDat.time)
 
+    # zResidualTooWide: like tracksTooShort below, this is a *flag*, not a
+    # filter -- it never NaNs or drops data, it just sets a bit in
+    # qualityFlags so a consumer can decide whether to trust a bin. See
+    # getZResidualQuality's docstring and config.quality.maxZSigma's
+    # comment for why this needs a scan independent of the aggregate
+    # matchScore. Valid for both "match" and "track" (unlike
+    # tracksTooShort, which is inherently track-only) since both trace
+    # back to matched leader/follower pairs; getZResidualQuality itself
+    # returns all-False for "detect".
+    zResidualTooWide = getZResidualQuality(
+        case, config, timeIndex, timeIndex1, sublevel, camera=config.leader
+    )
+
     if sublevel == "detect":
         processingFailed.values[:] = False  # not relevant becuase it is about matching
         cameraBlocked = blockedPixels > config.quality.blockedPixThresh
@@ -2092,6 +2107,14 @@ def addVariables(
                 "% of data",
             )
         )
+    if sublevel != "detect":
+        log.info(
+            tools.concat(
+                "zResidualTooWide flagged",
+                zResidualTooWide.values.sum() / len(zResidualTooWide) * 100,
+                "% of data",
+            )
+        )
     allFilter = (
         recordingFailed
         | processingFailed
@@ -2099,6 +2122,7 @@ def addVariables(
         | blowingSnow
         | obervationsDiffer
         | tracksTooShort
+        | zResidualTooWide
     )
     log.info(
         tools.concat(
@@ -2116,6 +2140,7 @@ def addVariables(
             blowingSnow,
             obervationsDiffer,
             tracksTooShort,
+            zResidualTooWide,
         ],
         axis=-1,
     )
@@ -2683,6 +2708,123 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
         blowingSnowRatio1,
         nDetected,
     )
+
+
+def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="leader"):
+    """
+    Per-time-bin flag for whether the level1match/level1track Z-consistency
+    residual (see matching.zResidualSigma) is too wide to trust -- see
+    config.quality.maxZSigma's comment for the empirical basis. Unlike
+    matchParticles' own self-heal escalation (which checks this per-FILE
+    before attempting a rotation refit), this checks it per aggregation
+    time bin on already-written output, independent of the aggregate
+    matchScore -- a bin can have a "passing" median matchScore (e.g.
+    because nPairs was below config.newFileInt so the self-heal gate never
+    ran, or because other terms compensate for a bad Z term) while still
+    showing a suspiciously wide Z residual.
+
+    Only meaningful for sublevel in ["match", "track"] (both trace back to
+    matched leader/follower pairs); returns all-False for "detect" (no
+    matching happens at that level).
+
+    Like tracksTooShort in addVariables, this is a *flag*, not a filter:
+    the caller folds it into the per-timestep qualityFlags bitmask without
+    dropping or NaN-ing any data -- it is up to whoever consumes the
+    level2 output to decide whether to exclude data flagged this way.
+
+    Reads level1{sublevel} files independently (same
+    listFilesWithNeighbors approach _createLevel2part uses for the main
+    aggregation, and the same "second lightweight read" pattern
+    getDataQuality/_getDataQuality1 already uses for metaEvents-based
+    flags) rather than threading a new value through _createLevel2part's
+    performance-tuned internals, which subset away position3D_center
+    before this would be needed and have several non-obvious
+    dimension/broadcast dependencies.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier (see other level2 functions).
+    config : dict
+        Configuration settings (for config.quality.maxZSigma).
+    timeIndex : pandas.DatetimeIndex
+        Left edges of the aggregation bins (the output time axis).
+    timeIndex1 : pandas.DatetimeIndex
+        timeIndex plus one trailing edge, used as bin boundaries.
+    sublevel : str
+        One of ["match", "track", "detect"].
+    camera : str, optional
+        Camera whose level1{sublevel} files to read (default "leader" --
+        matching/tracking output is leader-only regardless of camera).
+
+    Returns
+    -------
+    xarray.DataArray
+        Boolean, dims=["time"], coords=[timeIndex].
+    """
+    import pandas as pd
+
+    allFalse = xr.DataArray(
+        np.zeros(len(timeIndex), dtype=bool), dims=["time"], coords=[timeIndex]
+    )
+    if sublevel not in ("match", "track"):
+        return allFalse
+
+    fL = files.FindFiles(case, camera, config)
+    lv1Files = fL.listFilesWithNeighbors(f"level1{sublevel}")
+    if len(lv1Files) == 0:
+        return allFalse
+
+    def _preprocessZ(dat):
+        if "pair_id" not in dat.coords:
+            dat = dat.rename(pid="pair_id")
+        return dat[["capture_time", "position3D_center"]]
+
+    with xr.open_mfdataset(
+        lv1Files, preprocess=_preprocessZ, combine="nested", concat_dim="pair_id"
+    ) as dat:
+        dat = dat.load()
+
+    if len(dat.pair_id) == 0:
+        return allFalse
+
+    time = dat.capture_time.isel(camera=0).values
+    diffZ = (
+        dat.position3D_center.sel(dim3D="z")
+        - dat.position3D_center.sel(dim3D="z_rotated")
+    ).values
+
+    binCode = pd.cut(
+        pd.DatetimeIndex(time), bins=pd.DatetimeIndex(timeIndex1), right=False,
+        labels=False,
+    )
+    diffZBinned = pd.Series(diffZ, index=binCode).dropna()
+    # index is now the bin code (float, since NaN codes were dropped via
+    # the Series NaN-drop above, not the bin code's own dtype)
+    grouped = diffZBinned.groupby(level=0)
+    sigmaPerBin = grouped.std()
+    countPerBin = grouped.count()
+
+    # A std from only a handful of pairs is itself noisy, and matching
+    # from few particles is inherently harder regardless (matchParticles'
+    # own gate skips scoring entirely below config.newFileInt pairs for
+    # the same reason -- see zResidualSigma's docstring). Scale that same
+    # "~1 pair per second" bar to this bin's own duration rather than
+    # reusing config.newFileInt directly, which assumes a full
+    # level1match file's ~config.newFileInt-second span. A bin below this
+    # is left unflagged (not enough signal to judge either way), same as
+    # a quiet period with too few files to check at all.
+    binSeconds = (
+        pd.Timestamp(timeIndex1[1]) - pd.Timestamp(timeIndex1[0])
+    ).total_seconds()
+    minPairsPerBin = max(1, round(binSeconds))
+
+    tooWide = np.zeros(len(timeIndex), dtype=bool)
+    validBins = sigmaPerBin.index.astype(int)
+    enoughPairs = countPerBin.values >= minPairsPerBin
+    tooWide[validBins] = enoughPairs & (sigmaPerBin.values > config.quality.maxZSigma)
+
+    return xr.DataArray(tooWide, dims=["time"], coords=[timeIndex])
 
 
 def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):

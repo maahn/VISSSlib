@@ -165,6 +165,22 @@ DEFAULT_SETTINGS = {
     "quality": {
         "blowingSnowFrameThresh": 0.05,
         "blockedPixThresh": 0.1,
+        # pixels (level1's native unit -- this residual is computed
+        # directly on level1-stage pixel data, before level2's SI/meter
+        # calibration is ever applied); max tolerable std of the per-pair
+        # Z-consistency residual (matching.zResidualSigma) before a
+        # rotation refit is considered
+        # futile -- a refit can only correct a *biased* residual (shift
+        # the mean), not shrink a wide one. Used both to skip pointless
+        # refit attempts during matchParticles' self-heal escalation and,
+        # independent of matchScore, to flag already-passing level1match
+        # files with suspiciously inconsistent pairs (scripts/qc_report.py
+        # --matchscore-check). Empirically derived on hyytiala2_v3
+        # (2026-08-30): a fixable file had pre-refit sigma ~1.4, a
+        # partially-fixable extreme-density file ~3.9, a confirmed
+        # unfixable file (15 refit attempts, ~zero bias) ~5.5 -- a
+        # starting heuristic, expect it to need tuning per deployment.
+        "maxZSigma": 5.0,
         "minMatchScore": 1e-3,
         "minSize4insituM": 10,
         "obsRatioThreshold": 0.7,
@@ -2969,6 +2985,7 @@ def unpackQualityFlags(quality, doubleTimestamps=False):
             "blowingSnow",
             "obervationsDiffer",
             "tracksTooShort",
+            "zResidualTooWide",
         ],
         dims=["flag"],
         name="flag",

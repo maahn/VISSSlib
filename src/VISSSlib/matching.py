@@ -557,6 +557,67 @@ def _refitRotationWindow(
     return newMatchedDat, newRotate, newRotateErr
 
 
+def zResidualSigma(matchedDat, rotate, config):
+    """
+    Standard deviation of the per-pair Z-consistency residual (diffZ =
+    L_z - L_z_estimated) for the given matched pairs and rotation -- the
+    same quantity `_refitRotationWindow`/`addPosition` compute internally
+    to rescale matchScore's Z term, exposed standalone so it can be
+    checked *before* attempting a refit (see `matchParticles`) or against
+    already-written output independent of the aggregate matchScore (see
+    `scripts/qc_report.py`'s `--matchscore-check` and
+    `distributions.addVariables`'s per-timestep quality flag).
+
+    A rotation refit is fundamentally a location-shift operation: it can
+    correct a *biased-but-tight* residual (a systematic mis-calibration
+    for this file/window -- refit finds a better rotation and the
+    residual collapses toward zero) but cannot shrink an intrinsically
+    *wide* one (refit can only move the center of an already-scattered
+    distribution, not tighten it). See `config.quality.maxZSigma` for how
+    this is used as a threshold, and its comment for the empirical basis.
+
+    Parameters
+    ----------
+    matchedDat : xarray.Dataset
+        Matched-pairs dataset (as produced by doMatch/doMatchSlicer, or
+        read back from a level1match/level1track file). If it already has
+        `position3D_center` (`addPosition` has run -- true for real
+        output and for matchedDat at the point matchParticles' quality
+        gate runs), its dim3D "z"/"z_rotated" entries are used directly,
+        which is both cheaper and guaranteed consistent with whatever
+        rotation actually produced this exact matchedDat. Otherwise
+        (matchedDat is a raw pre-addPosition doMatch result) falls back
+        to recomputing via `get3DPosition`/`calc_L_z_withOffsets` with the
+        given `rotate`.
+    rotate : dict or pandas.Series
+        The rotation used to produce matchedDat (camera_Ofz/camera_phi/
+        camera_theta, ...) -- only used in the fallback path.
+    config : dict
+        Configuration settings (for config.leader/config.follower).
+
+    Returns
+    -------
+    float
+        np.nanstd of the per-pair Z residual, in the same units as
+        camera_Ofz -- pixels, level1's native unit (position3D_center is
+        built directly from level1 pixel measurements; only level2
+        aggregation converts to SI/meters via config.calibration.slope).
+    """
+    if "position3D_center" in matchedDat:
+        pos = matchedDat.position3D_center
+        diffZ = pos.sel(dim3D="z") - pos.sel(dim3D="z_rotated")
+    else:
+        rotate = dict(rotate)
+        L_x, L_z, F_y, F_z = get3DPosition(
+            matchedDat.sel(camera=config.leader),
+            matchedDat.sel(camera=config.follower),
+            config,
+        )
+        L_z_est = calc_L_z_withOffsets(L_x, F_y, F_z, **rotate)
+        diffZ = L_z - L_z_est
+    return float(np.nanstd(diffZ))
+
+
 def refitRotationFromMatches(
     matchedDat,
     rotate,
@@ -2802,6 +2863,28 @@ def matchParticles(
                 )
             )
             preRefitMatchedDats = matchedDats
+            # A rotation refit can only correct a *biased* Z residual (shift
+            # its mean) -- it cannot shrink an intrinsically *wide* one, so
+            # spending a single-window AND a 15-segment OE refit on a file
+            # whose pairs already disagree with each other more than
+            # config.quality.maxZSigma is compute wasted on a fix that
+            # cannot work by construction. This also produces a clearer
+            # diagnostic (wide, likely correspondence ambiguity) than the
+            # generic "matchScore too low" message below. See
+            # zResidualSigma's docstring and config.quality.maxZSigma's
+            # comment for the empirical basis; skipped for non-"default"
+            # sigma, same restriction refitRotationFromMatches itself has.
+            if sigma == "default":
+                zSigmaCurrent = zResidualSigma(matchedDats, rotate_final, config)
+                if zSigmaCurrent > config.quality.maxZSigma:
+                    raise RuntimeError(
+                        f"Z-residual spread is {zSigmaCurrent} which exceeds "
+                        f"maxZSigma {config.quality.maxZSigma} -- matched pairs "
+                        "disagree with each other more than a rotation refit "
+                        "can fix (likely correspondence ambiguity, not a "
+                        f"calibration drift); median matchScore is "
+                        f"{matchScoreMedian}, nPairs={nPairs}"
+                    )
             healed = refitRotationFromMatches(
                 matchedDats,
                 rotate_final,

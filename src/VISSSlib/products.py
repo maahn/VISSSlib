@@ -327,10 +327,45 @@ class DataProduct(object):
             )
             commands = []
         else:
-            log.warning(
-                f"{self.case} {self.relatives} no commands generated, grandparents older"
+            # self._parentsUpToDateWithGrandparents is False: the coarse
+            # day-level heuristic behind _upToDateWithParentsDict (MIN of
+            # this product's own file mtimes vs MAX of a parent's -- see
+            # its docstring) flagged some parent as possibly stale
+            # relative to its own parents. That comparison is deliberately
+            # conservative for THIS product (see _upToDateWithParentsDict),
+            # but using it here to decide whether to even attempt
+            # generating a command is a different question: it can
+            # false-positive under partial/rolling reprocessing, e.g. one
+            # parent file touched at an unrelated time poisons the whole
+            # day's flag even though every parent file individually
+            # already reflects current grandparent content (confirmed via
+            # hyytiala2_v3's level2track getting permanently stuck this
+            # way after iterative level1match self-heal fixes touched
+            # scattered files across many days). Before giving up, ask
+            # each flagged parent directly (via its own, per-file-granular
+            # generateAllCommands) whether it actually still has real work
+            # pending -- if none do, the flag was a false positive and it's
+            # safe to generate this product's own command anyway.
+            stillPending = any(
+                len(
+                    parent.generateAllCommands(skipExisting=True, withParents=False)
+                )
+                > 0
+                for name, parent in self.parents.items()
+                if not parent._upToDateWithParents
             )
-            commands = []
+            if stillPending:
+                log.warning(
+                    f"{self.case} {self.relatives} no commands generated, grandparents older"
+                )
+                commands = []
+            else:
+                log.info(
+                    f"{self.case} {self.relatives} grandparents flagged older by the "
+                    "coarse day-level check, but have no real per-file work pending -- "
+                    "generating own command anyway"
+                )
+                commands = self.generateCommands(skipExisting=skipExisting)
         if withParents:
             for parent in self.parents.keys():
                 # parents always with skipExisting = True to avoid chain reaction

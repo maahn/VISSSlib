@@ -107,6 +107,14 @@ dependency graph is encoded explicitly as `parentNames` per level inside
 `products.DataProduct.__init__` (`src/VISSSlib/products.py`) — that block is the
 authoritative source of "what depends on what", not the prose above.
 
+One exception to the otherwise-parallel level2 products: `level2track` also depends on
+`level2match` (not just `level1track`) — it reuses level2match's `zResidualTooWide` quality
+flag rather than recomputing an equivalent from level1track data, since tracking's own
+frame-to-frame continuity requirement already filters out most particles that would show a
+wide Z-consistency residual, making an independent per-track computation largely
+ineffective (see `distributions.getZResidualQuality`'s docstring). This means level2match
+must be (re)built before level2track when reprocessing.
+
 `products.DataProduct` is the central orchestration class: given a `level`, `case`,
 `config`, and `camera`, it recursively builds its parent products, checks whether output
 files already exist/are newer than their parents (`isComplete`, `_youngerThanParents`), and

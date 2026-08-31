@@ -109,6 +109,7 @@ LEVEL_REGISTRY = {
     "level2track": {
         "parents": lambda self: [
             f"{self.camera}_level1track",
+            "leader_level2match",
             "leader_metaEvents",
             "follower_metaEvents",
         ],

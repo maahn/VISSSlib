@@ -89,7 +89,12 @@ class TestDataProductDAG:
             (
                 "level2track",
                 "leader",
-                ["leader_level1track", "leader_metaEvents", "follower_metaEvents"],
+                [
+                    "leader_level1track",
+                    "leader_level2match",
+                    "leader_metaEvents",
+                    "follower_metaEvents",
+                ],
             ),
             (
                 "level3combinedRiming",
@@ -327,6 +332,16 @@ class TestDataProductDAG:
         )
         touchDaily(leaderEvents, "metaEvents", 8)
         touchDaily(followerEvents, "metaEvents", 8)
+
+        # level2track also depends on level2match (it reuses level2match's
+        # own zResidualTooWide flag rather than recomputing one from
+        # level1track). Give it a comfortably up-to-date mtime -- this test
+        # is about the level1track false-positive specifically, not about
+        # level2match's own staleness.
+        match2 = DataProduct(
+            "level2match", case, config, queue, "leader", addRelatives=False
+        )
+        touchDaily(match2, "level2match", 700)
 
         level2track = DataProduct(
             "level2track", case, config, queue, camera, addRelatives=True

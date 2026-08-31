@@ -2710,10 +2710,64 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     )
 
 
+def _readZResidualFlagFromLevel2Match(case, config, timeIndex, camera):
+    """
+    Read the already-computed zResidualTooWide flag off the same day's
+    level2match file, for level2track to reuse instead of recomputing an
+    ineffective version from level1track data -- see getZResidualQuality's
+    docstring for why. Requires level2match to exist for this case/camera
+    (see products.py's level2track parents, which now include
+    leader_level2match precisely so this dependency is enforced) -- falls
+    back to all-False if it doesn't (e.g. a nodata day), same as any other
+    missing-input case in this module.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier.
+    config : dict
+        Configuration settings.
+    timeIndex : pandas.DatetimeIndex
+        This call's (level2track's) own output time axis.
+    camera : str
+        Camera whose level2match file to read.
+
+    Returns
+    -------
+    xarray.DataArray
+        Boolean, dims=["time"], coords=[timeIndex].
+    """
+    import pandas as pd
+
+    allFalse = xr.DataArray(
+        np.zeros(len(timeIndex), dtype=bool), dims=["time"], coords=[timeIndex]
+    )
+
+    fL = files.FindFiles(case, camera, config)
+    lv2MatchFiles = fL.listFiles("level2match")
+    if len(lv2MatchFiles) == 0:
+        return allFalse
+
+    with xr.open_dataset(lv2MatchFiles[0]) as ds:
+        if "qualityFlags" not in ds:
+            return allFalse
+        quality = tools.unpackQualityFlags(ds.qualityFlags)
+        flag = quality.sel(flag="zResidualTooWide", drop=True).values.astype(bool)
+        matchTime = ds.time.values
+
+    # level2match and level2track are built with the same case/freq, so
+    # matchTime should already equal timeIndex exactly -- reindex anyway
+    # to be robust to any edge-case mismatch, defaulting to unflagged.
+    aligned = pd.Series(flag, index=pd.DatetimeIndex(matchTime)).reindex(
+        pd.DatetimeIndex(timeIndex), fill_value=False
+    )
+    return xr.DataArray(aligned.values.astype(bool), dims=["time"], coords=[timeIndex])
+
+
 def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="leader"):
     """
-    Per-time-bin flag for whether the level1match/level1track Z-consistency
-    residual (see matching.zResidualSigma) is too wide to trust -- see
+    Per-time-bin flag for whether the Z-consistency residual (see
+    matching.zResidualSigma) is too wide to trust -- see
     config.quality.maxZSigma's comment for the empirical basis. Unlike
     matchParticles' own self-heal escalation (which checks this per-FILE
     before attempting a rotation refit), this checks it per aggregation
@@ -2727,12 +2781,27 @@ def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="l
     matched leader/follower pairs); returns all-False for "detect" (no
     matching happens at that level).
 
+    **sublevel == "track" reuses level2match's own flag rather than
+    recomputing one from level1track.** Tracking itself filters out
+    exactly the particles that would show a wide Z residual -- a
+    correspondence with a wildly wrong Z estimate can't form a
+    continuous multi-frame track, so it doesn't survive into level1track
+    at all. Confirmed empirically: even on days with strong
+    level1match-level problems, level1track's own residual never
+    exceeded ~3.5 (well under `config.quality.maxZSigma`), so computing
+    this independently from level1track data is systematically too
+    insensitive to ever fire. level2track therefore depends on
+    level2match for this flag specifically (see products.py's
+    `LEVEL_REGISTRY["level2track"]["parents"]`, which lists
+    `leader_level2match`) rather than being a self-contained per-level
+    computation like the other quality flags.
+
     Like tracksTooShort in addVariables, this is a *flag*, not a filter:
     the caller folds it into the per-timestep qualityFlags bitmask without
     dropping or NaN-ing any data -- it is up to whoever consumes the
     level2 output to decide whether to exclude data flagged this way.
 
-    Reads level1{sublevel} files independently (same
+    For sublevel == "match", reads level1match files independently (same
     listFilesWithNeighbors approach _createLevel2part uses for the main
     aggregation, and the same "second lightweight read" pattern
     getDataQuality/_getDataQuality1 already uses for metaEvents-based
@@ -2754,8 +2823,9 @@ def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="l
     sublevel : str
         One of ["match", "track", "detect"].
     camera : str, optional
-        Camera whose level1{sublevel} files to read (default "leader" --
-        matching/tracking output is leader-only regardless of camera).
+        Camera whose level1{sublevel}/level2match files to read (default
+        "leader" -- matching/tracking output is leader-only regardless of
+        camera).
 
     Returns
     -------
@@ -2769,6 +2839,9 @@ def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="l
     )
     if sublevel not in ("match", "track"):
         return allFalse
+
+    if sublevel == "track":
+        return _readZResidualFlagFromLevel2Match(case, config, timeIndex, camera)
 
     fL = files.FindFiles(case, camera, config)
     lv1Files = fL.listFilesWithNeighbors(f"level1{sublevel}")

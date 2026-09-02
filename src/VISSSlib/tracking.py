@@ -557,6 +557,13 @@ class Tracker(object):
             [featureVariance[k] for k in ["distance"] + self.featureKeys]
         )
         self._hasFeatures = len(self.featureVariance) > 1
+        # Dmax's cost variance is overridden per track below (scaled to the
+        # track's own size) instead of using the fixed value from
+        # featureVariance, so large/tumbling particles aren't penalized for
+        # their naturally larger frame-to-frame Dmax jitter.
+        self._dmaxFeatureIdx = (
+            self.featureKeys.index("Dmax") if "Dmax" in self.featureKeys else None
+        )
 
         # intitalize
         self.lastTime = np.datetime64("2010-01-01T00:00:00")
@@ -932,8 +939,18 @@ class Tracker(object):
             )
         else:
             joinedDiffs = distancesSq[:, :, np.newaxis]
+
         # weigh squared difference with assumed variance and sum up
-        self.cost = (joinedDiffs / self.featureVariance).mean(axis=-1)
+        if self._hasFeatures and self._dmaxFeatureIdx is not None:
+            # per-track variance: distance (and any other feature) keeps the
+            # fixed value, but Dmax's variance scales with the track's own
+            # size instead of a fixed 1 px^2
+            variance = np.tile(self.featureVariance, (len(self.activeTracks), 1))
+            trackDmax = trackFeatures[:, self._dmaxFeatureIdx]
+            variance[:, 1 + self._dmaxFeatureIdx] = np.maximum(1, (0.1 * trackDmax) ** 2)
+            self.cost = (joinedDiffs / variance[:, np.newaxis, :]).mean(axis=-1)
+        else:
+            self.cost = (joinedDiffs / self.featureVariance).mean(axis=-1)
         if not self.training and (self.verbosity > 5):
             print(self._frameid, joinedDiffs / self.featureVariance)
         if not self.training and (self.verbosity > 5):

@@ -563,6 +563,25 @@ def detectCaptureIdDropTimes(
     if (len(leaderDat[dim]) == 0) or (len(followerDat[dim]) == 0):
         return []
 
+    # Both leader and follower have their own onboard clock that can drift
+    # independently (see makeCaptureTimeEvenBothCameras's docstring) --
+    # over a ~10-minute window that drift can accumulate past half a frame
+    # period, at which point this function's own nearest-time matching
+    # silently latches onto the *next* frame instead of the true
+    # corresponding one, producing a spurious, sustained idDiff step that
+    # looks exactly like a genuine dropped frame (confirmed on real data:
+    # hyytiala2_v3 20240216-125000 falsely "detected" a drop at 12:57:47
+    # this way -- V1.0 output, from before this function existed, used a
+    # single constant offset for the whole file with no matchScore
+    # degradation anywhere, proving no real drop occurred). Prefer
+    # capture_time_even (drift-removed) for *both* sides symmetrically if
+    # the caller has already reconstructed it -- previously only the
+    # follower side was checked, which happened to be enough to hide this
+    # exact false positive in testing but left the leader side vulnerable
+    # to the same failure mode.
+    timeDimLeader = timeDim
+    if (timeDim == "capture_time") and ("capture_time_even" in leaderDat.data_vars):
+        timeDimLeader = "capture_time_even"
     timeDimFollower = timeDim
     if (timeDim == "capture_time") and ("capture_time_even" in followerDat.data_vars):
         timeDimFollower = "capture_time_even"
@@ -576,7 +595,7 @@ def detectCaptureIdDropTimes(
     idDiffs = []
     for point in points:
         absDiff = np.abs(
-            leaderDat[timeDim].isel(**{dim: point}).values
+            leaderDat[timeDimLeader].isel(**{dim: point}).values
             - followerDat[timeDimFollower]
         )
         pMin = np.min(absDiff).values
@@ -586,7 +605,7 @@ def detectCaptureIdDropTimes(
                 followerDat.capture_id.values[pII]
                 - leaderDat.capture_id.isel(**{dim: point}).values
             )
-            times.append(leaderDat[timeDim].isel(**{dim: point}).values)
+            times.append(leaderDat[timeDimLeader].isel(**{dim: point}).values)
 
     if len(idDiffs) < 2 * minRunLength:
         return []

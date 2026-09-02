@@ -2697,10 +2697,46 @@ def matchParticles(
         maxDiffMsForDropDetection = maxDiffMs
         if maxDiffMsForDropDetection == "config":
             maxDiffMsForDropDetection = 1000 / config.fps / 2
+        # detectCaptureIdDropTimes runs on the whole (multi-segment) window
+        # up front, before any per-segment capture_time_even reconstruction
+        # has happened -- level1detect never stores capture_time_even on
+        # disk, so without this, both leaderDat/followerDat only have raw,
+        # drift-affected capture_time available, and each camera's own
+        # onboard clock can drift enough within a ~10-minute window to make
+        # this function's nearest-time matching latch onto the wrong frame
+        # partway through, producing a spurious, sustained idDiff step that
+        # is indistinguishable from a genuine dropped frame. Confirmed on
+        # real data (hyytiala2_v3 20240216-125000): this falsely detected a
+        # "drop" that split the window and matched the back ~130s with the
+        # wrong offset, tanking matchScore there, even though a
+        # constant-offset match (as an older code version without this
+        # detection produced) scored well for the entire file. Proactively
+        # reconstruct capture_time_even for both cameras first when this
+        # deployment opts into the fix, exactly like the reactive fallback
+        # `_resolveMatchingOffset` already uses per-segment, so the drop
+        # detector isn't fooled by drift it doesn't otherwise see.
+        leaderForDropDetection = leader1D
+        followerForDropDetection = follower1DAll
+        if "makeCaptureTimeEvenBothCameras" in config.dataFixes:
+            try:
+                leaderForDropDetection, followerForDropDetection = (
+                    fixes.makeCaptureTimeEvenBothCameras(
+                        leader1D, follower1DAll, config
+                    )
+                )
+            except Exception as e:
+                log.warning(
+                    tools.concat(
+                        "makeCaptureTimeEvenBothCameras FAILED ahead of "
+                        "detectCaptureIdDropTimes, falling back to raw "
+                        "capture_time",
+                        str(e),
+                    )
+                )
         try:
             captureIdDropTimes = fixes.detectCaptureIdDropTimes(
-                leader1D,
-                follower1DAll,
+                leaderForDropDetection,
+                followerForDropDetection,
                 dim="fpid",
                 nPoints=nPoints,
                 maxDiffMs=maxDiffMsForDropDetection,

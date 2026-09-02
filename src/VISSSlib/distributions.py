@@ -497,12 +497,14 @@ def _createLevel2(
         lv2File,
         events=[(fL, "metaEvents")],
         parents=[(fL, f"level1{sublevel}")],
+        minVersionLevel=f"level2{sublevel}",
     ):
         return None, None
     if skipExisting and tools.checkForExisting(
         "%s.nodata" % lv2File,
         events=[(fL, "metaEvents")],
         parents=[(fL, f"level1{sublevel}")],
+        minVersionLevel=f"level2{sublevel}",
     ):
         return None, None
 
@@ -660,7 +662,15 @@ def _createLevel2(
         camera=camera,
     )
 
-    lv2Dat = tools.finishNc(lv2Dat, config.site, config.visssGen)
+    versionParentFiles = {f"level1{sublevel}": lv1Files}
+    if sublevel == "track":
+        versionParentFiles["level2match"] = fL.listFiles("level2match")
+    lv2Dat = tools.finishNc(
+        lv2Dat,
+        config.site,
+        config.visssGen,
+        extra=tools.collectVersionAttrs(f"level2{sublevel}", versionParentFiles),
+    )
 
     lv2Dat.D_bins.attrs.update(
         dict(units="m", long_name="size bins", comment="label at center of bin")

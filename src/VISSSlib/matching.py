@@ -2452,6 +2452,7 @@ def matchParticles(
         if skipExisting and tools.checkForExisting(
             fname1Match,
             parents=[fnameLv1Detect, fnameMetaRotation] + fnames1F,
+            minVersionLevel="level1match",
         ):
             return fname1Match, None, None, None, None, None, None, errors
 
@@ -2968,7 +2969,14 @@ def matchParticles(
                     f"found {nPairs} particles"
                 )
 
-    matchedDats = tools.finishNc(matchedDats, config.site, config.visssGen)
+    matchedDats = tools.finishNc(
+        matchedDats,
+        config.site,
+        config.visssGen,
+        extra=tools.collectVersionAttrs(
+            "level1match", {"level1detect": [fnameLv1Detect] + fnames1F}
+        ),
+    )
 
     matchedDats["fitMethod"] = matchedDats.fitMethod.astype("U30")
     matchedDats["dim2D"] = matchedDats.dim2D.astype("U2")

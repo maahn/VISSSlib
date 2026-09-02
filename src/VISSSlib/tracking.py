@@ -1417,6 +1417,7 @@ def trackParticles(
     if skipExisting and tools.checkForExisting(
         fnameTracking,
         parents=glob.glob(f"{fnameLv1Match}*"),
+        minVersionLevel="level1track",
     ):
         print("SKIPPING", fnameTracking)
         return None, None
@@ -1490,7 +1491,14 @@ def trackParticles(
     lv1track, velSlope, velIntercept = trackTrainer.updateAll()
     print("final slope and intercept", velSlope, velIntercept)
 
-    lv1track = tools.finishNc(lv1track, config.site, config.visssGen)
+    lv1track = tools.finishNc(
+        lv1track,
+        config.site,
+        config.visssGen,
+        extra=tools.collectVersionAttrs(
+            "level1track", {"level1match": [fnameLv1Match]}
+        ),
+    )
     lv1track.load()
     print(lv1track)
     if writeNc:

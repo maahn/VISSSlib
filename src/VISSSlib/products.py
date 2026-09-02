@@ -520,6 +520,7 @@ class DataProduct(object):
                 and (len(exisiting) >= 1)
                 and (os.path.getmtime(pName) < os.path.getmtime(exisiting[0]))
                 and extraOlder
+                and not tools.belowMinVersion(self.level, exisiting[0])
             ):
                 log.debug(f"{self.relatives} skip exisiting {exisiting[0]}")
                 continue
@@ -796,8 +797,32 @@ class DataProduct(object):
         bool
             True if this product is up to date with all parents, False otherwise
         """
-        upToDateWithParents = np.all(list(self._upToDateWithParentsDict.values()))
+        upToDateWithParents = (
+            np.all(list(self._upToDateWithParentsDict.values()))
+            and self._pastReprocessBreakpoint
+        )
         return upToDateWithParents
+
+    @cached_property
+    def _pastReprocessBreakpoint(self):
+        """
+        Whether this product's own files are all at or above
+        tools.MIN_VERSION[self.level] (see tools.belowMinVersion) -- True
+        (vacuously) if this level has no MIN_VERSION entry. Folded into
+        _upToDateWithParents so a code change that invalidates
+        previously produced files -- without any parent file changing,
+        which the normal mtime-based check can't see -- still forces
+        regeneration. See tools.MIN_VERSION for why/when to use this.
+
+        Returns
+        -------
+        bool
+        """
+        if self.level not in tools.MIN_VERSION:
+            return True
+        return not any(
+            tools.belowMinVersion(self.level, f) for f in self.listFilesExt()
+        )
 
     @cached_property
     def _parentsUpToDateWithGrandparents(self):

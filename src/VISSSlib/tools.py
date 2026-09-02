@@ -1904,6 +1904,142 @@ def _statusText(fig, fnames, config, addLogo=True):
     return fig
 
 
+_HISTORY_VERSION_RE = re.compile(r"created with VISSSlib (\S+)")
+
+
+def collectVersionAttrs(level, parentFiles):
+    """
+    Build version-provenance attrs for `finishNc`'s `extra=`.
+
+    Records this level's own __versionFull__ under "{level}_version",
+    plus every "*_version"/"*_versions" attr already recorded on each
+    direct parent's files, folded forward under its own key -- so the
+    whole ancestor chain (e.g. level1detect -> level1match ->
+    level1track -> level2track) accumulates without each level needing
+    to know its grandparents. If a parent's underlying files disagree
+    (e.g. partial reprocessing), the key becomes the plural
+    "*_versions" form with a sorted, comma-joined list of the distinct
+    values seen.
+
+    A direct parent file that predates this feature entirely (no
+    "*_version" attrs of its own at all -- the case for every existing
+    level1detect file, since reprocessing level1detect is not
+    feasible and it will never gain a clean "level1detect_version" attr
+    on its own) falls back to parsing its "history" attr (every file
+    already gets one from `ncAttrs`, of the form "...created with
+    VISSSlib X.Y.Z..."), so the chain still records *something* for
+    that ancestor instead of silently dropping it forever.
+
+    Parameters
+    ----------
+    level : str
+        This level's name, e.g. "level1match".
+    parentFiles : dict of str -> list of str
+        Maps each DIRECT parent level name to the already-produced
+        file(s) of that level this product was built from, e.g.
+        {"level1detect": [leaderFile, *followerFiles]} for level1match,
+        or {"level1track": [...], "level2match": [...]} for
+        level2track. The level name is only used for the "history"
+        fallback above (a file that already carries its own clean
+        version attr doesn't need it). Files that don't exist or aren't
+        valid netCDF (e.g. broken.txt/nodata sentinels) are silently
+        skipped.
+
+    Returns
+    -------
+    dict
+        Attrs to pass as `finishNc(..., extra=...)`.
+    """
+    merged = {}
+
+    def addVersion(base, value):
+        merged.setdefault(base, set()).update(str(value).split(","))
+
+    for parentLevel, files_ in parentFiles.items():
+        for f in files_:
+            try:
+                with xr.open_dataset(f) as pds:
+                    attrs = dict(pds.attrs)
+            except Exception:
+                continue
+            foundOwn = False
+            for k, v in attrs.items():
+                if k.endswith("_versions"):
+                    addVersion(k[: -len("_versions")], v)
+                    foundOwn = True
+                elif k.endswith("_version"):
+                    addVersion(k[: -len("_version")], v)
+                    foundOwn = True
+            if not foundOwn:
+                m = _HISTORY_VERSION_RE.search(attrs.get("history", ""))
+                if m:
+                    addVersion(parentLevel, m.group(1))
+
+    result = {}
+    for base, vs in merged.items():
+        vs = sorted(vs)
+        key = f"{base}_version" if len(vs) == 1 else f"{base}_versions"
+        result[key] = ",".join(vs)
+
+    result[f"{level}_version"] = __versionFull__
+    return result
+
+
+# Minimum acceptable "{level}_version" attr (see collectVersionAttrs) for an
+# existing output file. A file below this -- or with no such attr at all,
+# i.e. written before this feature existed -- is treated as stale and
+# reprocessed regardless of how its parents' mtimes compare. This is for
+# code changes that alter a level's own logic without changing any parent
+# file (the normal mtime-based skipExisting check already handles every
+# other case). Remove an entry once the fleet has caught up; if a later,
+# separate code-only change needs a fresh breakpoint, bump the value to
+# something genuinely higher than the current __versionFull__ (cut a new
+# git tag first if it hasn't moved since the last breakpoint).
+MIN_VERSION = {
+    "level1track": "1.2.1",  # Dmax cost-variance + dropped-frame fixes (a5aeb2c, 92bb6ce)
+}
+
+
+def _versionTuple(v):
+    parts = []
+    for p in str(v).split("."):
+        m = re.match(r"\d+", p)
+        parts.append(int(m.group()) if m else 0)
+    return tuple(parts)
+
+
+def belowMinVersion(level, ncFile):
+    """
+    Whether `ncFile` (an existing `level` output) predates
+    MIN_VERSION[level], per its own "{level}_version" attr.
+
+    Returns False (never forces reprocessing) if there is no
+    MIN_VERSION entry for `level`, or if `ncFile` can't be opened as
+    netCDF at all -- nonexistent, a broken.txt/nodata sentinel, or (this
+    matters for tests) an empty placeholder file. A real, openable file
+    with no "{level}_version" attr at all (it predates this feature) is
+    treated as below the minimum.
+
+    Parameters
+    ----------
+    level : str
+        Level name, e.g. "level1track".
+    ncFile : str
+        Path to the existing output file to check.
+    """
+    minVersion = MIN_VERSION.get(level)
+    if minVersion is None:
+        return False
+    try:
+        with xr.open_dataset(ncFile) as ds:
+            fileVersion = ds.attrs.get(f"{level}_version")
+    except Exception:
+        return False
+    if fileVersion is None:
+        return True
+    return _versionTuple(fileVersion) < _versionTuple(minVersion)
+
+
 def ncAttrs(site, visssGen, extra={}):
     """
     Generate NetCDF attributes.
@@ -2916,7 +3052,9 @@ def _newestMtime(items):
     return newest
 
 
-def checkForExisting(ffOut, level0=None, events=None, parents=None):
+def checkForExisting(
+    ffOut, level0=None, events=None, parents=None, minVersionLevel=None
+):
     """
     Check if file exists and is up-to-date including potential parents.
 
@@ -2936,6 +3074,10 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
         globbing and stat'ing every one of that level's files (see
         _newestMtime/readLevelSummary). The two forms can be mixed
         freely within one list.
+    minVersionLevel : str, optional
+        If given, treat `ffOut` as needing regeneration when
+        `tools.belowMinVersion(minVersionLevel, ffOut)` is True -- see
+        MIN_VERSION. By default None (no such check).
 
     Returns
     -------
@@ -2944,6 +3086,12 @@ def checkForExisting(ffOut, level0=None, events=None, parents=None):
     """
     if not os.path.isfile(ffOut):
         # file does not exist yet
+        return False
+    if minVersionLevel is not None and belowMinVersion(minVersionLevel, ffOut):
+        log.warning(
+            f"file exists but predates the {minVersionLevel} reprocessing "
+            f"breakpoint (MIN_VERSION), redoing {ffOut}"
+        )
         return False
     if level0 is not None:
         if len(level0) == 0:

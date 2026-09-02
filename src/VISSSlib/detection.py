@@ -2248,7 +2248,10 @@ def detectParticles(
             snowParticlesXR,
             config.site,
             config.visssGen,
-            extra={"maxMovingObjects": config.level1detect.maxMovingObjects},
+            extra={
+                **tools.collectVersionAttrs("level1detect", {}),
+                "maxMovingObjects": config.level1detect.maxMovingObjects,
+            },
         )
         if writeNc:
             tools.to_netcdf2(snowParticlesXR, config, fn.fname.level1detect)

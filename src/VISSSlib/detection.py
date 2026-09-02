@@ -622,9 +622,13 @@ class detectedParticles(object):
                         )
 
                 # erosionTestThreshold does not apply to needles or similalrly shaped particles, also does not work to very small particles
+                # (same Dmax cutoff as the minBlur guard above: below this size, Canny edge
+                # detection on the blurred particle box can't reliably trace a closed
+                # boundary, so the erosion test's "vanishes under 1px erosion" signal is
+                # meaningless rather than indicative of a bad detection)
                 elif (
                     (self.lastParticle.aspectRatio[-1] > 0.4)
-                    and (self.lastParticle.Dmax > 5)
+                    and (self.lastParticle.Dmax >= 8)
                     and (ratio < self.config.level1detect.erosionTestThreshold)
                 ):
                     if self.verbosity > 2:

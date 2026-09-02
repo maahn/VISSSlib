@@ -392,13 +392,13 @@ class TestDetection(object):
         # approximation fix, 4.12's findContours optimization, 4.13's
         # new findTRUContours) -- rtol=1e-3 isn't reproducible across
         # OpenCV versions, observed drift is up to ~2%
-        assert np.isclose(dat.Dmax.mean(), 6.45963144, rtol=0.02)
-        assert np.isclose(dat.area.mean(), 42.46416092, rtol=0.02)
-        assert np.isclose(dat.perimeter.mean(), 18.66514397, rtol=0.02)
+        assert np.isclose(dat.Dmax.mean(), 6.44612646, rtol=0.02)
+        assert np.isclose(dat.area.mean(), 41.22136307, rtol=0.02)
+        assert np.isclose(dat.perimeter.mean(), 18.46730042, rtol=0.02)
         # contourFFT resamples the contour onto a fixed angular grid and
         # FFTs it, which turned out more sensitive still: observed drift
         # up to ~4.2% even between two machines on the *same* OpenCV
         # version, so this isn't purely a findContours-version effect --
         # some of it is platform-level floating point noise in the
         # resampling/FFT step
-        assert np.isclose(dat.contourFFT.mean(), 1.39864063, rtol=0.06)
+        assert np.isclose(dat.contourFFT.mean(), 1.45889866, rtol=0.06)

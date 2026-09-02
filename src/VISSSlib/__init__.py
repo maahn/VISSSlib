@@ -19,6 +19,7 @@
 # __version__ = '1.0.0' # new  version number scheme to allow better control about reprocessin, added FFT contour
 # __version__ = '1.1.0' # additional lv1 variables areaConsideringHoles, perimeterConsideringHoles
 # __version__ = '1.2.0' # additional lv1 variables solidity, extent, solidityConsideringHoles, extentConsideringHoles
+# __version__ = '1.2.1' # detection.py: raised erosion-test Dmax guard from 5 to 8 (matches sibling minBlur guard) so real small particles (Dmax 5-8px) are no longer rejected by add()
 
 
 # Version is pulled from git tag!!

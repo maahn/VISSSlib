@@ -232,7 +232,7 @@ class TestDataProductDAG:
 
     @pytest.mark.unit
     def test_generateAllCommands_survives_stale_day_level_false_positive(
-        self, config, queue
+        self, config, queue, monkeypatch
     ):
         """
         Regression test for a real bug found on hyytiala2_v3: iterative
@@ -259,6 +259,13 @@ class TestDataProductDAG:
         """
         case = "20260101"
         camera = "leader"
+        # This test is purely about the day-level false-positive heuristic
+        # below, not about tools.REPROCESS_AFTER's reprocessing breakpoint
+        # (which compares against real wall-clock time, while every mtime
+        # here is a tiny literal offset for relative-ordering purposes only)
+        # -- neutralize it so a future breakpoint entry can't turn every
+        # file below "stale" for an unrelated reason.
+        monkeypatch.setattr(VISSSlib.tools, "REPROCESS_AFTER", {})
 
         def touch(dp, level, suffix, mtime):
             # FilenamesFromLevel strictly parses this as 8 "_"-separated

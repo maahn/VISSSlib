@@ -1417,7 +1417,7 @@ def trackParticles(
     if skipExisting and tools.checkForExisting(
         fnameTracking,
         parents=glob.glob(f"{fnameLv1Match}*"),
-        minVersionLevel="level1track",
+        breakpointLevel="level1track",
     ):
         print("SKIPPING", fnameTracking)
         return None, None

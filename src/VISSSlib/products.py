@@ -499,6 +499,8 @@ class DataProduct(object):
                     )
             return []
 
+        minMtime = tools.reprocessBreakpoint(self.level)
+
         commands = []
         for pName in self.fn.listFilesExt(originLevel):
             if originLevel.startswith("level0"):
@@ -515,12 +517,17 @@ class DataProduct(object):
             else:
                 extraOlder = True
 
+            if (len(exisiting) >= 1) and (minMtime is not None):
+                pastBreakpoint = os.path.getmtime(exisiting[0]) >= minMtime
+            else:
+                pastBreakpoint = True
+
             if (
                 skipExisting
                 and (len(exisiting) >= 1)
                 and (os.path.getmtime(pName) < os.path.getmtime(exisiting[0]))
                 and extraOlder
-                and not tools.belowMinVersion(self.level, exisiting[0])
+                and pastBreakpoint
             ):
                 log.debug(f"{self.relatives} skip exisiting {exisiting[0]}")
                 continue
@@ -806,23 +813,29 @@ class DataProduct(object):
     @cached_property
     def _pastReprocessBreakpoint(self):
         """
-        Whether this product's own files are all at or above
-        tools.MIN_VERSION[self.level] (see tools.belowMinVersion) -- True
-        (vacuously) if this level has no MIN_VERSION entry. Folded into
+        Whether this product's own files are all at or after any
+        pending reprocessing breakpoint for this level
+        (tools.REPROCESS_AFTER) -- True (vacuously) if this level has
+        no such entry, or if it has no real files yet. Reuses
+        oldestFileCreation (already computed via the cached freshness
+        summary -- see _freshnessSummary) rather than re-stat'ing or
+        opening any file, so this costs nothing extra. Folded into
         _upToDateWithParents so a code change that invalidates
         previously produced files -- without any parent file changing,
         which the normal mtime-based check can't see -- still forces
-        regeneration. See tools.MIN_VERSION for why/when to use this.
+        regeneration. See tools.REPROCESS_AFTER for why/when to use
+        this.
 
         Returns
         -------
         bool
         """
-        if self.level not in tools.MIN_VERSION:
+        minMtime = tools.reprocessBreakpoint(self.level)
+        if minMtime is None:
             return True
-        return not any(
-            tools.belowMinVersion(self.level, f) for f in self.listFilesExt()
-        )
+        if self.oldestFileCreation == 0:
+            return True
+        return self.oldestFileCreation >= minMtime
 
     @cached_property
     def _parentsUpToDateWithGrandparents(self):

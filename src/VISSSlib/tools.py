@@ -1985,59 +1985,31 @@ def collectVersionAttrs(level, parentFiles):
     return result
 
 
-# Minimum acceptable "{level}_version" attr (see collectVersionAttrs) for an
-# existing output file. A file below this -- or with no such attr at all,
-# i.e. written before this feature existed -- is treated as stale and
-# reprocessed regardless of how its parents' mtimes compare. This is for
-# code changes that alter a level's own logic without changing any parent
-# file (the normal mtime-based skipExisting check already handles every
-# other case). Remove an entry once the fleet has caught up; if a later,
-# separate code-only change needs a fresh breakpoint, bump the value to
-# something genuinely higher than the current __versionFull__ (cut a new
-# git tag first if it hasn't moved since the last breakpoint).
-MIN_VERSION = {
-    "level1track": "1.2.1",  # Dmax cost-variance + dropped-frame fixes (a5aeb2c, 92bb6ce)
+# Per-level minimum acceptable output mtime ("breakpoint"). An existing
+# output file with an mtime older than this is treated as stale and
+# reprocessed regardless of how its parents' mtimes compare -- for code
+# changes that alter a level's own logic without changing any parent file
+# (the normal mtime-based skipExisting check already handles every other
+# case, and does so essentially for free since it's already comparing
+# mtimes -- deliberately NOT doing this via a per-file version attr, which
+# would mean opening every existing file just to check a string; mtime
+# reuses what's already being stat'd). Remove an entry once the fleet has
+# caught up.
+REPROCESS_AFTER = {
+    "level1track": datetime.datetime(2026, 9, 2, 17, 0, 0),  # Dmax cost-variance + dropped-frame fixes (a5aeb2c, 92bb6ce)
 }
 
 
-def _versionTuple(v):
-    parts = []
-    for p in str(v).split("."):
-        m = re.match(r"\d+", p)
-        parts.append(int(m.group()) if m else 0)
-    return tuple(parts)
-
-
-def belowMinVersion(level, ncFile):
+def reprocessBreakpoint(level):
     """
-    Whether `ncFile` (an existing `level` output) predates
-    MIN_VERSION[level], per its own "{level}_version" attr.
-
-    Returns False (never forces reprocessing) if there is no
-    MIN_VERSION entry for `level`, or if `ncFile` can't be opened as
-    netCDF at all -- nonexistent, a broken.txt/nodata sentinel, or (this
-    matters for tests) an empty placeholder file. A real, openable file
-    with no "{level}_version" attr at all (it predates this feature) is
-    treated as below the minimum.
-
-    Parameters
-    ----------
-    level : str
-        Level name, e.g. "level1track".
-    ncFile : str
-        Path to the existing output file to check.
+    Minimum acceptable mtime (POSIX timestamp) for existing `level`
+    output files, or None if there is no pending breakpoint for this
+    level. See REPROCESS_AFTER.
     """
-    minVersion = MIN_VERSION.get(level)
-    if minVersion is None:
-        return False
-    try:
-        with xr.open_dataset(ncFile) as ds:
-            fileVersion = ds.attrs.get(f"{level}_version")
-    except Exception:
-        return False
-    if fileVersion is None:
-        return True
-    return _versionTuple(fileVersion) < _versionTuple(minVersion)
+    cutoff = REPROCESS_AFTER.get(level)
+    if cutoff is None:
+        return None
+    return cutoff.timestamp()
 
 
 def ncAttrs(site, visssGen, extra={}):
@@ -3053,7 +3025,7 @@ def _newestMtime(items):
 
 
 def checkForExisting(
-    ffOut, level0=None, events=None, parents=None, minVersionLevel=None
+    ffOut, level0=None, events=None, parents=None, breakpointLevel=None
 ):
     """
     Check if file exists and is up-to-date including potential parents.
@@ -3074,10 +3046,10 @@ def checkForExisting(
         globbing and stat'ing every one of that level's files (see
         _newestMtime/readLevelSummary). The two forms can be mixed
         freely within one list.
-    minVersionLevel : str, optional
-        If given, treat `ffOut` as needing regeneration when
-        `tools.belowMinVersion(minVersionLevel, ffOut)` is True -- see
-        MIN_VERSION. By default None (no such check).
+    breakpointLevel : str, optional
+        If given, treat `ffOut` as needing regeneration when its mtime
+        is older than `tools.reprocessBreakpoint(breakpointLevel)` --
+        see REPROCESS_AFTER. By default None (no such check).
 
     Returns
     -------
@@ -3087,10 +3059,11 @@ def checkForExisting(
     if not os.path.isfile(ffOut):
         # file does not exist yet
         return False
-    if minVersionLevel is not None and belowMinVersion(minVersionLevel, ffOut):
+    minMtime = reprocessBreakpoint(breakpointLevel) if breakpointLevel else None
+    if minMtime is not None and os.path.getmtime(ffOut) < minMtime:
         log.warning(
-            f"file exists but predates the {minVersionLevel} reprocessing "
-            f"breakpoint (MIN_VERSION), redoing {ffOut}"
+            f"file exists but predates the {breakpointLevel} reprocessing "
+            f"breakpoint (REPROCESS_AFTER), redoing {ffOut}"
         )
         return False
     if level0 is not None:

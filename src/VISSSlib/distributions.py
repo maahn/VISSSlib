@@ -497,14 +497,14 @@ def _createLevel2(
         lv2File,
         events=[(fL, "metaEvents")],
         parents=[(fL, f"level1{sublevel}")],
-        minVersionLevel=f"level2{sublevel}",
+        breakpointLevel=f"level2{sublevel}",
     ):
         return None, None
     if skipExisting and tools.checkForExisting(
         "%s.nodata" % lv2File,
         events=[(fL, "metaEvents")],
         parents=[(fL, f"level1{sublevel}")],
-        minVersionLevel=f"level2{sublevel}",
+        breakpointLevel=f"level2{sublevel}",
     ):
         return None, None
 

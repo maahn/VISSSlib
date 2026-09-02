@@ -2452,7 +2452,7 @@ def matchParticles(
         if skipExisting and tools.checkForExisting(
             fname1Match,
             parents=[fnameLv1Detect, fnameMetaRotation] + fnames1F,
-            minVersionLevel="level1match",
+            breakpointLevel="level1match",
         ):
             return fname1Match, None, None, None, None, None, None, errors
 

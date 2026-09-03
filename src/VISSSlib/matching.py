@@ -618,6 +618,66 @@ def zResidualSigma(matchedDat, rotate, config):
     return float(np.nanstd(diffZ))
 
 
+def _worstLocalZSigma(matchedDat, config, binSeconds=60):
+    """
+    Worst (maximum) per-time-bin Z-residual sigma within a single
+    matchedDat, or None if no bin has enough pairs to judge.
+
+    matchParticles' quality gate only ever looks at the file's AGGREGATE
+    matchScore/Z-residual sigma -- a file with one genuinely bad few-
+    minute stretch can pass comfortably on aggregate if the rest of the
+    10-minute file is fine, exactly the gap
+    `distributions.getZResidualQuality`'s level2 `zResidualTooWide` flag
+    was built to catch after the fact, on already-written output. This
+    computes the same per-bin check *before* writing the file, so a
+    localized problem gets a chance at the same refit self-heal an
+    aggregate failure already gets, rather than only ever being
+    reported downstream with nothing attempted.
+
+    Parameters
+    ----------
+    matchedDat : xarray.Dataset
+        Matched-pairs dataset with `position3D_center` (i.e. already
+        through `addPosition`) and a leader/follower "camera" dimension.
+    config : dict
+        Configuration settings (for config.leader, config.quality.*).
+    binSeconds : float, optional
+        Width of the time bins to check, default 60s -- matches level2's
+        own per-minute granularity.
+
+    Returns
+    -------
+    float or None
+        The worst per-bin sigma among bins with enough pairs to trust
+        (the same "~1 pair/second" floor `getZResidualQuality` uses), or
+        None if no bin qualifies (too few pairs everywhere, or the file
+        spans less than one full bin).
+    """
+    import pandas as pd
+
+    time = matchedDat.capture_time.sel(camera=config.leader).values
+    pos = matchedDat.position3D_center
+    diffZ = (pos.sel(dim3D="z") - pos.sel(dim3D="z_rotated")).values
+
+    start = pd.Timestamp(np.min(time)).floor(f"{int(binSeconds)}s")
+    end = pd.Timestamp(np.max(time)) + pd.Timedelta(seconds=binSeconds)
+    bins = pd.date_range(start, end, freq=f"{int(binSeconds)}s")
+    if len(bins) < 2:
+        return None
+
+    binCode = pd.cut(pd.DatetimeIndex(time), bins=bins, right=False, labels=False)
+    binned = pd.Series(diffZ, index=binCode).dropna()
+    grouped = binned.groupby(level=0)
+    sigmaPerBin = grouped.std()
+    countPerBin = grouped.count()
+
+    minPairsPerBin = max(1, round(binSeconds))
+    valid = sigmaPerBin[countPerBin >= minPairsPerBin]
+    if len(valid) == 0:
+        return None
+    return float(valid.max())
+
+
 def refitRotationFromMatches(
     matchedDat,
     rotate,
@@ -2694,6 +2754,7 @@ def matchParticles(
         ).values
     )
     captureIdDropTimes = []
+    phaseJumpTimes = []
     if ptpDisabled:
         maxDiffMsForDropDetection = maxDiffMs
         if maxDiffMsForDropDetection == "config":
@@ -2753,11 +2814,39 @@ def matchParticles(
                 )
             )
 
+        # detectCaptureIdDropTimes works in capture_id space and, since
+        # this session's false-positive fix, deliberately prefers
+        # capture_time_even -- which makes it structurally blind to a
+        # brief raw-capture_time-only glitch on one camera (capture_id
+        # numbering itself stays perfectly regular). Run the
+        # complementary raw-time-vs-its-own-reconstruction check on the
+        # untouched raw data for the same reason the drop detector needs
+        # capture_time_even: two different failure modes need two
+        # different signals. See detectPhaseJumpTimes's docstring for
+        # the confirmed real-world case (hyytiala2_v3 20240213-215000)
+        # this recovers.
+        if "detectTimingGlitches" in config.dataFixes:
+            try:
+                phaseJumpTimes = fixes.detectPhaseJumpTimes(
+                    leader1D, follower1DAll, config
+                )
+            except Exception as e:
+                log.warning(tools.concat("detectPhaseJumpTimes FAILED", str(e)))
+            if len(phaseJumpTimes) > 0:
+                log.warning(
+                    tools.concat(
+                        "found likely timing glitch(es), splitting matching "
+                        "window at",
+                        phaseJumpTimes,
+                    )
+                )
+
     timeBlocks = np.concatenate(
         (
             follower1DAll.capture_time.values[:1],
             followerRestarted,
             np.array(captureIdDropTimes, dtype=follower1DAll.capture_time.values.dtype),
+            np.array(phaseJumpTimes, dtype=follower1DAll.capture_time.values.dtype),
             follower1DAll.capture_time.values[-1:],
         )
     )
@@ -2968,6 +3057,131 @@ def matchParticles(
                     f"minMatchScore {config.quality.minMatchScore} even though we "
                     f"found {nPairs} particles"
                 )
+
+        # The gate above only ever looks at the file's AGGREGATE
+        # matchScore/Z-residual, which a localized problem confined to a
+        # few minutes of an otherwise-fine 10-minute file can hide from
+        # entirely -- exactly the gap distributions.getZResidualQuality's
+        # level2 zResidualTooWide flag exists to catch, but only after
+        # the fact, with nothing ever attempted. Give a localized problem
+        # the same refit chance an aggregate failure gets -- but unlike
+        # an aggregate failure, never reject the whole file over it:
+        # unlike an aggregate failure (which means this file would
+        # otherwise be entirely discarded), an otherwise-passing file
+        # with one bad patch is already useful data, so if the refit
+        # doesn't actually help, silently keep the original result and
+        # let the existing level2 flag do its job rather than discarding
+        # a mostly-good file over a few minutes a refit couldn't fix.
+        if sigma == "default":
+            preLocalSigma = _worstLocalZSigma(matchedDats, config)
+            if (preLocalSigma is not None) and (
+                preLocalSigma > config.quality.maxZSigma
+            ):
+                overallSigma = zResidualSigma(matchedDats, rotate_final, config)
+                if overallSigma > config.quality.maxZSigma:
+                    # same reasoning as the early-exit above: a refit
+                    # corrects bias, not spread, and the file-wide spread
+                    # is already too wide, so a localized refit can't
+                    # help either -- don't spend the compute.
+                    log.warning(
+                        tools.concat(
+                            "localized Z-residual spread is",
+                            preLocalSigma,
+                            "(exceeds maxZSigma",
+                            config.quality.maxZSigma,
+                            ") but the file's overall Z-residual spread is",
+                            overallSigma,
+                            "(also too wide) -- a refit can't fix scatter, "
+                            "leaving it for level2's zResidualTooWide flag "
+                            "to report",
+                        )
+                    )
+                else:
+                    log.warning(
+                        tools.concat(
+                            "localized Z-residual spread is",
+                            preLocalSigma,
+                            "which exceeds maxZSigma",
+                            config.quality.maxZSigma,
+                            "in at least one time bin, even though the "
+                            "file passed on aggregate -- trying a cheap "
+                            "rotation refit before accepting the "
+                            "localized problem as-is",
+                        )
+                    )
+                    preLocalRefitMatchedDats = matchedDats
+                    candidate = candidateRotate = candidateRotateErr = None
+                    healed = refitRotationFromMatches(
+                        matchedDats,
+                        rotate_final,
+                        rotate_err_final,
+                        config,
+                        sigma=sigma,
+                        nSamples4rot=nSamples4rot,
+                        y_cov_diag=y_cov_diag,
+                    )
+                    if healed is not None:
+                        candidate, candidateRotate, candidateRotateErr = healed
+                    if (candidate is None) or (
+                        candidate.matchScore.median().values
+                        < config.quality.minMatchScore
+                    ):
+                        # single-window refit either failed outright or
+                        # dragged the aggregate score below the minimum --
+                        # try the same time-segmented escalation the
+                        # aggregate-failure path falls back to.
+                        healedSeg = refitRotationFromMatches(
+                            preLocalRefitMatchedDats,
+                            rotate_final,
+                            rotate_err_final,
+                            config,
+                            sigma=sigma,
+                            nSamples4rot=nSamples4rot,
+                            y_cov_diag=y_cov_diag,
+                            nSegments=15,
+                        )
+                        if healedSeg is not None:
+                            candidate, candidateRotate, candidateRotateErr = (
+                                healedSeg
+                            )
+
+                    keepCandidate = False
+                    candidateLocalSigma = None
+                    if candidate is not None:
+                        candidateAggregate = candidate.matchScore.median().values
+                        candidateLocalSigma = _worstLocalZSigma(candidate, config)
+                        # only accept the refit if it didn't drag the
+                        # aggregate score below the minimum AND it
+                        # actually shrank the localized problem -- a
+                        # refit that "succeeds" by making things worse
+                        # elsewhere is not an improvement.
+                        keepCandidate = (
+                            candidateAggregate >= config.quality.minMatchScore
+                            and candidateLocalSigma is not None
+                            and candidateLocalSigma < preLocalSigma
+                        )
+                    if keepCandidate:
+                        log.info(
+                            tools.concat(
+                                "localized Z-residual refit improved worst-bin "
+                                "sigma from",
+                                preLocalSigma,
+                                "to",
+                                candidateLocalSigma,
+                            )
+                        )
+                        matchedDats, rotate_final, rotate_err_final = (
+                            candidate,
+                            candidateRotate,
+                            candidateRotateErr,
+                        )
+                    else:
+                        log.warning(
+                            "localized Z-residual refit did not help (or made "
+                            "things worse) -- keeping the original result; "
+                            "the affected minute(s) will still be flagged by "
+                            "level2's zResidualTooWide quality bit"
+                        )
 
     matchedDats = tools.finishNc(
         matchedDats,

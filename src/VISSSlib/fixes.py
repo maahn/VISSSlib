@@ -632,6 +632,128 @@ def detectCaptureIdDropTimes(
     return breakTimes
 
 
+def detectPhaseJumpTimes(
+    leaderDat,
+    followerDat,
+    config,
+    dim="fpid",
+    binSeconds=10,
+    minJumpFrac=0.5,
+    recoverBins=3,
+):
+    """
+    Find times where one camera's raw ``capture_time`` makes a brief,
+    self-correcting jump away from its own steady, ``capture_id``-implied
+    schedule -- roughly one frame period, lasting minutes, then decaying
+    back -- as opposed to a genuine ``capture_id``-level drop (handled by
+    `detectCaptureIdDropTimes`) or ordinary independent per-camera clock
+    drift (removed by `makeCaptureTimeEvenBothCameras`).
+
+    Confirmed on real data (hyytiala2_v3 20240213-215000): the follower's
+    raw capture_time jumped ~4.25ms (~1 frame period at this deployment's
+    fps) relative to its own capture_id-implied schedule at 21:51:07,
+    then decayed back over the following ~8.5 minutes -- capture_id
+    numbering itself never skipped or repeated a value there (confirmed
+    by inspection), so `detectCaptureIdDropTimes` (which works in
+    capture_id space) cannot see it, and resolving the matching offset
+    from `capture_time_even` (reconstructed purely from capture_id) is
+    blind to it by construction, since that reconstruction cannot
+    represent a discrepancy between capture_id and the camera's own
+    recorded timestamp. The single segment-wide offset
+    `_resolveMatchingOffset` picked for the rest of that file (correct
+    for the bulk of it) was wrongly applied to the ~70s window right
+    after the jump too, degrading Z-consistency there even though the
+    file's aggregate quality looked fine.
+
+    This is deliberately a different signal from `detectCaptureIdDropTimes`:
+    ordinary drift accumulates *smoothly* -- exactly what
+    `capture_time_even` already removes correctly -- and never produces a
+    single large bin-to-bin jump the way this transient does. Watching
+    the *rate of change* of (raw capture_time minus its own
+    capture_id-reconstructed value), rather than its absolute size, is
+    what tells the two apart without reintroducing the false-positive
+    `detectCaptureIdDropTimes` had before it started preferring
+    `capture_time_even` (see that function's docstring).
+
+    Parameters
+    ----------
+    leaderDat, followerDat : xarray.Dataset
+        RAW (not drift-corrected) leader/follower data with
+        ``capture_time`` and ``capture_id``, as read from level1detect.
+    config : dict
+        Configuration settings (for ``config.fps``).
+    dim : str, optional
+        Dimension to operate along, by default "fpid".
+    binSeconds : float, optional
+        Bin width for the raw-vs-reconstructed deviation series, by
+        default 10.
+    minJumpFrac : float, optional
+        Minimum bin-to-bin jump, as a fraction of one nominal frame
+        period (``1000/config.fps`` ms), to flag as a glitch, by
+        default 0.5.
+    recoverBins : int, optional
+        Number of consecutive bins the deviation must stay back within
+        tolerance of its pre-jump level to mark the glitch as over, by
+        default 3.
+
+    Returns
+    -------
+    list of numpy.datetime64
+        capture_time values (paired onset/recovery per glitch found) to
+        add as extra segment-split points, in time order. Each value is
+        in whichever camera's own capture_time it was detected from --
+        consistent with how `timeBlocks` already mixes leader- and
+        follower-timeline boundaries as approximate wall-clock cut
+        points.
+    """
+    import pandas as pd
+
+    framePeriodMs = 1000 / config.fps
+    threshold = minJumpFrac * framePeriodMs
+    configSlope = int(round(1e9 / config.fps, -3))
+
+    breakTimes = []
+    for dat in (leaderDat, followerDat):
+        if len(dat[dim]) < 2 * recoverBins:
+            continue
+        ct = dat.capture_time.values
+        cid = dat.capture_id.values
+        even = (
+            (cid.astype("int64") - cid[0]) * configSlope + ct[0].astype("int64")
+        ).astype("datetime64[ns]")
+        diffMs = (ct - even) / np.timedelta64(1, "ms")
+
+        s = (
+            pd.Series(diffMs, index=pd.DatetimeIndex(ct))
+            .resample(f"{int(binSeconds)}s")
+            .median()
+            .dropna()
+        )
+        if len(s) < 2 * recoverBins:
+            continue
+
+        vals = s.values
+        times = s.index.values
+        jumps = np.abs(np.diff(vals))
+        onsets = np.where(jumps > threshold)[0] + 1
+
+        for onsetIdx in onsets:
+            baseline = vals[onsetIdx - 1]
+            recovered = None
+            for j in range(onsetIdx, len(vals) - recoverBins + 1):
+                window = vals[j : j + recoverBins]
+                if np.all(np.abs(window - baseline) <= threshold):
+                    recovered = j
+                    break
+            breakTimes.append(times[onsetIdx])
+            if recovered is not None:
+                breakTimes.append(times[recovered])
+
+    if len(breakTimes) == 0:
+        return []
+    return sorted(np.unique(np.array(breakTimes, dtype="datetime64[ns]")).tolist())
+
+
 def removeFlippedCaptureTimeFrames(metaDat1, fname):
     """
     Drop frames around isolated backwards jumps in one source's capture_time.

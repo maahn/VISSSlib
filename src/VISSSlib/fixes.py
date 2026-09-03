@@ -640,6 +640,7 @@ def detectPhaseJumpTimes(
     binSeconds=10,
     minJumpFrac=0.5,
     recoverBins=3,
+    maxOnsetsPerCamera=5,
 ):
     """
     Find times where one camera's raw ``capture_time`` makes a brief,
@@ -695,6 +696,19 @@ def detectPhaseJumpTimes(
         Number of consecutive bins the deviation must stay back within
         tolerance of its pre-jump level to mark the glitch as over, by
         default 3.
+    maxOnsetsPerCamera : int, optional
+        A genuine transient should be rare (at most a couple of times
+        in a 10-minute file) -- confirmed on real data
+        (hyytiala2_v3 20240112-030001, an extreme-density file with
+        2.6M leader particles): the raw-vs-reconstructed deviation
+        itself becomes noisy enough at that density to cross the
+        threshold in nearly every bin, which produced 179 "onsets"
+        spaced exactly one bin apart rather than a real repeating
+        hardware event, and would have fragmented the file into ~180
+        useless few-second segments. If a camera's raw onset count
+        exceeds this, the signal for that camera is untrustworthy at
+        this operating point -- discard all its onsets rather than
+        acting on noise, by default 5.
 
     Returns
     -------
@@ -736,6 +750,17 @@ def detectPhaseJumpTimes(
         times = s.index.values
         jumps = np.abs(np.diff(vals))
         onsets = np.where(jumps > threshold)[0] + 1
+
+        if len(onsets) > maxOnsetsPerCamera:
+            log.warning(
+                f"detectPhaseJumpTimes found {len(onsets)} onsets in one "
+                f"camera, exceeding maxOnsetsPerCamera={maxOnsetsPerCamera} "
+                "-- treating the raw-vs-reconstructed deviation as too "
+                "noisy to trust (e.g. extreme particle density) rather "
+                "than a real repeating transient, discarding all of this "
+                "camera's onsets"
+            )
+            continue
 
         for onsetIdx in onsets:
             baseline = vals[onsetIdx - 1]

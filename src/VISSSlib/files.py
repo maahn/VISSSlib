@@ -295,7 +295,7 @@ class FindFiles(object):
             self.fnamesPattern[dL] = "%s/%s_V%s*%s*%s*.nc" % (
                 self.outpath[dL],
                 dL,
-                version,
+                self.versionShort,
                 self.camera,
                 self.case,
             )
@@ -337,7 +337,7 @@ class FindFiles(object):
             self.fnamesPattern[dL] = "%s/%s_V%s_*%s*%s%s%s.nc" % (
                 self.outpath[dL],
                 dL,
-                version,
+                self.versionShort,
                 self.camera,
                 self.year,
                 self.month,
@@ -347,7 +347,7 @@ class FindFiles(object):
             self.fnamesPattern[dL] = "%s/%s_V%s_*%s*%s%s%s-%s%s.nc" % (
                 self.outpath[dL],
                 dL,
-                version,
+                self.versionShort,
                 self.camera,
                 self.year,
                 self.month,
@@ -370,7 +370,7 @@ class FindFiles(object):
             self.fnamesPatternExt[dL] = "%s/%s_V%s_*%s*%s*nc.[b,n][r,o]*" % (
                 self.outpath[dL],
                 dL,
-                version,
+                self.versionShort,
                 self.camera,
                 self.case,
             )  # finds broken & nodata
@@ -389,7 +389,7 @@ class FindFiles(object):
             self.fnamesDaily[dL] = "%s/%s_V%s_%s_%s_%s_%s_%s%s%s.nc" % (
                 self.outpath[dL],
                 dL,
-                version,
+                self.versionShort,
                 config.site,
                 self.computer,
                 config["visssGen"],
@@ -410,7 +410,7 @@ class FindFiles(object):
             self.fnamesHourly[dL] = "%s/%s_V%s_%s_%s_%s_%s_%s%s%s-%s%s.nc" % (
                 self.outpath[dL],
                 dL,
-                version,
+                self.versionShort,
                 config.site,
                 self.computer,
                 config["visssGen"],
@@ -428,7 +428,7 @@ class FindFiles(object):
         for qL in quicklookLevelsSep + quicklookLevelsComb:
             self.quicklookPath[
                 qL
-            ] = f'{config["pathQuicklooks"].format(version=version, site=config["site"], level=qL)}/{self.year}'
+            ] = f'{config["pathQuicklooks"].format(version=self.versionShort, site=config["site"], level=qL)}/{self.year}'
 
         for qL in quicklookLevelsSep:
             if self.hour == "":
@@ -441,7 +441,7 @@ class FindFiles(object):
                 ] = f"{self.quicklookPath[qL]}/{qL}_V{version.split('.')[0]}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_{self.year}{self.month}{self.day}T{self.hour}.png"
             self.quicklookCurrent[
                 qL
-            ] = f"{config['pathQuicklooks'].format(version=version,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_current.png"
+            ] = f"{config['pathQuicklooks'].format(version=self.versionShort,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_current.png"
         for qL in quicklookLevelsComb:
             if self.hour == "":
                 self.quicklook[
@@ -1261,7 +1261,7 @@ class Filenames(object):
                     version=self.versionShort, site=config["site"], level=fL
                 ),
                 fL,
-                version,
+                self.versionShort,
                 config["site"],
                 self.basename,
             )
@@ -1272,7 +1272,7 @@ class Filenames(object):
                     version=self.versionShort, site=config["site"], level=fL
                 ),
                 fL,
-                version,
+                self.versionShort,
                 config["site"],
                 self.basenameShort,
             )

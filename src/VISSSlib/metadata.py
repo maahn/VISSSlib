@@ -345,10 +345,23 @@ def _readHeaderData(fname, returnLasttime=False):
             capture_lasttime = capture_firsttime
             last_id = None
         elif lastLine.startswith("# Last capture time"):
-            # meta data version 0.4 and later
+            # meta data version 0.4 and later -- unlike every other
+            # timestamp in this file (the "us since epoche" header, and
+            # the raw Capture time/Record time columns), this trailer
+            # line's value is written in whole SECONDS since epoch, not
+            # microseconds (e.g. "1782691799", 10 digits, vs. the
+            # ~16-digit microsecond values used everywhere else in the
+            # same file). Multiplying by 1e-6 here as if it were
+            # microseconds silently produced a ~1970-01-01
+            # capture_lasttime for essentially every file, which then
+            # poisoned distributions._getDataQuality1's per-minute
+            # recording-coverage check (a non-NaT capture_lasttime is
+            # trusted outright, so the bogus ~1970 "file end" made every
+            # minute look zero-covered) into flagging "cameras off"
+            # (recordingFailed) for ~100% of level2 output fleet-wide.
             capture_lasttime = int(lastLine.split(":")[1])
             capture_lasttime = datetime.datetime.fromtimestamp(
-                int(capture_lasttime) * 1e-6, datetime.UTC
+                capture_lasttime, datetime.UTC
             )
             last_id = None
         else:

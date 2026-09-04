@@ -239,7 +239,7 @@ class FindFiles(object):
             self.camera = camera
         self.config = config
         self.version = version
-        self.versionShort = version.split(".")[:2]
+        self.versionShort = ".".join(version.split(".")[:2])
 
         computerDict = {}
         for computer1, camera1 in zip(config["computers"], config["instruments"]):
@@ -1203,7 +1203,7 @@ class Filenames(object):
 
         self.config = config
         self.version = version
-        self.versionShort = version.split(".")[:2]
+        self.versionShort = ".".join(version.split(".")[:2])
 
         self.basename = os.path.basename(fname).split(".")[0]
         self.dirname = os.path.dirname(fname)

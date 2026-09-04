@@ -2840,7 +2840,7 @@ def _queueHasLeasableTask(tq):
     return False
 
 
-def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
+def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600, maxIdleSeconds=60):
     """
     Worker function for processing queue items.
 
@@ -2869,6 +2869,20 @@ def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
         being a valid "done" signal). Must comfortably exceed the
         slowest realistic single-file runtime for whatever commands
         this queue carries, not just the typical one.
+    maxIdleSeconds : int, optional
+        Every worker in this job must simultaneously report idle
+        (status all 0) for this many seconds, checked every `waitTime`
+        seconds, before this worker gives up and exits, by default 60.
+        This is deliberately short -- SLURM jobs should free their
+        allocation for other cluster users promptly once a queue is
+        genuinely empty, rather than sit idle. It does mean a worker
+        can exit during a brief real gap between two submission stages
+        (e.g. one script finishes draining a batch, then computes what
+        to submit next) -- that CPU slot is then gone until a new
+        `workers()`/SLURM job is launched. Guarding against that is the
+        job of whoever is orchestrating multi-stage submissions (launch
+        workers right before submitting each stage), not this worker's
+        patience.
 
     Returns
     -------
@@ -2878,6 +2892,8 @@ def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
     time.sleep(ww / 5.0)  # to avoid race conditions
     tq = taskqueue.TaskQueue(f"fq://{queue}")
     out = None
+    idleRounds = 0
+    idleRoundsBeforeExit = max(1, round(maxIdleSeconds / waitTime))
     while True:
         if _queueHasLeasableTask(tq):
             if status is not None:
@@ -2899,10 +2915,15 @@ def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600):
             log.warning(f"worker {ww} queue {queue} empty or fully leased elsewhere")
         if status is not None:
             if np.all([ss == 0 for ss in status]):
-                log.warning(
-                    f"do not restart worker {ww} because all empty {[status[i] for i in range(len(status))]}"
-                )
-                break
+                idleRounds += 1
+                if idleRounds >= idleRoundsBeforeExit:
+                    log.warning(
+                        f"do not restart worker {ww} because all empty for "
+                        f"{idleRounds} consecutive rounds {[status[i] for i in range(len(status))]}"
+                    )
+                    break
+            else:
+                idleRounds = 0
             summary = [status[i] for i in range(len(status))]
         else:
             summary = ""
@@ -2954,7 +2975,23 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True, leaseSeconds=21
         x.start()
         workerList.append(x)
     if join:
-        [x.join() for x in workerList]
+        # Reap whichever processes have actually finished, not in launch
+        # order: `[x.join() for x in workerList]` blocks on workerList[0]
+        # first, so any later-indexed process that already exited sits
+        # as a zombie (<defunct>, invisible to `ps` as doing real work)
+        # until every earlier process's blocking join() finally returns
+        # -- which can be a very long time if an early worker is still
+        # genuinely mid-task. Polling is_alive() and joining only the
+        # already-dead ones reaps them immediately regardless of exit
+        # order.
+        remaining = list(workerList)
+        while remaining:
+            remaining = [x for x in remaining if x.is_alive()]
+            for x in workerList:
+                if not x.is_alive():
+                    x.join(timeout=0)
+            if remaining:
+                time.sleep(1)
     return workerList
 
 

@@ -2521,6 +2521,7 @@ def createLevel2detectQuicklook(
         processingFailed = quality.sel(flag="processingFailed", drop=True)
         blowingSnow = quality.sel(flag="blowingSnow", drop=True)
         cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
+        matchYieldLow = quality.sel(flag="matchYieldLow", drop=True)
 
         for ax in axs[:, 0]:
             ax.set_title(None)
@@ -2577,6 +2578,16 @@ def createLevel2detectQuicklook(
                     alpha=0.25,
                     label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
                 )  # , hatch='///')
+            cond = quality.time.where(matchYieldLow)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="brown",
+                    alpha=0.25,
+                    label=f"stereo match yield < {config.quality.minMatchedParticles} despite good detection",
+                )
             ax.set_ylim(ylim)
 
             ax.tick_params(axis="both", labelsize=15)
@@ -2776,6 +2787,7 @@ def createLevel2matchQuicklook(
         blowingSnow = quality.sel(flag="blowingSnow", drop=True)
         cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
         zResidualTooWide = quality.sel(flag="zResidualTooWide", drop=True)
+        matchYieldLow = quality.sel(flag="matchYieldLow", drop=True)
 
         for ax in axs[:, 0]:
             ax.set_title(None)
@@ -2840,6 +2852,16 @@ def createLevel2matchQuicklook(
                     color="cyan",
                     alpha=0.2,
                     label=f"Z-residual sigma > {config.quality.maxZSigma} px",
+                )
+            cond = quality.time.where(matchYieldLow)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="brown",
+                    alpha=0.25,
+                    label=f"stereo match yield < {config.quality.minMatchedParticles} despite good detection",
                 )
             ax.set_ylim(ylim)
 
@@ -3066,6 +3088,7 @@ def createLevel2trackQuicklook(
         cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
         tracksTooShort = quality.sel(flag="tracksTooShort", drop=True)
         zResidualTooWide = quality.sel(flag="zResidualTooWide", drop=True)
+        matchYieldLow = quality.sel(flag="matchYieldLow", drop=True)
 
         for ax in axs[:, 0]:
             ax.set_title(None)
@@ -3142,6 +3165,16 @@ def createLevel2trackQuicklook(
                     color="cyan",
                     alpha=0.2,
                     label=f"Z-residual sigma > {config.quality.maxZSigma} px",
+                )
+            cond = quality.time.where(matchYieldLow)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="brown",
+                    alpha=0.25,
+                    label=f"stereo match yield < {config.quality.minMatchedParticles} despite good detection",
                 )
 
             ax.set_ylim(ylim)
@@ -3874,6 +3907,7 @@ def createLevel3RimingQuicklook(
         blowingSnow = quality.sel(flag="blowingSnow", drop=True)
         cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
         tracksTooShort = quality.sel(flag="tracksTooShort", drop=True)
+        matchYieldLow = quality.sel(flag="matchYieldLow", drop=True)
 
         for ax in axs:
             ax.set_title(None)
@@ -3939,6 +3973,16 @@ def createLevel3RimingQuicklook(
                     color="blue",
                     alpha=0.2,
                     label=f"mean track length < {config.quality.trackLengthThreshold}",
+                )
+            cond = quality.time.where(matchYieldLow)
+            if cond.notnull().any():
+                ax.fill_between(
+                    cond,
+                    [ylim[0]] * len(quality.time),
+                    [ylim[1]] * len(quality.time),
+                    color="brown",
+                    alpha=0.25,
+                    label=f"stereo match yield < {config.quality.minMatchedParticles} despite good detection",
                 )
 
             ax.set_ylim(ylim)

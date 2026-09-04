@@ -27,7 +27,7 @@ import xarray as xr
 from addict import Dict
 from loguru import logger as log
 
-from . import __version__, __versionFull__, files, fixes
+from . import __version__, files, fixes
 
 DEFAULT_SETTINGS = {
     # settings that must be provided in YAML file
@@ -1911,7 +1911,7 @@ def collectVersionAttrs(level, parentFiles):
     """
     Build version-provenance attrs for `finishNc`'s `extra=`.
 
-    Records this level's own __versionFull__ under "{level}_version",
+    Records this level's own __version__ under "{level}_version",
     plus every "*_version"/"*_versions" attr already recorded on each
     direct parent's files, folded forward under its own key -- so the
     whole ancestor chain (e.g. level1detect -> level1match ->
@@ -1981,7 +1981,7 @@ def collectVersionAttrs(level, parentFiles):
         key = f"{base}_version" if len(vs) == 1 else f"{base}_versions"
         result[key] = ",".join(vs)
 
-    result[f"{level}_version"] = __versionFull__
+    result[f"{level}_version"] = __version__
     return result
 
 
@@ -2043,7 +2043,7 @@ def ncAttrs(site, visssGen, extra={}):
     attrs = {
         "title": f"Video In Situ Snowfall Sensor (VISSS) observations at {site}",
         "source": f"{visssGen} observations at {site}",
-        "history": f"{str(datetime.datetime.now(datetime.UTC))}: created with VISSSlib {__versionFull__} and OpenCV {cv2.__version__} on {socket.getfqdn()}{user}",
+        "history": f"{str(datetime.datetime.now(datetime.UTC))}: created with VISSSlib {__version__} and OpenCV {cv2.__version__} on {socket.getfqdn()}{user}",
         "command": myCommand,
         "references": "Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introducing the Video In Situ Snowfall Sensor (VISSS). Atmospheric Measurement Techniques, 17, 899–919, https://doi.org/10.5194/amt-17-899-2024.",
     }

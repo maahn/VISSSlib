@@ -26,12 +26,12 @@
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = ".".join(version("VISSSlib").split(".")[:2])
-    __versionFull__ = version("VISSSlib")
+    __versionShort__ = ".".join(version("VISSSlib").split(".")[:2])
+    __version__ = version("VISSSlib")
 except PackageNotFoundError:
     # package is not installed
+    __versionShort__ = "NotAvailable"
     __version__ = "NotAvailable"
-    __versionFull__ = "NotAvailable"
     pass
 
 

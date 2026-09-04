@@ -239,6 +239,7 @@ class FindFiles(object):
             self.camera = camera
         self.config = config
         self.version = version
+        self.versionShort = version.split(".")[:2]
 
         computerDict = {}
         for computer1, camera1 in zip(config["computers"], config["instruments"]):
@@ -278,11 +279,11 @@ class FindFiles(object):
         self.outpath = DictNoDefault({})
         for dL in fileLevels + hourlyLevels:
             self.outpath[dL] = outpath.format(
-                site=config.site, level=dL, version=self.version
+                site=config.site, level=dL, version=self.versionShort
             )
         for dL in dailyLevels:
             self.outpath[dL] = outpathDaily.format(
-                site=config.site, level=dL, version=self.version
+                site=config.site, level=dL, version=self.versionShort
             )
         self.outpath["level0"] = (
             config["path"].format(site=config["site"], level="level0")
@@ -729,7 +730,7 @@ class FindFiles(object):
         return "%s/%s_V%s_%s_%s.%s" % (
             self.outpath[level],
             level,
-            self.version,
+            self.versionShort,
             self.camera,
             self.case,
             kind,
@@ -1202,6 +1203,7 @@ class Filenames(object):
 
         self.config = config
         self.version = version
+        self.versionShort = version.split(".")[:2]
 
         self.basename = os.path.basename(fname).split(".")[0]
         self.dirname = os.path.dirname(fname)
@@ -1256,7 +1258,7 @@ class Filenames(object):
         for fL in fileLevels:
             self.fname[fL] = "%s/%s_V%s_%s_%s.nc" % (
                 self.outpath.format(
-                    version=self.version, site=config["site"], level=fL
+                    version=self.versionShort, site=config["site"], level=fL
                 ),
                 fL,
                 version,
@@ -1267,7 +1269,7 @@ class Filenames(object):
         for fL in dailyLevels:
             self.fname[fL] = "%s/%s_V%s_%s_%s.nc" % (
                 self.outpathDaily.format(
-                    version=self.version, site=config["site"], level=fL
+                    version=self.versionShort, site=config["site"], level=fL
                 ),
                 fL,
                 version,
@@ -1317,9 +1319,11 @@ class Filenames(object):
         outpath = self.outpath if level in fileLevels else self.outpathDaily
         dayCase = f"{self.year}{self.month}{self.day}"
         return "%s/%s_V%s_%s_%s.%s" % (
-            outpath.format(version=self.version, site=self.config["site"], level=level),
+            outpath.format(
+                version=self.versionShort, site=self.config["site"], level=level
+            ),
             level,
-            self.version,
+            self.versionShort,
             self.camera,
             dayCase,
             kind,
@@ -1405,7 +1409,9 @@ class Filenames(object):
         if not self.isNoData(fromLevel):
             return False
         self.writeStatus(
-            toLevel, "nodata", message or f"{fromLevel} is nodata: {self.fname[fromLevel]}"
+            toLevel,
+            "nodata",
+            message or f"{fromLevel} is nodata: {self.fname[fromLevel]}",
         )
         return True
 

@@ -67,13 +67,37 @@ what's actually missing gets regenerated. It deliberately does **not** touch
 SLURM directly (no `sbatch`/`squeue`/`scancel`) — existing workers drain the
 queue on their own.
 
-**2-worker SLURM cap**: during a QC pass, keep concurrent SLURM worker jobs
-draining this queue capped at 2 (not the full batch-processing worker count)
-— this is a manual constraint on however many `worker` jobs are running
-against the queue, since QC reprocessing is exploratory rather than a full
-production backfill and shouldn't compete hard with other cluster load. If
-it's unclear how many workers are currently running or how to cap them on
-this cluster, ask the user rather than guessing at `sbatch`/`squeue` usage.
+**Check `tools.REPROCESS_AFTER` before including `level1track` (or
+anything downstream of it) in `--products`.** This dict can mark an
+entire level as stale fleet-wide regardless of individual `.broken.txt`
+status (e.g. a `level1track` entry from a 2026-09-02 Dmax/dropped-frame
+fix) — `generateAllCommands`'s DAG walk picks this up silently and can
+inflate a submission meant to cover a few hundred QC findings into tens
+of thousands of commands, absorbing a much larger, possibly
+deliberately-deferred backlog (see
+`project_detectphasejump_fleetwide_scan.md` for a case where this
+happened on nyaalesund_v5). Check `tools.REPROCESS_AFTER` and any memory
+noting a deferred backlog for the target config before submitting; if in
+doubt, confirm scope with the user rather than assuming a QC-scoped
+resubmit stays QC-scoped.
+
+**SLURM is a shared cluster resource — no artificial worker cap.** An
+earlier version of this playbook capped concurrent QC workers at 2; that
+was corrected 2026-09-04 (see
+`feedback_do_not_touch_slurm.md`/`[[feedback-do-not-touch-slurm]]`): the
+queue and its workers are shared infrastructure other jobs/users legitimately
+use too, so submitting QC work onto a queue that already has unrelated
+traffic (e.g. another deployment's reprocessing) is expected and fine, not
+something to hold back on or ask permission for.
+
+**Order matters: submit to the queue first, then start a worker if one is
+needed.** A worker launched against an empty queue can idle-exit within
+~60s (see commit 55898f1, "Bound SLURM worker idle-exit to ~60s"), so
+starting a worker before there's anything queued risks it exiting before
+your `reprocess_broken.py` submission lands. If workers are already
+actively draining the target queue (check recent
+`~/slurm_<queue-basename>/*.processing.txt` mtimes), submitting is enough
+— no need to launch another.
 
 Don't wait inline for the queue to drain by polling tightly — check back
 after a reasonable interval, or ask the user to confirm workers have caught
@@ -160,6 +184,39 @@ Where `status` is one of `reprocessed-fixed`, `accepted-unfixable`, or
 `new-investigated`, and `note` is a one-line reason (e.g. "z-sigma 5.8 after
 refit, matches known-unfixable pattern" or "seed missing, see
 fix_level1match_rotation_seeds.py output").
+
+## Deliverable — LaTeX broken-periods table
+
+Alongside the markdown table above, always also emit a LaTeX version
+covering the **accepted-unfixable and new-investigated periods only**
+(skip `reprocessed-fixed` rows — those are resolved, not broken periods
+to report). Columns: period, affected camera(s), reason. Collapse
+consecutive per-file windows within the same day/period and cause into
+one row (the markdown table's per-window detail is for this chat; the
+LaTeX table is for a document, so it should read as a period list, not a
+file dump). Use `booktabs`; escape LaTeX special characters (`_`, `%`,
+`&`, `#`) in period strings and reasons before inserting them (e.g.
+`level1match_V1.2_...` → escape every `_`).
+
+```latex
+\begin{table}[htbp]
+  \centering
+  \caption{Broken/unfixable periods for <config-basename>}
+  \label{tab:<config-basename>-broken-periods}
+  \begin{tabular}{lll}
+    \toprule
+    Period & Camera(s) & Reason \\
+    \midrule
+    2023-12-07 & leader & Z-residual sigma too wide (correspondence ambiguity) \\
+    2024-01-02 & leader, follower & Corrupted video, 0 decodable frames \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+```
+
+Render this table directly in the chat response (inside a fenced ```latex
+block) after the markdown table — don't write it to a file unless the
+user asks.
 
 ## Step 7 — memory update policy
 

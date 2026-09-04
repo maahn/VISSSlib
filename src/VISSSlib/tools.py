@@ -185,33 +185,6 @@ DEFAULT_SETTINGS = {
         "minSize4insituM": 10,
         "obsRatioThreshold": 0.7,
         "trackLengthThreshold": 2,
-        # absolute matched-particle count below which a match/track time
-        # bin is flagged matchYieldLow -- but only once both cameras
-        # individually cleared compareNDetected's own 1000-particle
-        # detection floor (i.e. observationsRatio is not NaN), so this
-        # can only fire when level1detect shows both cameras were
-        # clearly seeing plenty of particles. Catches level1match
-        # silently producing near-zero pairs for a window despite
-        # healthy single-camera detection on both sides (a stereo
-        # correspondence/matching failure, not a recording or blocking
-        # problem -- neither cameraBlocked nor recordingFailed catch
-        # this, since the cameras were never actually down or
-        # obstructed) -- confirmed on hyytiala2_v4 2024-12-19, several
-        # ~5-10 minute windows with millions of per-camera detections
-        # but zero matched pairs and no other quality flag set.
-        "minMatchedParticles": 50,
-        # fraction of a level2 time bin (e.g. a minute) that must be
-        # covered by a real recorded file span (metaEvents
-        # capture_firsttime/lasttime) before the bin counts as
-        # recorded at all -- see distributions._getDataQuality1's
-        # recordingFailed ("cameras off"). Below 0.5 (previously a
-        # fixed 2-second grace period, i.e. >=~97% coverage required)
-        # a bin straddling a camera restart got flagged "cameras off"
-        # even when the covered majority of it already contained
-        # real, healthy particle counts -- see the hyytiala 2025-01-04
-        # 04:44 restart, where 36 of 60s were real and Ntot was
-        # comparable to neighboring unflagged minutes.
-        "minRecordingCoverage": 0.5,
     },
     "rotate": {},
 }
@@ -3178,7 +3151,6 @@ def unpackQualityFlags(quality, doubleTimestamps=False):
             "obervationsDiffer",
             "tracksTooShort",
             "zResidualTooWide",
-            "matchYieldLow",
         ],
         dims=["flag"],
         name="flag",

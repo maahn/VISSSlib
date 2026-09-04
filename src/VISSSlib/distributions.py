@@ -857,11 +857,9 @@ def _createLevel2(
             long_name="binary quality Flags",
             comment="For recordingFailed, "
             "processingFailed, cameraBlocked, blowingSnow, obervationsDiffer, "
-            "tracksTooShort, zResidualTooWide (matched leader/follower "
+            "tracksTooShort, and zResidualTooWide (matched leader/follower "
             "pairs disagree with each other more than a rotation refit "
-            "could fix, see config.quality.maxZSigma), and matchYieldLow "
-            "(both cameras detected plenty of particles but almost none "
-            "were matched, see config.quality.minMatchedParticles). "
+            "could fix, see config.quality.maxZSigma). "
             "Use VISSSlib.tools.unpackQualityFlags to unpack",
         )
     )
@@ -2056,7 +2054,6 @@ def addVariables(
         blowingSnow = blowingSnowRatio > config.quality.blowingSnowFrameThresh
         obervationsDiffer = np.array([False] * len(blockedPixels))
         tracksTooShort = np.array([False] * len(blockedPixels))
-        matchYieldLow = np.array([False] * len(blockedPixels))
 
     else:
         recordingFailed = recordingFailed.any("camera")
@@ -2073,21 +2070,6 @@ def addVariables(
             tracksTooShort = (
                 calibDat.track_length_mean <= config.quality.trackLengthThreshold
             )
-        # matchYieldLow: level1detect had plenty of particles on BOTH
-        # cameras (observationsRatio is only non-NaN once both cleared
-        # compareNDetected's 1000-particle floor) yet level1match/track
-        # produced almost none -- a stereo correspondence failure that
-        # cameraBlocked/recordingFailed don't catch, since the cameras
-        # were never actually down or obstructed. See
-        # config.quality.minMatchedParticles's comment for the
-        # confirmed real case this was built from.
-        matchedCount = calibDat["counts"].sum("D_bins")
-        matchYieldLow = (
-            observationsRatio.notnull()
-            & (matchedCount < config.quality.minMatchedParticles)
-            & ~cameraBlocked
-            & ~recordingFailed
-        )
 
     # apply quality
     log.info("apply quality filters...")
@@ -2143,14 +2125,6 @@ def addVariables(
                 "% of data",
             )
         )
-    if sublevel != "detect":
-        log.info(
-            tools.concat(
-                "matchYieldLow flagged",
-                matchYieldLow.values.sum() / len(matchYieldLow) * 100,
-                "% of data",
-            )
-        )
     allFilter = (
         recordingFailed
         | processingFailed
@@ -2159,7 +2133,6 @@ def addVariables(
         | obervationsDiffer
         | tracksTooShort
         | zResidualTooWide
-        | matchYieldLow
     )
     log.info(
         tools.concat(
@@ -2178,7 +2151,6 @@ def addVariables(
             obervationsDiffer,
             tracksTooShort,
             zResidualTooWide,
-            matchYieldLow,
         ],
         axis=-1,
     )
@@ -2675,9 +2647,8 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
             [], dims=["file_starttime"], coords={"file_starttime": []}
         )
 
+    graceTime = 2  # s
     newfiles1 = event1.isel(file_starttime=(event1.event == "newfile"))
-
-    graceTime = 2  # s, used only for the processingFailed/broken-file check below
 
     # VISSS only stores frames with detected motion, so a minute with zero
     # stored frames is not by itself evidence the camera was down -- it
@@ -2687,17 +2658,12 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
     # Sum each file's actual recorded span overlapping this minute (a file
     # that crashed early, e.g. a camera restart, stops covering minutes
     # well before file_starttime + newFileInt would suggest) and flag the
-    # minute as recordingFailed ("cameras off") only once LESS than
-    # config.quality.minRecordingCoverage of it is covered by any file's
-    # actual span. A minute straddling a restart typically still has real,
-    # trustworthy data for its covered majority (see hyytiala 2025-01-04
-    # 04:44, 36 of 60s real, Ntot on par with neighboring clean minutes) --
-    # flagging it "off" over a small uncovered minority discarded good
-    # data from downstream consumers filtering on this flag. Falls back to
-    # the nominal duration when capture_lasttime is unavailable (e.g. an
-    # in-progress file).
+    # minute whenever more than graceTime seconds of it aren't covered by
+    # any file's actual span -- catching both fully-missing minutes and
+    # partially-covered ("incomplete") ones. Falls back to the nominal
+    # duration when capture_lasttime is unavailable (e.g. an in-progress
+    # file).
     freqSeconds = int(timeIndex.freq.nanos * 1e-9)
-    minCoveredSeconds = config.quality.minRecordingCoverage * freqSeconds
     fileStart = newfiles1.file_starttime.values
     fileEndRaw = newfiles1.capture_lasttime.values
     nominalEnd = fileStart + np.timedelta64(config.newFileInt, "s")
@@ -2712,7 +2678,7 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
         overlapEnd = np.minimum(fileEnd, minuteEnd)
         overlapSeconds = (overlapEnd - overlapStart) / np.timedelta64(1, "s")
         covered = np.clip(overlapSeconds, 0, None).sum()
-        dataRecorded1 = covered >= minCoveredSeconds
+        dataRecorded1 = (freqSeconds - covered) <= graceTime
         #     print(tI1min, dataRecordedF, dataRecorded)
         dataRecorded.append(dataRecorded1)
 

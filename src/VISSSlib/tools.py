@@ -585,7 +585,7 @@ def getDateRange(nDays, config, endYesterday=True):
                     inclusive="both",
                 )
         else:
-            days = pd.DatetimeIndex(days)
+            days = pd.DatetimeIndex(days).tz_localize("UTC")
 
     else:
         days = pd.date_range(
@@ -2193,6 +2193,13 @@ def rotXr2dict(dat, config=None):
 
     if config is None:
         config = {}
+        config["rotate"] = {}
+    elif "rotate" not in config:
+        # an explicitly empty `rotate: {}` in the settings yaml does not
+        # survive flatten_dict's flatten/unflatten round-trip (an empty
+        # dict has no leaves to flatten), so config["rotate"] is simply
+        # absent rather than present-and-empty for a deployment that relies
+        # entirely on metaRotation-retrieved rotation with no static prior
         config["rotate"] = {}
     for ii, tt in enumerate(dat.file_starttime):
         t1 = pd.to_datetime(str(tt.values)).strftime("%Y%m%d-%H%M%S")

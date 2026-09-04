@@ -1689,9 +1689,21 @@ def createLevel1matchQuicklook(
     )
     cax[5].axis("off")
 
-    defaultRotation, prevTime = tools.getPrevRotationEstimate(
-        ff.datetime64, "transformation", config
-    )
+    try:
+        defaultRotation, prevTime = tools.getPrevRotationEstimate(
+            ff.datetime64, "transformation", config
+        )
+    except RuntimeError as e:
+        # e.g. case predates every entry in config.rotate (a legitimate
+        # deployment date with no rotation prior configured yet) --
+        # the reference axhlines below are a plotting nicety, not
+        # essential, but the gap itself should stay visible in the log
+        # rather than silently vanishing.
+        log.warning(
+            f"{case}: no rotation prior available for the theta/phi/Ofz "
+            f"reference lines ({e}); plotting without them"
+        )
+        defaultRotation = None
 
     theta = datM.camera_theta.sel(camera_rotation="mean").values.squeeze()
     _, _ = _plotVar(
@@ -1699,7 +1711,7 @@ def createLevel1matchQuicklook(
         datM.capture_time.isel(camera=0),
         ax[6],
         "theta",
-        axhline=defaultRotation["camera_theta"],
+        axhline=defaultRotation["camera_theta"] if defaultRotation else None,
         resample=resample,
     )
     phi = datM.camera_phi.sel(camera_rotation="mean").values.squeeze()
@@ -1708,7 +1720,7 @@ def createLevel1matchQuicklook(
         datM.capture_time.isel(camera=0),
         ax[7],
         "phi",
-        axhline=defaultRotation["camera_phi"],
+        axhline=defaultRotation["camera_phi"] if defaultRotation else None,
         resample=resample,
     )
     Ofz = datM.camera_Ofz.sel(camera_rotation="mean").values.squeeze()
@@ -1717,7 +1729,7 @@ def createLevel1matchQuicklook(
         datM.capture_time.isel(camera=0),
         ax[8],
         "Ofz",
-        axhline=defaultRotation["camera_Ofz"],
+        axhline=defaultRotation["camera_Ofz"] if defaultRotation else None,
         resample=resample,
     )
 

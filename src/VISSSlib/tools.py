@@ -1997,6 +1997,9 @@ def collectVersionAttrs(level, parentFiles):
 # caught up.
 REPROCESS_AFTER = {
     "level1track": datetime.datetime(2026, 9, 2, 17, 0, 0),  # Dmax cost-variance + dropped-frame fixes (a5aeb2c, 92bb6ce)
+    "level2detect": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
+    "level2match": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
+    "level2track": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
 }
 
 

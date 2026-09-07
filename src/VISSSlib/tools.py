@@ -828,6 +828,19 @@ def open_mflevel1detect(
     ) as ds:
         dat = ds.load()
 
+    # Concatenation above assumes each file's frames strictly follow the
+    # previous file's, but real capture_time values can overlap by a few
+    # tens of microseconds right at a file-rotation boundary (clock
+    # quantization) -- rare per boundary, but with hundreds of boundaries
+    # per day it shows up regularly. Downstream code (e.g.
+    # tools.cutFollowerToLeader's binary-search slicing) hard-asserts
+    # global monotonicity, so guarantee it here with a stable sort rather
+    # than let a rare boundary overlap surface as a downstream crash.
+    captureTimeValues = dat.capture_time.values
+    if not np.all(captureTimeValues[:-1] <= captureTimeValues[1:]):
+        sortIdx = np.argsort(captureTimeValues, kind="stable")
+        dat = dat.isel(pid=sortIdx)
+
     if start is not None:
         dat = dat.isel(pid=(dat.capture_time >= start))
         if len(dat.pid) == 0:

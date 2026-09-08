@@ -828,19 +828,6 @@ def open_mflevel1detect(
     ) as ds:
         dat = ds.load()
 
-    # Concatenation above assumes each file's frames strictly follow the
-    # previous file's, but real capture_time values can overlap by a few
-    # tens of microseconds right at a file-rotation boundary (clock
-    # quantization) -- rare per boundary, but with hundreds of boundaries
-    # per day it shows up regularly. Downstream code (e.g.
-    # tools.cutFollowerToLeader's binary-search slicing) hard-asserts
-    # global monotonicity, so guarantee it here with a stable sort rather
-    # than let a rare boundary overlap surface as a downstream crash.
-    captureTimeValues = dat.capture_time.values
-    if not np.all(captureTimeValues[:-1] <= captureTimeValues[1:]):
-        sortIdx = np.argsort(captureTimeValues, kind="stable")
-        dat = dat.isel(pid=sortIdx)
-
     if start is not None:
         dat = dat.isel(pid=(dat.capture_time >= start))
         if len(dat.pid) == 0:
@@ -1229,38 +1216,44 @@ def estimateCaptureIdDiffCore(
     # |t - followerTimes| against the *entire* follower array for every
     # single point (O(nPoints * N_follower), and paying xarray
     # per-element isel/argmin overhead nPoints times on top of that).
-    # followerDat[timeDimFollower] is sorted (particles are appended in
-    # capture order, same assumption tools.cutFollowerToLeader makes), so
-    # the nearest value to any query is always one of its two immediate
-    # neighbours at the binary-search insertion point -- searchsorted is
-    # O(log N) per query, run on all points at once.
+    #
+    # followerDat[timeDimFollower] is *nearly* sorted (particles are
+    # appended in capture order) but not guaranteed to be: the follower
+    # camera's onboard clock is resynced to the computer clock close to
+    # the start of each 10-minute file, which can make a handful of
+    # frames right at a file-rotation boundary compare out of order by a
+    # few tens/hundreds of microseconds even though their append order is
+    # correct. Checking only the two immediate searchsorted neighbours
+    # (as if the array were exactly sorted) can silently return the wrong
+    # nearest match right at such a boundary, with no assertion to catch
+    # it. Instead, use searchsorted as an approximate locator only, then
+    # check a padded window of candidates around it and take the true
+    # (order-independent) minimum within that window -- wide enough to
+    # comfortably contain the true nearest neighbour even right at a
+    # boundary perturbation, while still vectorized and far cheaper than
+    # the original per-point full-array search.
     followerTimes = followerDat[timeDimFollower].values
     followerCaptureId = followerDat.capture_id.values
-    assert np.all(followerTimes[:-1] <= followerTimes[1:]), (
-        f"followerDat.{timeDimFollower} is not sorted"
-    )
 
     leaderTimes = leaderDat[timeDimLeader].isel(**{dim: points}).values
     leaderCaptureId = leaderDat.capture_id.isel(**{dim: points}).values
 
     nFollower = len(followerTimes)
-    idxRight = np.clip(
+    windowRadius = 25
+    idxApprox = np.clip(
         np.searchsorted(followerTimes, leaderTimes, side="left"), 0, nFollower - 1
     )
-    idxLeft = np.clip(idxRight - 1, 0, nFollower - 1)
-
-    diffRight = np.abs(followerTimes[idxRight] - leaderTimes)
-    diffLeft = np.abs(followerTimes[idxLeft] - leaderTimes)
-    # On an exact tie, prefer the left neighbour to match np.argmin's
-    # first-occurrence behaviour on the original full-array search: a tie
-    # can only happen between the values immediately bracketing the
-    # insertion point (any other follower time is, by sortedness,
-    # strictly farther), and every occurrence of the left value has a
-    # lower original index than every occurrence of the right value.
-    useLeft = diffLeft <= diffRight
-
-    nearestIdx = np.where(useLeft, idxLeft, idxRight)
-    pMin = np.where(useLeft, diffLeft, diffRight)
+    offsets = np.arange(-windowRadius, windowRadius + 1)
+    # increasing offsets -> increasing (pre-clip) candidate index, so
+    # ties within the window resolve to the lowest original index first,
+    # matching np.argmin's first-occurrence tie-break on the original
+    # full-array search.
+    candidateIdx = np.clip(idxApprox[:, None] + offsets[None, :], 0, nFollower - 1)
+    candidateDiff = np.abs(followerTimes[candidateIdx] - leaderTimes[:, None])
+    bestInWindow = np.argmin(candidateDiff, axis=1)
+    rows = np.arange(len(leaderTimes))
+    nearestIdx = candidateIdx[rows, bestInWindow]
+    pMin = candidateDiff[rows, bestInWindow]
 
     keep = pMin < np.timedelta64(int(maxDiffMs), "ms")
     idDiffs = followerCaptureId[nearestIdx[keep]] - leaderCaptureId[keep]
@@ -1349,24 +1342,35 @@ def cutFollowerToLeader(leader, follower, gracePeriod=1, dim="fpid"):
 
     captureTimeValues = follower.capture_time.values
 
-    # Follower particles are appended in capture order, so the [start,
-    # end] window is a contiguous index range that a binary search over
-    # the 1D time array can find directly. That lets us slice with a
-    # basic integer range (a cheap view) instead of a boolean mask, which
-    # forces xarray to materialize a full copy of every variable in
-    # `follower`. This function is called once per leader chunk in
-    # doMatchSlicer, so for a large follower dataset that copy dominated
-    # runtime. If capture_time isn't sorted, plenty else downstream (this
-    # same assumption is already made of leader.capture_time[0]/[-1]
-    # above, and elsewhere in matching.py/tools.py) is already broken, so
-    # fail loudly here rather than silently falling back.
-    assert np.all(captureTimeValues[:-1] <= captureTimeValues[1:]), (
-        "follower.capture_time is not sorted"
-    )
+    # Follower particles are appended in capture order, so capture_time is
+    # *nearly* monotonic -- but not guaranteed to be: the follower
+    # camera's onboard clock is resynced to the computer clock close to
+    # the start of each 10-minute file, which can make a handful of
+    # frames right at a file-rotation boundary compare out of order by a
+    # few tens/hundreds of microseconds even though their append order is
+    # correct (the previous file's tail carries drift-inflated
+    # timestamps; the new file's head is freshly accurate). Sorting by
+    # that faulty comparison would flip those frames into the wrong
+    # order, so we must never assume or enforce global sortedness here.
+    #
+    # Instead, use searchsorted purely as an approximate locator (only
+    # exactly correct for genuinely sorted input, but off by no more than
+    # a handful of positions for data that's this close to sorted), pad
+    # generously on each side to comfortably cover that uncertainty, and
+    # then apply an exact, order-independent boolean filter within that
+    # local slice. This keeps 66ac0bd's win of not copying/scanning the
+    # entire (potentially much larger) follower dataset on every leader
+    # chunk in doMatchSlicer -- only the small padded slice is touched --
+    # without ever assuming order anywhere a correctness-affecting
+    # decision is made.
+    nFollower = len(captureTimeValues)
+    padFrames = 200
+    lo = max(np.searchsorted(captureTimeValues, start, side="left") - padFrames, 0)
+    hi = min(np.searchsorted(captureTimeValues, end, side="right") + padFrames, nFollower)
 
-    lo = np.searchsorted(captureTimeValues, start, side="left")
-    hi = np.searchsorted(captureTimeValues, end, side="right")
-    return follower.isel({dim: slice(lo, hi)})
+    candidate = follower.isel({dim: slice(lo, hi)})
+    mask = (candidate.capture_time.values >= start) & (candidate.capture_time.values <= end)
+    return candidate.isel({dim: mask})
 
 
 def nextCase(case):

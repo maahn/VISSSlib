@@ -2953,7 +2953,14 @@ def worker1(queue, ww=0, status=None, waitTime=5, leaseSeconds=21600, maxIdleSec
     return out
 
 
-def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True, leaseSeconds=21600):
+def workers(
+    queue,
+    nJobs=os.cpu_count(),
+    waitTime=60,
+    join=True,
+    leaseSeconds=21600,
+    maxIdleSeconds=60,
+):
     """
     Start multiple worker processes.
 
@@ -2971,6 +2978,11 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True, leaseSeconds=21
         Passed through to `worker1` -- see its docstring for why this
         must exceed the slowest realistic task runtime, by default
         21600 (6h).
+    maxIdleSeconds : int, optional
+        Passed through to `worker1` -- see its docstring; by default 60.
+        Callers that don't care about freeing a real SLURM allocation
+        promptly (e.g. tests walking many DAG stages back to back) can
+        pass a much smaller value to avoid paying this wait per stage.
 
     Returns
     -------
@@ -2990,6 +3002,7 @@ def workers(queue, nJobs=os.cpu_count(), waitTime=60, join=True, leaseSeconds=21
                 "status": status,
                 "waitTime": waitTime,
                 "leaseSeconds": leaseSeconds,
+                "maxIdleSeconds": maxIdleSeconds,
             },
         )
         x.start()

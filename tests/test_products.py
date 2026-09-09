@@ -32,6 +32,10 @@ class TestProducts:
                 ignoreErrors=False,
                 nJobs=2,
                 fileQueue=config.fileQueue,
+                # No real SLURM allocation to free promptly here -- skip
+                # most of worker1's idle-exit wait between the DAG's ~9
+                # stages (default 60s each) to keep this test fast.
+                maxIdleSeconds=2,
             )
         finally:
             # Clean up tmpPath after test
@@ -277,7 +281,7 @@ class TestDataProductDAG:
             os.makedirs(d, exist_ok=True)
             f = os.path.join(
                 d,
-                f"{level}_V{dp.fn.version}_{config.site}_{dp.fn.computer}_"
+                f"{level}_V{dp.fn.versionShort}_{config.site}_{dp.fn.computer}_"
                 f"{config.visssGen}_{dp.fn.camera}_{dp.fn.case}-{suffix}.nc",
             )
             open(f, "w").close()

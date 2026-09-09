@@ -1623,6 +1623,7 @@ def processAll(
     nJobs=os.cpu_count(),
     fileQueue=None,
     skipExisting=True,
+    maxIdleSeconds=60,
 ):
     """
     Process VISSS data for a specific case across all processing levels.
@@ -1648,6 +1649,12 @@ def processAll(
         File queue for task management. If None, a temporary queue will be created.
     skipExisting : bool, default True
         Whether to skip existing files during processing
+    maxIdleSeconds : int, default 60
+        Passed through to tools.workers -- how long each stage's workers
+        wait for confirmation the queue is genuinely empty before moving
+        on to the next level. See tools.worker1's docstring; callers not
+        running against a real SLURM allocation (e.g. tests) can pass a
+        much smaller value to skip most of this wait.
 
     Notes
     -----
@@ -1705,7 +1712,9 @@ def processAll(
         if prod in followerProducts:
             dp2 = DataProduct(prod, case, config, fileQueue, "follower")
             dp2.submitCommands(withParents=False, skipExisting=skipExisting)
-        tools.workers(fileQueue, waitTime=1, nJobs=nJobs)
+        tools.workers(
+            fileQueue, waitTime=1, nJobs=nJobs, maxIdleSeconds=maxIdleSeconds
+        )
         if not ignoreErrors:
             assert len(dp1.listBroken()) == 0, "leader files broken"
             assert len(dp1.listFiles()) > 0, "no leader output"

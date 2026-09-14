@@ -2824,6 +2824,31 @@ def runCommandInQueue(IN, stdout=subprocess.DEVNULL):
         try:
             createParentDir(fOut)
             shutil.copy(tmpFile, "%s.broken.txt" % fOut)
+            # This write bypasses open2/to_netcdf2 (it's a plain
+            # shutil.copy, not a real product write), so it would
+            # otherwise never bump the level's touch marker -- leaving
+            # _freshnessSummary's cached (oldest, newest) permanently
+            # stuck at whatever it was before this failure, even though
+            # a brand new .broken.txt with today's mtime now exists.
+            # That silently reproduces the exact allDone caching bug for
+            # every level that ever fails via the task queue (e.g. a
+            # known-bad metaRotation day: it succeeds at being marked
+            # broken, but keeps looking "not up to date" forever
+            # afterwards and gets regenerated -- harmlessly, since it
+            # just re-fails and re-writes the same broken.txt, but
+            # noisily -- on every single DAG check). Every generated
+            # command's settings yaml is always the first positional arg
+            # right after `-m VISSSlib <call>` (see
+            # products.py's _commandTemplateDaily/_commandTemplateL1), so
+            # recover it from the command string to bump the marker here
+            # too. Best-effort: ad hoc commands pushed straight into the
+            # queue (see reference_task_queue_submission) or the allDone
+            # touch command don't match and are silently skipped, same as
+            # _levelMarkerPaths already does for anything it doesn't
+            # recognize.
+            settingsMatch = re.search(r"-m\s+VISSSlib\s+\S+\s+(\S+\.ya?ml)", command)
+            if settingsMatch is not None:
+                _touchLevelMarker(fOut, readSettings(settingsMatch.group(1)))
         except:
             pass
 

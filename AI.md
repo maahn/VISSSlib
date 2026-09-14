@@ -103,9 +103,13 @@ level0 (raw video/csv/jpg from acquisition, read-only input)
 
 `level1detect/level1match/level1track` are per-10-minute-file products (square corners in
 the processing flowchart figure); most others are daily aggregates (rounded corners). This
-dependency graph is encoded explicitly as `parentNames` per level inside
-`products.DataProduct.__init__` (`src/VISSSlib/products.py`) — that block is the
-authoritative source of "what depends on what", not the prose above.
+dependency graph is encoded explicitly as `tools.LEVEL_REGISTRY` (`src/VISSSlib/tools.py`) —
+that dict is the authoritative source of "what depends on what", not the prose above.
+`products.DataProduct.__init__` resolves each level's `parentNames` from it, and each
+processing function's own `tools.checkForExisting(..., fL=..., level=...)` skip-check
+resolves the same declared parents (see `tools.resolveLevelParents`) rather than
+hand-writing its own list — the two used to drift apart (see the `level2track`/`level2match`
+case below) before they shared this one source.
 
 One exception to the otherwise-parallel level2 products: `level2track` also depends on
 `level2match` (not just `level1track`) — it reuses level2match's `zResidualTooWide` quality

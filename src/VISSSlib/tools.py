@@ -29,6 +29,195 @@ from loguru import logger as log
 
 from . import __version__, files, fixes
 
+
+def _allDoneParents(camera, config):
+    parents = [
+        "leader_metaEvents",
+        "follower_metaEvents",
+    ]
+    if config.level1match.processL1match:
+        parents += ["leader_level2track", "leader_level2match"]
+    if config.level2.processL2detect:
+        parents += ["leader_level2detect", "follower_level2detect"]
+    if config.level3.combinedRiming.processRetrieval:
+        parents += ["leader_level3combinedRiming"]
+    return parents
+
+
+# Single source of truth for "what depends on what" and "how is it built"
+# for every processing level. `parents` is a callable(camera, config) ->
+# list of f"{camera}_{level}" parent names (a callable because a few
+# levels' parents depend on the camera or on config flags, e.g. allDone).
+# `leaderOnly=True` means the level only ever exists for camera="leader".
+# `command` describes how products.DataProduct.generateCommands() builds
+# the shell command:
+#   ("none",)                                  no command (raw input levels)
+#   ("daily", call)                             one command for the whole day
+#   ("l1", originLevel, call, extraOrigin)      one command per level0/L1 file
+#   ("touch",)                                  the allDone sentinel file
+#
+# Every processing function's own skip-check (tools.checkForExisting) should
+# resolve its parents/events list from this via resolveLevelParents rather
+# than hand-writing one -- a hand-written list can silently drift out of
+# sync with what's declared here (e.g. distributions._createLevel2's
+# level2track check not knowing about its level2match dependency, fixed
+# alongside this comment), leaving the DAG orchestrator (products.py)
+# correctly regenerating a command that the processing function itself
+# then immediately skips again, forever.
+LEVEL_REGISTRY = {
+    "level0": {
+        "parents": lambda camera, config: [],
+        "command": ("none",),
+    },
+    "level0txt": {
+        "parents": lambda camera, config: [],
+        "command": ("none",),
+    },
+    "metaEvents": {
+        "parents": lambda camera, config: [f"{camera}_level0txt"],
+        "command": ("daily", "metadata.createEvent"),
+    },
+    "metaFrames": {
+        "parents": lambda camera, config: [f"{camera}_level0txt"],
+        "command": ("daily", "metadata.createMetaFrames"),
+    },
+    "level1detect": {
+        "parents": lambda camera, config: [],
+        "command": ("l1", "level0txt", "detection.detectParticles", None),
+    },
+    "metaRotation": {
+        "parents": lambda camera, config: [
+            "leader_level1detect",
+            "follower_level1detect",
+            # metaEvents are added to all the L2 products to force
+            # regeneration when event file is updated (ie more data is
+            # transferred)
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "matching.createMetaRotation"),
+        "leaderOnly": True,
+    },
+    "level1match": {
+        "parents": lambda camera, config: [f"{camera}_metaRotation"],
+        "command": (
+            "l1",
+            "level1detect",
+            "matching.matchParticles",
+            "metaRotation",
+        ),
+        "leaderOnly": True,
+    },
+    "level1track": {
+        "parents": lambda camera, config: [f"{camera}_level1match"],
+        "command": ("l1", "level1match", "tracking.trackParticles", None),
+        "leaderOnly": True,
+    },
+    "level2detect": {
+        "parents": lambda camera, config: [
+            f"{camera}_level1detect",
+            f"{camera}_metaEvents",
+        ],
+        "command": ("daily", "distributions.createLevel2detect"),
+    },
+    "level2match": {
+        "parents": lambda camera, config: [
+            f"{camera}_level1match",
+            # metaEvents are added to all the L2 products to force
+            # regeneration when events file is updated (ie more data is
+            # transferred)
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "distributions.createLevel2match"),
+        "leaderOnly": True,
+    },
+    "level2track": {
+        "parents": lambda camera, config: [
+            f"{camera}_level1track",
+            "leader_level2match",
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "distributions.createLevel2track"),
+        "leaderOnly": True,
+    },
+    "level3combinedRiming": {
+        "parents": lambda camera, config: [
+            f"{camera}_level2track",
+            "leader_metaEvents",
+            "follower_metaEvents",
+        ],
+        "command": ("daily", "level3.retrieveCombinedRiming"),
+        "leaderOnly": True,
+    },
+    "allDone": {
+        "parents": _allDoneParents,
+        "command": ("touch",),
+        "leaderOnly": True,
+    },
+}
+
+
+def resolveLevelParents(level, camera, case, config):
+    """
+    Resolve LEVEL_REGISTRY[level]'s declared parents into (FindFiles,
+    parentLevel) pairs for this camera+case, ready to pass straight into
+    checkForExisting's `parents=` (or `events=`) kwarg.
+
+    This exists so a processing function's own skip-check can't silently
+    drift out of sync with the DAG orchestrator's dependency declaration
+    the way distributions._createLevel2's did for level2track/level2match
+    (level2track reuses level2match's own zResidualTooWide flag, so it's
+    genuinely stale whenever level2match changes -- LEVEL_REGISTRY already
+    declared that dependency, the skip-check just never asked about it,
+    so products.py kept correctly regenerating a command that immediately
+    skipped itself again, forever). Every checkForExisting call site
+    should build its parents/events list from this instead of
+    hand-writing one, so LEVEL_REGISTRY stays the actual enforced source
+    of truth.
+
+    Parameters
+    ----------
+    level : str
+        The level that is checking for existing/up-to-date output --
+        i.e. whose declared parents (not its own identity) get resolved.
+    camera : str
+        "leader" or "follower" -- this level's own camera role.
+    case : str
+        Case identifier (day, "YYYYMMDD").
+    config : dict
+        Settings (as returned by readSettings).
+
+    Returns
+    -------
+    list of (files.FindFiles, str)
+        One (FindFiles, parentLevel) pair per declared parent, each
+        FindFiles instance built for that parent's own camera role
+        (which may differ from `camera`, e.g. a "follower_metaEvents"
+        parent of a "leader"-camera level).
+    """
+    # LEVEL_REGISTRY's "parents" lambdas format their {camera}_{level}
+    # parent names against the camera *role* ("leader"/"follower"), but
+    # callers of this function are inconsistent about which form of
+    # `camera` they hold at that point -- e.g. distributions._createLevel2
+    # receives the role for "match"/"track" (via @tools.loopify, which
+    # never touches camera at all) but the fully-resolved camera id for
+    # "detect" (via @tools.loopify_with_camera, which resolves "leader"/
+    # "follower" to config.leader/config.follower before calling in).
+    # files.FindFiles already tolerates both forms transparently; do the
+    # same normalization here instead of assuming the role.
+    if camera not in ("leader", "follower"):
+        camera = "leader" if camera == config.leader else "follower"
+    parentNames = LEVEL_REGISTRY[level]["parents"](camera, config)
+    resolved = []
+    for parentName in parentNames:
+        parentCamera, parentLevel = parentName.split("_")
+        cameraFull = config.leader if parentCamera == "leader" else config.follower
+        resolved.append((files.FindFiles(case, cameraFull, config), parentLevel))
+    return resolved
+
+
 DEFAULT_SETTINGS = {
     # settings that must be provided in YAML file
     "computers": None,
@@ -3146,7 +3335,8 @@ def _newestMtime(items):
 
 
 def checkForExisting(
-    ffOut, level0=None, events=None, parents=None, breakpointLevel=None
+    ffOut, level0=None, events=None, parents=None, breakpointLevel=None,
+    fL=None, level=None,
 ):
     """
     Check if file exists and is up-to-date including potential parents.
@@ -3166,7 +3356,23 @@ def checkForExisting(
         the on-disk freshness-summary cache when possible instead of
         globbing and stat'ing every one of that level's files (see
         _newestMtime/readLevelSummary). The two forms can be mixed
-        freely within one list.
+        freely within one list. Combines with `fL`/`level` below if
+        both are given (the registry-resolved parents are appended to
+        this list, not a replacement for it).
+    fL : files.FindFiles, optional
+        Given together with `level`, resolve `level`'s declared
+        LEVEL_REGISTRY parents (see resolveLevelParents) for `fL`'s own
+        case/camera/config and check `ffOut` against those too -- the
+        caller doesn't hand-write (and risk drifting out of sync with)
+        its own parents/events list for whatever LEVEL_REGISTRY already
+        declares. Only makes sense for a level checked at day/whole-file
+        granularity; a per-file check against a specific matching
+        upstream file (e.g. matchParticles against one particular
+        level1detect file) still needs an explicit `parents=`/`events=`
+        entry instead, since LEVEL_REGISTRY only knows "day's worth of
+        level X", not "this one specific file".
+    level : str, optional
+        Which level's declared parents to resolve via `fL` (see above).
     breakpointLevel : str, optional
         If given, treat `ffOut` as needing regeneration when its mtime
         is older than `tools.reprocessBreakpoint(breakpointLevel)` --
@@ -3195,6 +3401,8 @@ def checkForExisting(
         if os.path.getmtime(ffOut) < _newestMtime(events):
             log.warning(f"file exists but older than event file, redoing {ffOut}")
             return False
+    if fL is not None and level is not None:
+        parents = (parents or []) + resolveLevelParents(level, fL.camera, fL.case, fL.config)
     if parents is not None:
         if os.path.getmtime(ffOut) < _newestMtime(parents):
             log.warning(f"file exists but older than parents files, redoing {ffOut}")

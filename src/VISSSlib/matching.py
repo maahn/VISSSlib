@@ -3326,10 +3326,14 @@ def createMetaRotation(
         raise RuntimeError(f"metaRotation data marked as broken due to: {reason}")
 
     # check whether output exists
+    # fL/level resolve metaRotation's declared LEVEL_REGISTRY parents
+    # (both cameras' level1detect/metaEvents) via `fl` automatically --
+    # metaRotation is leaderOnly so fl's own camera role is always right
+    # here -- instead of a hand-written list that can drift out of sync.
     if skipExisting and tools.checkForExisting(
         fnameMetaRotation,
-        events=[(fl, "metaEvents"), (ff, "metaEvents")],
-        parents=[(fl, "level1detect"), (ff, "level1detect")],
+        fL=fl,
+        level="metaRotation",
     ):
         return None, None
 

@@ -570,12 +570,18 @@ def retrieveCombinedRiming(
 
     log.info(f"Processing {lv3File}")
 
+    # fL/level resolve level3combinedRiming's declared LEVEL_REGISTRY
+    # parents automatically (level2track *and* both cameras' metaEvents)
+    # instead of a hand-written list checking level2track alone -- which
+    # used to silently miss the metaEvents dependency entirely, the same
+    # class of bug fixed for level2track/level2match (see AI.md).
     if (
         writeNc
         and skipExisting
         and tools.checkForExisting(
             lv3File,
-            parents=fL.listFilesExt(f"level2track"),
+            fL=fL,
+            level="level3combinedRiming",
         )
     ):
         return None, None
@@ -585,7 +591,8 @@ def retrieveCombinedRiming(
         and skipExisting
         and tools.checkForExisting(
             "%s.nodata" % lv3File,
-            parents=fL.listFilesExt(f"level2track"),
+            fL=fL,
+            level="level3combinedRiming",
         )
     ):
         return None, None

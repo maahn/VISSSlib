@@ -493,17 +493,26 @@ def _createLevel2(
 
     log.info(f"Processing {lv2File}")
 
+    # fL/level resolve this level's declared LEVEL_REGISTRY parents
+    # automatically (see checkForExisting's own docstring) instead of a
+    # hand-written list that can drift out of sync with it -- which is
+    # exactly what used to happen for level2track (it reuses level2match's
+    # own zResidualTooWide flag, see getZResidualQuality's docstring /
+    # AI.md, so it's genuinely stale whenever level2match changes, but
+    # this check didn't know about that dependency) and level2match
+    # (whose declared parents include *both* cameras' metaEvents, not
+    # just this camera's own).
     if skipExisting and tools.checkForExisting(
         lv2File,
-        events=[(fL, "metaEvents")],
-        parents=[(fL, f"level1{sublevel}")],
+        fL=fL,
+        level=f"level2{sublevel}",
         breakpointLevel=f"level2{sublevel}",
     ):
         return None, None
     if skipExisting and tools.checkForExisting(
         "%s.nodata" % lv2File,
-        events=[(fL, "metaEvents")],
-        parents=[(fL, f"level1{sublevel}")],
+        fL=fL,
+        level=f"level2{sublevel}",
         breakpointLevel=f"level2{sublevel}",
     ):
         return None, None
@@ -2801,10 +2810,12 @@ def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="l
     exceeded ~3.5 (well under `config.quality.maxZSigma`), so computing
     this independently from level1track data is systematically too
     insensitive to ever fire. level2track therefore depends on
-    level2match for this flag specifically (see products.py's
+    level2match for this flag specifically (see tools.py's
     `LEVEL_REGISTRY["level2track"]["parents"]`, which lists
-    `leader_level2match`) rather than being a self-contained per-level
-    computation like the other quality flags.
+    `leader_level2match`, and _createLevel2's checkForExisting call,
+    which resolves that same declared dependency via `fL`/`level` rather
+    than a hand-written list) rather than being a self-contained
+    per-level computation like the other quality flags.
 
     Like tracksTooShort in addVariables, this is a *flag*, not a filter:
     the caller folds it into the per-timestep qualityFlags bitmask without

@@ -15,123 +15,12 @@ from . import __version__, files, matching, metadata, quicklooks, tools
 from .tools import ipython_debug, runCommandInQueue
 
 
-def _allDoneParents(self):
-    parents = [
-        "leader_metaEvents",
-        "follower_metaEvents",
-    ]
-    if self.config.level1match.processL1match:
-        parents += ["leader_level2track", "leader_level2match"]
-    if self.config.level2.processL2detect:
-        parents += ["leader_level2detect", "follower_level2detect"]
-    if self.config.level3.combinedRiming.processRetrieval:
-        parents += ["leader_level3combinedRiming"]
-    return parents
-
-
-# Single source of truth for "what depends on what" and "how is it built"
-# for every processing level. `parents` is a callable(self) -> list of
-# f"{camera}_{level}" parent names (a callable because a few levels'
-# parents depend on the camera or on config flags, e.g. allDone).
-# `leaderOnly=True` means the level only ever exists for camera="leader".
-# `command` describes how generateCommands() builds the shell command:
-#   ("none",)                                  no command (raw input levels)
-#   ("daily", call)                             one command for the whole day
-#   ("l1", originLevel, call, extraOrigin)      one command per level0/L1 file
-#   ("touch",)                                  the allDone sentinel file
-LEVEL_REGISTRY = {
-    "level0": {
-        "parents": lambda self: [],
-        "command": ("none",),
-    },
-    "level0txt": {
-        "parents": lambda self: [],
-        "command": ("none",),
-    },
-    "metaEvents": {
-        "parents": lambda self: [f"{self.camera}_level0txt"],
-        "command": ("daily", "metadata.createEvent"),
-    },
-    "metaFrames": {
-        "parents": lambda self: [f"{self.camera}_level0txt"],
-        "command": ("daily", "metadata.createMetaFrames"),
-    },
-    "level1detect": {
-        "parents": lambda self: [],
-        "command": ("l1", "level0txt", "detection.detectParticles", None),
-    },
-    "metaRotation": {
-        "parents": lambda self: [
-            "leader_level1detect",
-            "follower_level1detect",
-            # metaEvents are added to all the L2 products to force
-            # regeneration when event file is updated (ie more data is
-            # transferred)
-            "leader_metaEvents",
-            "follower_metaEvents",
-        ],
-        "command": ("daily", "matching.createMetaRotation"),
-        "leaderOnly": True,
-    },
-    "level1match": {
-        "parents": lambda self: [f"{self.camera}_metaRotation"],
-        "command": (
-            "l1",
-            "level1detect",
-            "matching.matchParticles",
-            "metaRotation",
-        ),
-        "leaderOnly": True,
-    },
-    "level1track": {
-        "parents": lambda self: [f"{self.camera}_level1match"],
-        "command": ("l1", "level1match", "tracking.trackParticles", None),
-        "leaderOnly": True,
-    },
-    "level2detect": {
-        "parents": lambda self: [
-            f"{self.camera}_level1detect",
-            f"{self.camera}_metaEvents",
-        ],
-        "command": ("daily", "distributions.createLevel2detect"),
-    },
-    "level2match": {
-        "parents": lambda self: [
-            f"{self.camera}_level1match",
-            # metaEvents are added to all the L2 products to force
-            # regeneration when events file is updated (ie more data is
-            # transferred)
-            "leader_metaEvents",
-            "follower_metaEvents",
-        ],
-        "command": ("daily", "distributions.createLevel2match"),
-        "leaderOnly": True,
-    },
-    "level2track": {
-        "parents": lambda self: [
-            f"{self.camera}_level1track",
-            "leader_level2match",
-            "leader_metaEvents",
-            "follower_metaEvents",
-        ],
-        "command": ("daily", "distributions.createLevel2track"),
-        "leaderOnly": True,
-    },
-    "level3combinedRiming": {
-        "parents": lambda self: [
-            f"{self.camera}_level2track",
-            "leader_metaEvents",
-            "follower_metaEvents",
-        ],
-        "command": ("daily", "level3.retrieveCombinedRiming"),
-        "leaderOnly": True,
-    },
-    "allDone": {
-        "parents": _allDoneParents,
-        "command": ("touch",),
-        "leaderOnly": True,
-    },
-}
+# LEVEL_REGISTRY (the single authoritative "what depends on what, and how
+# is it built" statement for every processing level) lives in tools.py,
+# not here -- it needs to be reachable from tools.checkForExisting's own
+# call sites (distributions.py, matching.py, tracking.py, detection.py)
+# via tools.resolveLevelParents, and tools.py sits below products.py in
+# the import graph. Use tools.LEVEL_REGISTRY / tools.resolveLevelParents.
 
 
 class DataProduct(object):
@@ -232,12 +121,12 @@ class DataProduct(object):
             )
 
         try:
-            levelSpec = LEVEL_REGISTRY[level]
+            levelSpec = tools.LEVEL_REGISTRY[level]
         except KeyError:
             raise ValueError(f"Do not understand {level}")
         if levelSpec.get("leaderOnly", False):
             assert camera == "leader"
-        self.parentNames = levelSpec["parents"](self)
+        self.parentNames = levelSpec["parents"](self.camera, self.config)
         if addRelatives:
             for parentCam in self.parentNames:
                 # save time by not adding a product more than once
@@ -407,7 +296,7 @@ class DataProduct(object):
             If the level is not recognized
         """
         try:
-            command = LEVEL_REGISTRY[self.level]["command"]
+            command = tools.LEVEL_REGISTRY[self.level]["command"]
         except KeyError:
             raise ValueError(f"Do not understand {self.level}")
 
@@ -930,7 +819,7 @@ class DataProduct(object):
             (0, 0, 0) if this product has no files.
         """
         cacheable = (self.level in self.fn.outpath) and (
-            LEVEL_REGISTRY[self.level]["command"][0] != "touch"
+            tools.LEVEL_REGISTRY[self.level]["command"][0] != "touch"
         )
         if cacheable:
             cached = tools.readLevelSummary(self.fn, self.level)

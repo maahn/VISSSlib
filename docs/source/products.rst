@@ -17,7 +17,7 @@ center of gravity; everything else (the per-level subclasses,
 The dependency graph lives in code, not config
 ----------------------------------------------------
 
-:data:`VISSSlib.products.LEVEL_REGISTRY` is the single authoritative
+:data:`VISSSlib.tools.LEVEL_REGISTRY` is the single authoritative
 statement of "what depends on what, and how is it built" for the whole
 library — one dict entry per level, keyed on ``level``, used by both
 :meth:`VISSSlib.products.DataProduct.__init__` (to resolve ``parentNames``)

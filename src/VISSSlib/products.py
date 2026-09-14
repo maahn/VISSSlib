@@ -773,12 +773,28 @@ class DataProduct(object):
             whether this product is up to date with each parent
         """
         vacuouslyFresh = (self.newestFileCreation == 0) and self.isComplete
+        # Mirrors parentVacuous below, but for self: do THIS product's own
+        # files already reflect "no real data" (only a .nodata/.broken.txt
+        # sentinel, no real output)? Needed to guard parentVacuous --
+        # without it, a parent that only just turned vacuous (e.g. a
+        # badData window added to the config after this product had
+        # already been successfully computed from what's now known-bad
+        # upstream data) would be permanently ignored: this product's own
+        # stale-but-real output would never get revisited into a matching
+        # nodata/broken marker, since parentVacuous alone would keep
+        # calling it up to date forever (confirmed against
+        # gochang_v1/level1match for 20251209-20251221: metaRotation
+        # turned broken there, but level1match kept its pre-badData real
+        # files and was never flagged stale). Once both sides are
+        # sentinel-only there truly is nothing left to react to, so the
+        # skip is safe again.
+        selfVacuous = self.isComplete and (len(self.listFiles()) == 0)
         upToDateWithParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
             parentVacuous = parent.isComplete and (len(parent.listFiles()) == 0)
             isUpToDate = (
                 vacuouslyFresh
-                or parentVacuous
+                or (parentVacuous and selfVacuous)
                 or (parent.newestFileCreation < self.oldestFileCreation)
             )
             if (self.level == "level1detect") and (parent.level == "metaEvents"):

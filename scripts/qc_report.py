@@ -38,6 +38,25 @@ for the problem categories that don't need visual judgment to spot --
   - duplicate    more than one real output file for the same timestamp
   - corrupt      a real output file exists but fails to open with xarray,
                  or opens with zero timesteps (only checked with --integrity)
+  - dag_stale    a day/level/camera that passes the plain file-count check
+                 (isComplete: no missing files, no .broken.txt) but whose
+                 real products.DataProduct.allComplete is False -- i.e. it
+                 structurally "looks done" while the DAG considers it
+                 stale: either older than a parent's newest output
+                 (products.DataProduct._upToDateWithParents), a parent
+                 level is itself incomplete
+                 (products.DataProduct.parentsComplete), or its files
+                 predate a pending code-driven reprocessing breakpoint
+                 (tools.REPROCESS_AFTER -- e.g. "better QC" fixes that
+                 don't touch any parent file, so the normal mtime-vs-parent
+                 check can't see them). This is exactly the kind of gap a
+                 pure file-count scan can never catch on its own: it was
+                 how eriswil_v1's level2detect (178/178 real files, 0
+                 missing/broken) was wrongly called "fully clean" in an
+                 earlier QC pass despite every file predating a pending
+                 REPROCESS_AFTER breakpoint. Always computed (no extra
+                 file opens -- DataProduct.allComplete only stats/globs),
+                 for every level/camera this scan checks.
   - reduced_coverage  a daily-aggregate level (level2detect/level2match/
                  level2track) completed (not itself missing/broken) for a
                  day where its per-file parent level (level1detect/
@@ -109,7 +128,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from VISSSlib import files, matching, tools
+from VISSSlib import files, matching, products, tools
 
 LEVELS = [
     "level1detect",
@@ -124,8 +143,14 @@ LEVELS = [
 # levels only ever produced relative to the leader camera -- mirrors the
 # camera-skip pattern already used in products.checkCompleteness /
 # tools.reportLastFiles, kept in sync with those rather than re-derived
-# from LEVEL_REGISTRY so the three stay consistent.
-FOLLOWER_SKIP = {"metaRotation", "level1match", "level1track"}
+# from LEVEL_REGISTRY so the three stay consistent. level2detect is
+# deliberately NOT here: unlike level2match/level2track (leader-only
+# stereo-pair aggregates), level2detect calibrates each camera
+# independently and has real per-camera output on both leader and
+# follower -- skipping it for follower would silently leave half its
+# output unchecked (this was a real bug here until 2026-09-09: the old
+# "any level starting with level2" catch-all skipped it too).
+LEADER_ONLY_LEVELS = {"metaRotation", "level1match", "level1track", "level2match", "level2track"}
 
 # substrings that mark a .nodata message as describing a raw-data/
 # availability problem rather than a confirmed no-precipitation
@@ -141,13 +166,14 @@ NODATA_SUSPECT_MARKERS = (
 
 # daily-aggregate level -> the per-file level it's built from, used by the
 # reduced_coverage check. Both sides here are leader-only products in this
-# script's camera-skip convention (see FOLLOWER_SKIP / _skip_for_camera), so
-# there's no cross-camera merge to worry about -- level2detect is left out
-# on purpose: it can draw on both cameras' level1detect, and this script
-# only ever computes level2* on the leader-camera pass, so a same-pass
-# per-camera parent count isn't available for it without restructuring the
-# scan loop; flag it manually if level1detect looks incomplete on either
-# camera for a day.
+# script's camera-skip convention (see LEADER_ONLY_LEVELS /
+# _skip_for_camera), so there's no cross-camera merge to worry about.
+# level2detect is left out here specifically because it's checked by the
+# more general allComplete-based "dag_stale" check instead (see scan()) --
+# that check already catches a level2detect day built from incomplete
+# level1detect input via DataProduct.parentsComplete, per camera, without
+# needing a same-pass parent count the way this dict's simpler
+# missing/broken-count approach does.
 PARENT_LEVEL = {
     "level2match": "level1match",
     "level2track": "level1track",
@@ -155,9 +181,7 @@ PARENT_LEVEL = {
 
 
 def _skip_for_camera(level, camera, config):
-    return camera == config.follower and (
-        level in FOLLOWER_SKIP or level.startswith("level2")
-    )
+    return camera == config.follower and level in LEADER_ONLY_LEVELS
 
 
 def _read_text(path):
@@ -489,6 +513,39 @@ def scan(
                                 + ", ".join(dupFiles),
                             )
                         )
+
+                # allComplete check: catches staleness a plain file-count
+                # scan structurally cannot see (see "dag_stale" in this
+                # module's docstring). Only meaningful once isComplete is
+                # already True -- an incomplete day is already reported
+                # above as "missing"/"broken", and allComplete would just
+                # be False for that same, already-explained reason.
+                cameraShort = "leader" if camera == config.leader else "follower"
+                dp = products.DataProduct(level, str(case), config, None, cameraShort)
+                if dp.isComplete and not dp.allComplete:
+                    reasons = []
+                    if not dp._pastReprocessBreakpoint:
+                        reasons.append(
+                            "files predate a pending tools.REPROCESS_AFTER "
+                            "breakpoint for this level"
+                        )
+                    if not dp.parentsComplete:
+                        reasons.append("a parent level is itself incomplete")
+                    elif not dp._upToDateWithParents:
+                        reasons.append("older than a parent's newest output")
+                    if not reasons:
+                        reasons.append("allComplete is False")
+                    rows.append(
+                        dict(
+                            level=level,
+                            camera=camera,
+                            case=case,
+                            category="dag_stale",
+                            detail="isComplete but not allComplete: "
+                            + "; ".join(reasons)
+                            + (f" [known bad: {badReason}]" if isBad else ""),
+                        )
+                    )
 
                 if integrity != "none" and realFiles:
                     toCheck = realFiles

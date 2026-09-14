@@ -885,13 +885,36 @@ class DataProduct(object):
         never written by us via open2/to_netcdf2 -- there's nothing for
         a marker to cache -- so those always take the plain scan path.
 
+        Same reasoning applies to "touch"-kind levels (currently just
+        allDone): generateCommands builds those as a bare shell
+        `touch <file>`, which never goes through open2/to_netcdf2 and
+        so never bumps the fence marker either. Caching them anyway
+        would mean the very first summary ever computed for a given
+        level+camera+day is trusted forever after -- the fence stays
+        at 0 (no marker file == no write has ever gone through the
+        hook), so `readLevelSummary`'s fence check (`fence == 0`)
+        always passes, and no amount of re-touching the real file is
+        ever able to invalidate the cached (and increasingly stale)
+        oldest/newest. That silently broke allDone's
+        _upToDateWithParents check: it kept comparing parents against
+        a months-old cached mtime even after the sentinel had just
+        been freshly re-touched (confirmed by hand against
+        gochang_v1/20251120: repeated `touch` via the real task queue
+        updated the file on disk every time, but the cached summary --
+        and thus every DataProduct built fresh afterwards -- kept
+        reporting the original creation time regardless), so allDone
+        commands were regenerated on every single check, forever, no
+        matter how many times they were (correctly) run.
+
         Returns
         -------
         tuple
             (n, oldest, newest) -- file count and min/max mtime, or
             (0, 0, 0) if this product has no files.
         """
-        cacheable = self.level in self.fn.outpath
+        cacheable = (self.level in self.fn.outpath) and (
+            LEVEL_REGISTRY[self.level]["command"][0] != "touch"
+        )
         if cacheable:
             cached = tools.readLevelSummary(self.fn, self.level)
             if cached is not None:

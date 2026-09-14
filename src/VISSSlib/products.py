@@ -1,5 +1,6 @@
 import datetime
 import glob
+import json
 import os
 import random
 import string
@@ -1219,6 +1220,13 @@ class DataProduct(object):
                 log.warning(f"{fname} not found")
             else:
                 log.warning(f"{fname} removed")
+                # Raw os.remove, same as runCommandInQueue's own
+                # shutil.copy used to be before it started bumping the
+                # marker (see 6c7d3bb) -- without this, the freshness
+                # cache still counts the just-deleted file, so a repaired
+                # day can keep looking complete/up to date until
+                # something else happens to rewrite it.
+                tools._touchLevelMarker(fname, self.config)
         if withNoData:
             for fname in self.listNoData():
                 assert fname.endswith("nodata")
@@ -1228,6 +1236,7 @@ class DataProduct(object):
                     log.warning(f"{fname} not found")
                 else:
                     log.warning(f"{fname} removed")
+                    tools._touchLevelMarker(fname, self.config)
         if withParents:
             for name, parent in self.parents.items():
                 if not isinstance(parent, list):
@@ -1256,11 +1265,97 @@ class DataProduct(object):
         for fname in dups:
             os.remove(fname)
             log.warning(f"{fname} removed")
+            tools._touchLevelMarker(fname, self.config)
         if withParents:
             for name, parent in self.parents.items():
                 if not isinstance(parent, list):
                     parent = [parent]
                 [p.cleanUpDuplicates(withParents=False) for p in parent]
+
+    def repairStaleFreshnessCache(self, withParents=False):
+        """
+        Find and invalidate a stale on-disk freshness-cache summary for
+        this product.
+
+        tools.writeLevelSummary caches this level+camera+day's (file
+        count, oldest mtime, newest mtime) in a small `.done` file (see
+        files.FindFiles.markerPath) so _freshnessSummary doesn't have to
+        re-glob and re-stat every file on every DAG check. That cache is
+        only ever supposed to go stale for the length of one write --
+        every real write bumps a "touch" fence via tools.open2/to_netcdf2
+        (tools._touchLevelMarker), which invalidates it immediately.
+
+        In practice a handful of write paths have been found that write
+        a real terminal artifact (a real file, `.broken.txt`, or
+        `.nodata`) *without* going through that hook, so the cache never
+        gets invalidated and keeps reporting its original (n, oldest,
+        newest) forever, however many times the real file is later
+        rewritten: allDone's own `touch` command (c5341c5),
+        runCommandInQueue's `.broken.txt` write on task failure (6c7d3bb,
+        5c136b0), and cleanUpBroken/cleanUpDuplicates' plain os.remove
+        (fixed alongside this method). There is no guarantee that is an
+        exhaustive list -- a long-running worker process holding
+        pre-fix code in memory reproduces the exact same symptom
+        regardless of how many such bugs get fixed on disk, since it
+        never re-imports the fix until it restarts. This method doesn't
+        depend on knowing the cause: it just compares the cached summary
+        against a real, live scan and invalidates it on any disagreement,
+        so it's safe to run as a periodic sweep (e.g. before a QC pass)
+        independent of whatever bug produced the mismatch.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to also repair parents' caches
+
+        Returns
+        -------
+        bool
+            True if this product's own cache was found stale and repaired
+            (does not reflect whether any parent's cache was repaired --
+            check the log for those).
+        """
+        repaired = False
+        # Raw/passthrough levels (level0, level0txt, ...) have no
+        # per-level output directory at all -- nothing is ever cached
+        # for them (see _freshnessSummary's own cacheable check) and
+        # markerPath has no outpath entry to build a path from.
+        if self.level not in self.fn.outpath:
+            cached = None
+        else:
+            donePath = self.fn.markerPath(self.level, "done")
+            try:
+                with open(donePath) as f:
+                    cached = json.load(f)
+            except (OSError, ValueError):
+                cached = None
+        if cached is not None:
+            cachedNewest = cached.get("newest")
+            if cachedNewest is not None:
+                realNewest = max(
+                    (os.path.getmtime(f) for f in self.listFilesExt()), default=0
+                )
+                # a few seconds of slop: filesystem mtime resolution and
+                # the gap between this scan's individual os.path.getmtime
+                # calls are not meaningfully "staleness", just noise
+                if abs(realNewest - cachedNewest) > 5:
+                    touchPath = self.fn.markerPath(self.level, "touch")
+                    tools._invalidateLevelCacheAt(touchPath, donePath, self.config)
+                    log.warning(
+                        f"{self.relatives} stale freshness cache repaired "
+                        f"(cached newest {tools.timestamp2str(cachedNewest)}, "
+                        f"real newest {tools.timestamp2str(realNewest)})"
+                    )
+                    repaired = True
+        if withParents:
+            for name, parent in self.parents.items():
+                if not isinstance(parent, list):
+                    parent = [parent]
+                for p in parent:
+                    repaired = (
+                        p.repairStaleFreshnessCache(withParents=True) or repaired
+                    )
+        return repaired
 
 
 class DataProductRange(DataProduct):
@@ -1422,6 +1517,30 @@ class DataProductRange(DataProduct):
             List of broken file paths
         """
         return tools._aggregate([dp.listBroken() for dp in self._instances])
+
+    def repairStaleFreshnessCache(self, withParents=False):
+        """Repair stale freshness caches for all instances in this range.
+
+        DataProduct.repairStaleFreshnessCache relies on per-case
+        attributes (self.fn, self.parents, ...) that a DataProductRange
+        does not have, so it cannot simply be inherited -- same reasoning
+        as allComplete/report/reportBroken/listBroken above.
+
+        Parameters
+        ----------
+        withParents : bool, default False
+            Whether to also repair parents' caches
+
+        Returns
+        -------
+        bool
+            True if any instance's (or, with withParents, any parent's)
+            cache was found stale and repaired.
+        """
+        return any(
+            dp.repairStaleFreshnessCache(withParents=withParents)
+            for dp in self._instances
+        )
 
     def listFiles(self):
         """List files for all instances.

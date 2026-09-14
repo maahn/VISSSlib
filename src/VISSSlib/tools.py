@@ -2460,6 +2460,24 @@ def _touchLevelMarker(file, config):
     touchPath, donePath = _levelMarkerPaths(file, config)
     if touchPath is None:
         return
+    _invalidateLevelCacheAt(touchPath, donePath, config)
+
+
+def _invalidateLevelCacheAt(touchPath, donePath, config):
+    """
+    Core of `_touchLevelMarker`, split out so a caller that already has
+    the marker paths in hand -- e.g. products.DataProduct.repairStaleCache,
+    which derives them from files.FindFiles.markerPath directly -- doesn't
+    need a real output filename for `_levelMarkerPaths` to reverse-engineer
+    a level+camera+day from (that reverse-engineering requires the file to
+    match the full "<level>_V<version>_<site>_<computer>_<visssGen>_<type>_
+    <serial>_<timestamp>" naming convention, which not every level actually
+    uses, e.g. the "l1" per-file levels' own marker paths are still built
+    from the case/camera FindFiles already has on hand rather than from a
+    filename at all -- see files.FindFiles.markerPath).
+
+    See `_touchLevelMarker` for what this does and why.
+    """
     token = uuid.uuid4().hex
     tmpPath = f"{touchPath}.{os.getpid()}.{token}.tmp"
     try:

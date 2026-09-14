@@ -34,6 +34,35 @@ the general playbook below, and write that memory file at the end of the run
 Also check `vissslib_production_deployment.md` in memory for the current task
 queue directory and conda env — these vary and shouldn't be hardcoded.
 
+## Step 0.5 — repair stale freshness caches before scanning
+
+Always run this before Step 1, on every pass, not just the first one for a
+config. `products.py`'s per-level `_freshnessSummary` cache (the small
+`.done` files under each level's output dir) is only invalidated by writes
+that go through `tools.open2`/`to_netcdf2`'s fence-bump hook. A handful of
+write paths that bypass that hook have already been found and fixed
+(`allDone`'s bare `touch` command, `runCommandInQueue`'s `.broken.txt` write
+on task failure, `cleanUpBroken`/`cleanUpDuplicates`' plain `os.remove`), but
+there's no guarantee that list is exhaustive — and a long-running worker
+process holding pre-fix code in memory reproduces the exact same stale-cache
+symptom regardless of how many such bugs get fixed on disk, since it never
+re-imports a fix until it restarts. A stale cache masks real staleness
+(`_upToDateWithParents` reports true when it shouldn't) and can also make a
+DAG check spuriously never converge — either way it silently corrupts what
+Step 1's `dag_stale` category and Step 6's settle-check are measuring, so
+don't skip this even on a config that "should" already be clean:
+
+```python
+from VISSSlib import products
+p = products.DataProductRange("allDone", case, "<config>.yaml", queue, camera="leader")
+repaired = p.repairStaleFreshnessCache(withParents=True)
+print("repaired any stale cache:", repaired)  # check the log for which ones, if True
+```
+
+This is read-mostly and safe to run every time — it only touches a cache
+file when it actually disagrees with a live scan of the real files, never
+the real data itself.
+
 ## Step 1 — structural scan
 
 ```bash

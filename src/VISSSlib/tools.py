@@ -39,7 +39,12 @@ def _allDoneParents(camera, config):
         parents += ["leader_level2track", "leader_level2match"]
     if config.level2.processL2detect:
         parents += ["leader_level2detect", "follower_level2detect"]
-    if config.level3.combinedRiming.processRetrieval:
+    # combinedRiming depends on level2track, so it can only be pulled in
+    # when the matching/tracking branch is actually enabled -- otherwise
+    # a deployment with processL1match: false but a stray
+    # combinedRiming.processRetrieval: true would make allDone try (and
+    # fail) to build level2track anyway.
+    if config.level1match.processL1match and config.level3.combinedRiming.processRetrieval:
         parents += ["leader_level3combinedRiming"]
     return parents
 

@@ -530,8 +530,14 @@ def _createLevel2(
         return None, None
 
     if len(fL.listFilesExt(f"level0txt")) == 0:
-        fL.writeStatus(f"level2{sublevel}", "nodata", "no level 0 data for %s" % case)
-        log.warning("no level 0 data for %s" % case)
+        # isDataTransferPending above already ruled out "not arrived yet",
+        # so this is a confirmed data gap -- a raw-data problem, not a
+        # quiet no-precipitation day, so mark it .broken.txt rather than
+        # .nodata (see the allEmpty branch below for the genuine
+        # no-precipitation case, which does keep .nodata)
+        mes = "no raw level0 data for %s on %s, likely data gap" % (fL.camera, case)
+        fL.writeStatus(f"level2{sublevel}", "broken.txt", mes)
+        log.warning(mes)
         return None, None
 
     if sublevel == "match":

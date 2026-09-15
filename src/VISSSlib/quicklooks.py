@@ -1203,7 +1203,10 @@ def metaFramesQuicklook(
 
     print("reading events")
     if len(ff.listFiles("metaEvents")) == 0:
-        log.error(f"event data not found")
+        if len(ff.listFilesExt("metaEvents")) == 0:
+            log.error(f"event data not found")
+        else:
+            log.warning(f"{case} metaEvents is nodata/broken, skipping quicklook")
         return None, None
     try:
         events = xr.open_dataset(ff.listFiles("metaEvents")[0])
@@ -2119,7 +2122,10 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 
     print("reading events")
     if len(ff.listFiles("metaEvents")) == 0:
-        log.error(f"event data not found")
+        if len(ff.listFilesExt("metaEvents")) == 0:
+            log.error(f"event data not found")
+        else:
+            log.warning(f"{case} metaEvents is nodata/broken, skipping quicklook")
         return None, None
 
     try:
@@ -2406,6 +2412,7 @@ def createLevel2detectQuicklook(
     version = __version__
 
     nodata = False
+    noRawData = False
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level2detect
@@ -2428,8 +2435,15 @@ def createLevel2detectQuicklook(
         lv2 = lv2[0]
 
     if len(ff.listFiles("metaEvents")) == 0:
-        log.error(f"{case} event data not found")
-        return None, None
+        if len(ff.listFilesExt("metaEvents")) == 0:
+            log.error(f"{case} event data not found")
+            return None, None
+        else:
+            # confirmed sentinel (nodata/broken.txt), not just "not
+            # processed yet" -- still worth a placeholder quicklook so the
+            # gallery has one image per day instead of a silent gap
+            log.warning(f"{case} metaEvents is nodata/broken, plotting as no raw data")
+            noRawData = True
 
     log.info(f"running {case} {fOut}")
 
@@ -2456,7 +2470,9 @@ def createLevel2detectQuicklook(
         fontweight="bold",
         x=mid,
     )
-    if nodata:
+    if noRawData:
+        axs[0, 0].set_title("no raw data")
+    elif nodata:
         axs[0, 0].set_title("no data")
     else:
         dat2 = xr.open_dataset(lv2)
@@ -2650,6 +2666,7 @@ def createLevel2matchQuicklook(
 
     camera = config.leader
     nodata = False
+    noRawData = False
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level2match
@@ -2674,8 +2691,12 @@ def createLevel2matchQuicklook(
         lv2match = lv2match[0]
 
     if len(ff.listFiles("metaEvents")) == 0:
-        log.error(f"{case} event data not found")
-        return None, None
+        if len(ff.listFilesExt("metaEvents")) == 0:
+            log.error(f"{case} event data not found")
+            return None, None
+        else:
+            log.warning(f"{case} metaEvents is nodata/broken, plotting as no raw data")
+            noRawData = True
 
     log.info(f"running {case} {fOut}")
 
@@ -2702,7 +2723,9 @@ def createLevel2matchQuicklook(
         fontweight="bold",
         x=mid,
     )
-    if nodata:
+    if noRawData:
+        axs[0, 0].set_title("no raw data")
+    elif nodata:
         axs[0, 0].set_title("no data")
     else:
         dat2 = xr.open_dataset(lv2match)
@@ -2914,6 +2937,7 @@ def createLevel2trackQuicklook(
 
     camera = config.leader
     nodata = False
+    noRawData = False
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level2track
@@ -2935,8 +2959,12 @@ def createLevel2trackQuicklook(
         lv2track = lv2track[0]
 
     if len(ff.listFiles("metaEvents")) == 0:
-        log.error(f"{case} event data not found")
-        return None, None
+        if len(ff.listFilesExt("metaEvents")) == 0:
+            log.error(f"{case} event data not found")
+            return None, None
+        else:
+            log.warning(f"{case} metaEvents is nodata/broken, plotting as no raw data")
+            noRawData = True
 
     log.info(f"running {case} {fOut}")
 
@@ -2963,7 +2991,9 @@ def createLevel2trackQuicklook(
         fontweight="bold",
         x=mid,
     )
-    if nodata:
+    if noRawData:
+        axs[0, 0].set_title("no raw data")
+    elif nodata:
         axs[0, 0].set_title("no data")
     else:
         dat2 = xr.open_dataset(lv2track)
@@ -3734,6 +3764,7 @@ def createLevel3RimingQuicklook(
 
     camera = config.leader
     nodata = False
+    noRawData = False
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
     fOut = ff.quicklook.level3combinedRiming
@@ -3758,8 +3789,12 @@ def createLevel3RimingQuicklook(
         lv3 = lv3[0]
 
     if len(ff.listFiles("metaEvents")) == 0:
-        log.error(f"{case} event data not found")
-        return None, None
+        if len(ff.listFilesExt("metaEvents")) == 0:
+            log.error(f"{case} event data not found")
+            return None, None
+        else:
+            log.warning(f"{case} metaEvents is nodata/broken, plotting as no raw data")
+            noRawData = True
 
     log.info(f"running {case} {fOut}")
 
@@ -3786,7 +3821,9 @@ def createLevel3RimingQuicklook(
         fontweight="bold",
         x=mid,
     )
-    if nodata:
+    if noRawData:
+        axs[0].set_title("no raw data")
+    elif nodata:
         axs[0].set_title("no data")
     else:
         dat3 = xr.open_dataset(lv3)  # .sel(size_definition="Dmax", drop=True)

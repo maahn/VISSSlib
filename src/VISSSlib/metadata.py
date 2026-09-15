@@ -1436,11 +1436,17 @@ def createEvent(
 
     except (ValueError, AssertionError):
         print("NO DATA", case, eventFile)
-        # Check whether there is newer L0 data available; if so it is a
-        # data gap and a .nodata file is written.
+        # Check whether there is newer L0 data available; if so this is a
+        # confirmed data gap. metaEvents is built purely from raw level0
+        # file listings, so having none of them is always a raw-data
+        # problem (instrument offline, transfer broken, ...), never a
+        # quiet no-precipitation day -- that distinction only applies to
+        # levels that actually look at particle content (level1detect,
+        # level2*). Mark it .broken.txt, not .nodata, so it isn't mistaken
+        # for the latter downstream.
         if fn.isGenuineDataGap("level0"):
-            mes = f"Newer L0 files have been found, likely data gap on {fn.case}"
+            mes = f"no raw level0 data for {camera} on {fn.case}, likely data gap"
             log.warning(mes)
-            fn.writeStatus("metaEvents", "nodata", mes)
+            fn.writeStatus("metaEvents", "broken.txt", mes)
 
     return metaDats

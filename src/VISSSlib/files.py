@@ -550,7 +550,7 @@ class FindFiles(object):
             print("no event file")
             return None, None
 
-        if eventFile.endswith("nodata"):
+        if eventFile.endswith("nodata") or eventFile.endswith("broken.txt"):
             return eventFile, None
 
         eventDat = xr.open_dataset(eventFile).load()

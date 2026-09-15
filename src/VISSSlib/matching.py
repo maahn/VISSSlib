@@ -3313,7 +3313,14 @@ def createMetaRotation(
     # output file
     fnameMetaRotation = fflM.fname["metaRotation"]
 
-    if eventFile.endswith("nodata"):
+    if eventFile.endswith("nodata") or eventFile.endswith("broken.txt"):
+        # metaEvents itself being .broken.txt (confirmed raw-data gap) or
+        # .nodata still means there is nothing here to compute a rotation
+        # from -- metaRotation keeps writing its own .nodata for this
+        # exact day either way; the existing copy-old-data mechanism
+        # further down (rotate="config" seeding from the last known
+        # rotation, or tools.copyLastMetaRotation for longer gaps) is what
+        # makes sure processing resumes cleanly once real data comes back.
         log.warning(f"No data available for {case}: {eventFile}")
         fflM.writeStatus(
             "metaRotation", "nodata", f"No data available for {case}: {eventFile}"

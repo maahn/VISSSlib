@@ -1547,6 +1547,43 @@ class DataProductRange(DataProduct):
         df = df.sort_index()
         return df
 
+    def generateAllCommands(self, skipExisting=True, withParents=True):
+        """Generate all pending commands for all instances in this range.
+
+        DataProduct.generateAllCommands relies on per-case attributes
+        (self.parents, self.isComplete, ...) that a DataProductRange
+        does not have, so it cannot simply be inherited -- same reasoning
+        as allComplete/report/reportBroken/listBroken above. Without this
+        override, `generateAllCommands` is found via normal inheritance
+        (DataProductRange subclasses DataProduct) and runs with `self`
+        bound to the whole range instead of a per-case DataProduct: its
+        `self.parents.items()` then resolves through `__getattr__`'s
+        generic per-attribute aggregation, which -- for a dict whose
+        values are DataProduct objects -- returns a list of DataProduct
+        instances per parent name instead of a single one, crashing with
+        `AttributeError: 'list' object has no attribute
+        '_upToDateWithParents'` deep inside the per-case implementation.
+
+        Parameters
+        ----------
+        skipExisting : bool, default True
+            Whether to skip existing files
+        withParents : bool, default True
+            Whether to include parent commands
+
+        Returns
+        -------
+        list
+            Deduplicated list of commands pending across every case in
+            this range.
+        """
+        return tools._aggregate(
+            [
+                dp.generateAllCommands(skipExisting=skipExisting, withParents=withParents)
+                for dp in self._instances
+            ]
+        )
+
     def submitCommands(
         self,
         skipExisting=True,

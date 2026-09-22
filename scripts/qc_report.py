@@ -120,9 +120,12 @@ Usage
 """
 
 import argparse
+import atexit
 import os
 import random
+import shutil
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -396,6 +399,18 @@ def scan(
     rows = []
     cameras = [config.leader, config.follower]
 
+    # products.DataProduct(..., None, ...) below builds a throwaway
+    # taskqueue.TaskQueue whose FileQueueAPI eagerly mkdir()s real
+    # directories on disk (movement/, queue/) even though this read-only
+    # dag_stale check never submits/polls anything -- passing None makes
+    # every call invent its own randomly-named /tmp/visss_<random> queue
+    # that's never cleaned up, so scanning day-by-day/level-by-level across
+    # a whole deployment leaves thousands of orphaned directories behind.
+    # Use one shared queue dir for this entire scan instead, and register
+    # it for cleanup on process exit.
+    sharedQueueDir = tempfile.mkdtemp(prefix="visss_qc_report_")
+    atexit.register(shutil.rmtree, sharedQueueDir, ignore_errors=True)
+
     for case in cases:
         for camera in cameras:
             ff = files.FindFiles(case, camera, config)
@@ -521,7 +536,7 @@ def scan(
                 # above as "missing"/"broken", and allComplete would just
                 # be False for that same, already-explained reason.
                 cameraShort = "leader" if camera == config.leader else "follower"
-                dp = products.DataProduct(level, str(case), config, None, cameraShort)
+                dp = products.DataProduct(level, str(case), config, sharedQueueDir, cameraShort)
                 if dp.isComplete and not dp.allComplete:
                     reasons = []
                     if not dp._pastReprocessBreakpoint:

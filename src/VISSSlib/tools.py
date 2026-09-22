@@ -2652,6 +2652,45 @@ def _touchLevelMarker(file, config):
     _invalidateLevelCacheAt(touchPath, donePath, config)
 
 
+def touchOutputFile(file, config):
+    """
+    Safely bump an existing VISSSlib output file's mtime to now.
+
+    A bare shell/`os.utime` touch on a managed output file (e.g. to mark
+    an already-correct file as "fresh" again after a downstream/upstream
+    freshness check started flagging it as stale for no real reason)
+    changes the file's real mtime but does *not* bump this level's
+    "touch" fence marker, since it bypasses the tools.open2/to_netcdf2
+    hooks that normally do that. `_freshnessSummary` then keeps returning
+    whatever (n, oldest, newest) was cached before the touch -- fenced
+    against a marker that never moved, so the cache never even notices
+    there was a write -- so every DataProduct built afterwards keeps
+    reporting the pre-touch mtime, silently as if the touch never
+    happened. `repairStaleFreshnessCache` can find and fix this after
+    the fact, but it has to be told to look, and it's easy to forget: a
+    raw touch during an interactive investigation (see
+    feedback_raw_touch_bypasses_freshness_cache_fence in project memory)
+    cost a long detour before the mismatch was traced back to this.
+
+    Use this instead of a raw `touch`/`os.utime` on any file under a
+    level's output directory: it updates the real mtime and invalidates
+    this level+camera+day's cached summary in the same step, so there is
+    no window where the cache can disagree with the file it's supposed
+    to describe.
+
+    Parameters
+    ----------
+    file : str
+        Path to the existing output file to touch (a real `.nc`, or a
+        `.nodata`/`.broken.txt` sentinel -- both are recognized the same
+        way `_touchLevelMarker` already handles them).
+    config : dict
+        Settings, as returned by `readSettings`.
+    """
+    os.utime(file, None)
+    _touchLevelMarker(file, config)
+
+
 def _invalidateLevelCacheAt(touchPath, donePath, config):
     """
     Core of `_touchLevelMarker`, split out so a caller that already has

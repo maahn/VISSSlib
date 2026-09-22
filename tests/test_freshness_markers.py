@@ -217,6 +217,31 @@ class TestDataProductIntegration:
         assert p2.newestFileCreation == pytest.approx(cachedNewest)
 
     @pytest.mark.unit
+    def test_touchOutputFile_reflects_in_newestFileCreation(self, config, queue):
+        """Mirror image of test_newestFileCreation_uses_cache_instead_of_
+        rescanning: tools.touchOutputFile is the sanctioned way to bump an
+        existing output's mtime without going through a full open2/
+        to_netcdf2 write, and it must invalidate the cache exactly like a
+        real write does -- unlike a bare os.utime, which that other test
+        proves gets silently ignored."""
+        ff, path = _level1matchPath(config)
+        dat = xr.Dataset({"x": 1})
+        tools.to_netcdf2(dat, config, path)
+
+        p1 = DataProduct(
+            "level1match", "20260101", config, queue, "leader", addRelatives=False
+        )
+        p1.newestFileCreation  # triggers scan + publish
+
+        tools.touchOutputFile(path, config)
+        realNewest = os.path.getmtime(path)
+
+        p2 = DataProduct(
+            "level1match", "20260101", config, queue, "leader", addRelatives=False
+        )
+        assert p2.newestFileCreation == pytest.approx(realNewest)
+
+    @pytest.mark.unit
     def test_newestFileCreation_reflects_new_write_through_hooks(self, config, queue):
         """The mirror image: a write that *does* go through to_netcdf2
         (and so bumps the touch marker) must invalidate the cache."""

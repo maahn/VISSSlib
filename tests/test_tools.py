@@ -75,6 +75,35 @@ class TestDataFixesMerge:
         assert config.dataFixes.count(default) == 1
 
 
+class TestIsBadPeriod:
+    """isBadPeriod's dailyLevels branch turns a date-only `end` into an
+    end-of-day exclusive bound by adding one day, then (before the fix)
+    compared it with `<=` -- so the day right after the configured `end`
+    parsed to that same added-day midnight and was incorrectly flagged
+    bad too. Guard against regressing that boundary.
+    """
+
+    @pytest.mark.unit
+    def test_day_after_end_is_not_flagged(self, tmp_path):
+        from helpers import makeSyntheticConfig
+
+        config = makeSyntheticConfig(
+            tmp_path,
+            badData=[
+                {
+                    "start": "20260628",
+                    "end": "20260629",
+                    "reason": "test",
+                    "products": ["metaRotation"],
+                }
+            ],
+        )
+        assert VISSSlib.tools.isBadPeriod("20260627", config, product="metaRotation")[0] is False
+        assert VISSSlib.tools.isBadPeriod("20260628", config, product="metaRotation")[0] is True
+        assert VISSSlib.tools.isBadPeriod("20260629", config, product="metaRotation")[0] is True
+        assert VISSSlib.tools.isBadPeriod("20260630", config, product="metaRotation")[0] is False
+
+
 class TestRunCommandInQueueTerminalArtifact:
     """runCommandInQueue used to treat a clean subprocess exit code alone as
     success, even if the command produced none of the three artifacts that

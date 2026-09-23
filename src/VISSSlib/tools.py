@@ -647,9 +647,15 @@ def isBadPeriod(case, config, product=None):
             start = datetime.datetime.strptime(
                 str(period.start.split("-")[0]), "%Y%m%d"
             )
+            # end-of-day exclusive upper bound (the day after period.end);
+            # must be compared with `<`, not `<=` -- the case string for
+            # that following day itself parses to this same midnight, so
+            # `<=` would incorrectly also flag the day right after the
+            # configured end date as bad.
             end = datetime.datetime.strptime(
                 str(period.end.split("-")[0]), "%Y%m%d"
             ) + datetime.timedelta(days=1)
+            inRange = start <= case_dt < end
         else:
             start = datetime.datetime.strptime(
                 str(period.start).ljust(15, "0"), "%Y%m%d-%H%M%S"
@@ -657,9 +663,9 @@ def isBadPeriod(case, config, product=None):
             end = datetime.datetime.strptime(
                 str(period.end).ljust(15, "0"), "%Y%m%d-%H%M%S"
             )
+            inRange = start <= case_dt <= end
 
-
-        if not (start <= case_dt <= end):
+        if not inRange:
             continue
         # Period matches time range - check product
         if (period.products is None) or (product is None) or (product in period.products):

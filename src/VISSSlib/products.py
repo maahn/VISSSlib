@@ -646,6 +646,28 @@ class DataProduct(object):
         marked up to date. Such a product is treated as vacuously
         up to date with all of its parents instead.
 
+        This exemption (`vacuouslyFresh`, see below) must be based on
+        REAL files only (`selfVacuous`, zero results from `listFiles()`),
+        not `newestFileCreation == 0`: `newestFileCreation` is computed
+        from `listFilesExt()`, which -- unlike `listFiles()` -- also
+        counts `.nodata`/`.broken.txt` sentinels, so it is essentially
+        never 0 once a sentinel has been written for this level+camera+day
+        (its own mtime keeps it nonzero). A `newestFileCreation == 0`
+        check therefore only fires for a product with *no file of any
+        kind*, missing the far more common case of a day that already has
+        its terminal `.nodata`/`.broken.txt` sentinel -- exactly the "zero
+        real files, nothing was ever expected here" case this exemption
+        is meant to cover. Confirmed causing real, permanently-unfixable
+        `generateAllCommands()` noise: hyytiala_v1's level2track for
+        2022-04-21 (a permanent no-data day) kept getting regenerated as
+        "pending" forever, every time metaRotation (a real, non-vacuous
+        grandparent elsewhere in the chain) was legitimately touched,
+        because `newestFileCreation` for the `.nodata`-only level2track
+        was its own sentinel's nonzero mtime, not 0 -- so `vacuouslyFresh`
+        was always False and the plain parent-mtime comparison kicked in
+        against a self that can, by definition, never produce a newer
+        real file to catch up with.
+
         The mirror image applies per parent: a parent that is complete
         but only has a .nodata/.broken.txt sentinel (no real output) can
         have that sentinel rewritten at any time -- e.g. a bulk backfill
@@ -662,7 +684,6 @@ class DataProduct(object):
             Dictionary mapping parent names to boolean values indicating
             whether this product is up to date with each parent
         """
-        vacuouslyFresh = (self.newestFileCreation == 0) and self.isComplete
         # Mirrors parentVacuous below, but for self: do THIS product's own
         # files already reflect "no real data" (only a .nodata/.broken.txt
         # sentinel, no real output)? Needed to guard parentVacuous --
@@ -679,6 +700,9 @@ class DataProduct(object):
         # sentinel-only there truly is nothing left to react to, so the
         # skip is safe again.
         selfVacuous = self.isComplete and (len(self.listFiles()) == 0)
+        # see the docstring section above for why this must be
+        # `selfVacuous`, not a `newestFileCreation == 0` check
+        vacuouslyFresh = selfVacuous
         upToDateWithParentsDict = tools.DictNoDefault()
         for name, parent in self.parents.items():
             parentVacuous = parent.isComplete and (len(parent.listFiles()) == 0)

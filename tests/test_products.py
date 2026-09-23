@@ -129,6 +129,16 @@ class TestDataProductDAG:
             ),
             (False, False, False, []),
             (True, False, False, ["leader_level2track", "leader_level2match"]),
+            (
+                # combinedRiming depends on level2track, so a stray
+                # processRetrieval: true must not be able to pull in
+                # level2track (and thus fail) when the matching branch
+                # itself is disabled.
+                False,
+                True,
+                True,
+                ["leader_level2detect", "follower_level2detect"],
+            ),
         ],
     )
     def test_allDone_parentNames_respects_toggles(

@@ -1161,6 +1161,7 @@ def createMosaicFrameMapping(
     minOverlapS=60,
     maxIqr=60.0,
     minIqrRatio=1.5,
+    activitySearchRange=20000,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1193,6 +1194,10 @@ def createMosaicFrameMapping(
         Maximum IQR (px) of the vertical position difference for the best lag
     minIqrRatio : float
         Minimum ratio IQR(2nd best lag)/IQR(best lag)
+    activitySearchRange : int
+        Frames around the record_time guess searched by the activity cross
+        correlation. Must be wide because the clocks of the two computers
+        were not always synchronized (e.g. ~5 s off end of Nov 2019).
 
     Returns
     -------
@@ -1308,7 +1313,12 @@ def createMosaicFrameMapping(
 
                 # 2. activity cross correlation
                 lagAct, zAct = _mosaicActivityLag(
-                    lu[lmm], L["nmp"][lmm], fu[fmm], F["nmp"][fmm], guess
+                    lu[lmm],
+                    L["nmp"][lmm],
+                    fu[fmm],
+                    F["nmp"][fmm],
+                    guess,
+                    searchRange=activitySearchRange,
                 )
                 candidates = set(range(guess - 3, guess + 4))
                 if lagAct is not None:

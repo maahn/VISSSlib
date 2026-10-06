@@ -664,7 +664,7 @@ def _getMetaData1(
 
     if asciiVersion in [0.1, 0.2]:
         fn = files.Filenames(metaFname, config, version=version)
-        helperFname = f'{config["pathOut"].format(level="metaFrames_nMovingPixel", version=version)}/{config.site}_{camera}_{fn.year}{fn.month}{fn.day}.nc'
+        helperFname = f'{config["pathOut"].format(level="metaFrames_nMovingPixel", version=fn.versionShort)}/{config.site}_{camera}_{fn.year}{fn.month}{fn.day}.nc'
         if os.path.isfile(helperFname):
             # for MOSAiC we can use an exisiting estimate of the numbe rof moving pixels even though it is not in the ASCII data
             helperDat = xr.open_dataset(helperFname)
@@ -1274,7 +1274,9 @@ def getEvents(fnames0, config, fname0status=None):
     # no status files are available for MOSAiC, therefore use netcdf generated from log files to figure out when instrument was started (and clock was reset!)
     if (len(fnames0) > 0) and (config.site == "mosaic"):
         # becuase this is the only time we use _softwareStarttimes files, name is hardcoded here:
-        path = config.pathOut.format(level="metaEvents", version=__version__)
+        path = config.pathOut.format(
+            level="metaEvents", version=".".join(__version__.split(".")[:2])
+        )
         restartFile = f'{path}/{"_".join(fname0.split("/")[-1].split("_")[:-1])}_softwareStarttimes.nc'
         restartDat = xr.open_dataset(restartFile)
         case = fname0.split("/")[-1].split("_")[-1].split("-")[0]

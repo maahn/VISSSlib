@@ -3644,7 +3644,7 @@ def reportLastFiles(
     output += f"VISSSlib version {__version__}\n"
 
     if writeFile:
-        fOut = f"{config['pathQuicklooks'].format(version=__version__,site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
+        fOut = f"{config['pathQuicklooks'].format(version='.'.join(__version__.split('.')[:2]),site=config['site'], level='')}/{'productReport'}_{config['site']}.html"
         with open2(fOut, config, "w") as f:
             f.write("<html><pre>\n")
             f.write(output)

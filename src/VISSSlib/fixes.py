@@ -1132,7 +1132,11 @@ def _mosaicParticleLagTest(
             continue
         dz = lPart["z"][li[hit]] - fPart["z"][fi[jj[hit]]]
         q75, q25 = np.percentile(dz, [75, 25])
-        res.append((q75 - q25, lag, hit.sum(), np.median(dz)))
+        # fraction of pairs in a narrow peak around the median: robust
+        # during heavy snowfall, when many "single particle" frames pair
+        # different particles and broaden the IQR even for the correct lag
+        peakFrac = np.mean(np.abs(dz - np.median(dz)) < 10)
+        res.append((q75 - q25, lag, hit.sum(), np.median(dz), peakFrac))
     if len(res) < 2:
         return None
     res.sort()
@@ -1142,6 +1146,8 @@ def _mosaicParticleLagTest(
         "iqr2nd": float(res[1][0]),
         "n": int(res[0][2]),
         "dz": float(res[0][3]),
+        "peakFrac": float(res[0][4]),
+        "peakFrac2nd": float(max(r[4] for r in res[1:])),
     }
 
 
@@ -1162,6 +1168,8 @@ def createMosaicFrameMapping(
     maxIqr=60.0,
     minIqrRatio=1.5,
     activitySearchRange=20000,
+    minPeakFrac=0.15,
+    minPeakFracRatio=3.0,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1194,6 +1202,10 @@ def createMosaicFrameMapping(
         Maximum IQR (px) of the vertical position difference for the best lag
     minIqrRatio : float
         Minimum ratio IQR(2nd best lag)/IQR(best lag)
+    minPeakFrac, minPeakFracRatio : float
+        Alternative acceptance when the IQR is broad (heavy snowfall): the
+        fraction of pairs within +-10 px of the median must be at least
+        minPeakFrac and minPeakFracRatio times that of every other lag
     activitySearchRange : int
         Frames around the record_time guess searched by the activity cross
         correlation. Must be wide because the clocks of the two computers
@@ -1286,6 +1298,8 @@ def createMosaicFrameMapping(
                     "dz_median": np.nan,
                     "n_pairs": 0,
                     "dmin": 0,
+                    "peak_frac": np.nan,
+                    "peak_frac_2nd": np.nan,
                     "resolved": False,
                 }
 
@@ -1368,9 +1382,26 @@ def createMosaicFrameMapping(
                             "dmin": best["dmin"],
                             "resolved": (best["iqr"] <= maxIqr)
                             and (best["ratio"] >= minIqrRatio),
+                            "resolved_peak": (best["ratio"] >= minIqrRatio)
+                            and (best["peakFrac"] >= minPeakFrac)
+                            and (
+                                best["peakFrac"]
+                                >= minPeakFracRatio * best["peakFrac2nd"]
+                            ),
+                            "peak_frac": best["peakFrac"],
+                            "peak_frac_2nd": best["peakFrac2nd"],
                         }
                     )
                 rows.append(row)
+
+    # alternative acceptance via the peak fraction, but only if the vertical
+    # offset agrees with the segments of the same day resolved by the IQR
+    # criterion (camera geometry does not change within a day)
+    dzRef = [r["dz_median"] for r in rows if r["resolved"]]
+    for r in rows:
+        peakOk = r.pop("resolved_peak", False)
+        if (not r["resolved"]) and peakOk and (len(dzRef) > 0):
+            r["resolved"] = bool(abs(r["dz_median"] - np.median(dzRef)) < 10)
 
     def asArray(key, rr, dim, dtype=None):
         return xr.DataArray(np.array([r[key] for r in rr], dtype=dtype), dims=[dim])

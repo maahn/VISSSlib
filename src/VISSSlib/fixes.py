@@ -1170,6 +1170,7 @@ def createMosaicFrameMapping(
     activitySearchRange=20000,
     minPeakFrac=0.15,
     minPeakFracRatio=3.0,
+    minConsensusIqrRatio=1.1,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1202,6 +1203,10 @@ def createMosaicFrameMapping(
         Maximum IQR (px) of the vertical position difference for the best lag
     minIqrRatio : float
         Minimum ratio IQR(2nd best lag)/IQR(best lag)
+    minConsensusIqrRatio : float
+        Alternative acceptance if the best lag agrees within 1 frame with
+        both the activity (z >= 8) and the record_time estimate: minimum
+        IQR ratio of 2nd best/best lag
     minPeakFrac, minPeakFracRatio : float
         Alternative acceptance when the IQR is broad (heavy snowfall): the
         fraction of pairs within +-10 px of the median must be at least
@@ -1382,10 +1387,23 @@ def createMosaicFrameMapping(
                             "dmin": best["dmin"],
                             "resolved": (best["iqr"] <= maxIqr)
                             and (best["ratio"] >= minIqrRatio),
-                            "resolved_peak": (best["peakFrac"] >= minPeakFrac)
-                            and (
-                                best["peakFrac"]
-                                >= minPeakFracRatio * best["peakFrac2nd"]
+                            "resolved_peak": (
+                                (best["peakFrac"] >= minPeakFrac)
+                                and (
+                                    best["peakFrac"]
+                                    >= minPeakFracRatio * best["peakFrac2nd"]
+                                )
+                            )
+                            # consensus: three independent estimates agree
+                            # (only possible if the computer clocks are in
+                            # sync); the particle test is then just not
+                            # decisive, typically because particles move
+                            # little within one frame
+                            or (
+                                (best["ratio"] >= minConsensusIqrRatio)
+                                and (row["activity_z"] >= 8)
+                                and (abs(best["lag"] - row["lag_activity"]) <= 1)
+                                and (abs(best["lag"] - row["lag_recordTime"]) <= 1)
                             ),
                             "peak_frac": best["peakFrac"],
                             "peak_frac_2nd": best["peakFrac2nd"],
@@ -1393,7 +1411,7 @@ def createMosaicFrameMapping(
                     )
                 rows.append(row)
 
-    # alternative acceptance via the peak fraction, but only if the vertical
+    # alternative acceptance (peak fraction or consensus), but only if the vertical
     # offset agrees with the segments of the same day resolved by the IQR
     # criterion (camera geometry does not change within a day)
     # (if none, the peak-qualified segments themselves are the reference)

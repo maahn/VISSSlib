@@ -2237,7 +2237,7 @@ def detectParticles(
 
     # remove extra in 1.1
     metaData = tools.finishNc(
-        metaData, config.site, config.visssGen, extra={"blowingSnowFixed": "True"}
+        metaData, config.site, config.visssGen, config=config, extra={"blowingSnowFixed": "True"}
     )
     tools.to_netcdf2(metaData, config, fn.fname.metaDetection)
     metaData.close()
@@ -2247,7 +2247,7 @@ def detectParticles(
         snowParticlesXR = tools.finishNc(
             snowParticlesXR,
             config.site,
-            config.visssGen,
+            config.visssGen, config=config,
             extra={
                 **tools.collectVersionAttrs("level1detect", {}),
                 "maxMovingObjects": config.level1detect.maxMovingObjects,

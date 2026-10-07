@@ -683,7 +683,7 @@ def _createLevel2(
     lv2Dat = tools.finishNc(
         lv2Dat,
         config.site,
-        config.visssGen,
+        config.visssGen, config=config,
         extra=tools.collectVersionAttrs(f"level2{sublevel}", versionParentFiles),
     )
 

@@ -3230,7 +3230,7 @@ def matchParticles(
     matchedDats = tools.finishNc(
         matchedDats,
         config.site,
-        config.visssGen,
+        config.visssGen, config=config,
         extra=tools.collectVersionAttrs(
             "level1match", {"level1detect": [fnameLv1Detect] + fnames1F}
         ),
@@ -3800,7 +3800,7 @@ def createMetaRotation(
             metaRotation = xr.concat(metaRotation, dim="file_starttime")
 
         if writeNc:
-            metaRotation = tools.finishNc(metaRotation, config.site, config.visssGen)
+            metaRotation = tools.finishNc(metaRotation, config.site, config.visssGen, config=config)
             tools.to_netcdf2(metaRotation, config, fnameMetaRotation)
         log.debug("DONE", fnameMetaRotation)
 

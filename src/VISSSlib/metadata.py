@@ -922,7 +922,7 @@ def createMetaFrames1(fname0, camera, config, skipExisting=True, writeNc=True):
         )
 
     if metaDat is not None:
-        metaDat = tools.finishNc(metaDat, config.site, config.visssGen)
+        metaDat = tools.finishNc(metaDat, config.site, config.visssGen, config=config)
         if writeNc:
             tools.to_netcdf2(metaDat, config, fn.fname.metaFrames)
     else:
@@ -1429,7 +1429,7 @@ def createEvent(
     metaDats = getEvents(fnames0, config, fname0status=fname0status)
     try:
         assert len(metaDats.file_starttime) > 0
-        metaDats = tools.finishNc(metaDats, config.site, config.visssGen)
+        metaDats = tools.finishNc(metaDats, config.site, config.visssGen, config=config)
         nFiles = sum(metaDats.event == "newfile") + sum(metaDats.event == "brokenfile")
         nFiles = int(nFiles.values)
         metaDats.attrs["noLevel0Files"] = nFiles

@@ -242,6 +242,10 @@ DEFAULT_SETTINGS = {
     "name": None,
     "model": None,
     # mostly default settings
+    # optional site coordinates, written as nc attributes if set
+    "latitude": None,
+    "longitude": None,
+    "altitude": None,
     "aux": {
         "arm": {},
         "cloudnet": {
@@ -2277,7 +2281,7 @@ def ncAttrs(site, visssGen, extra={}):
     return attrs
 
 
-def finishNc(dat, site, visssGen, extra={}):
+def finishNc(dat, site, visssGen, extra={}, config=None):
     """
     Finalize NetCDF dataset with attributes and encoding.
 
@@ -2291,6 +2295,9 @@ def finishNc(dat, site, visssGen, extra={}):
         Generator information.
     extra : dict, optional
         Extra attributes, by default {}.
+    config : dict, optional
+        Configuration settings. If it defines latitude, longitude and/or
+        altitude, they are written as global nc attributes.
 
     Returns
     -------
@@ -2304,6 +2311,10 @@ def finishNc(dat, site, visssGen, extra={}):
         extra[k] = str(extra[k])
 
     dat.attrs.update(ncAttrs(site, visssGen, extra=extra))
+    if config is not None:
+        for k in ("latitude", "longitude", "altitude"):
+            if config.get(k) is not None:
+                dat.attrs[k] = float(config[k])
 
     for k in list(dat.data_vars) + list(dat.coords):
         if dat[k].dtype == np.float64:

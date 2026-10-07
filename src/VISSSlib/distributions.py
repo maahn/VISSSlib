@@ -891,7 +891,9 @@ def _createLevel2(
             dict(
                 units="string",
                 long_name="camera and track",
-                comment="Explains how multiple observations of the same particle by the two cameras along a track are combined",
+                comment="Explains how multiple observations of the same particle by the two cameras along a track are combined: "
+                "max, mean, min and std are taken separately for each variable over both cameras and all track steps; "
+                "maxArea takes all variables from the single observation (camera and track step) with the largest area",
             )
         )
         lv2Dat.dim3D.attrs.update(dict(units="m", long_name="3 spatial dimensions"))
@@ -2357,12 +2359,16 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
         level1dat_track2D.copy()
     )  # copy required becuase std of time does not work
     del level1dat_track2D_4ave["capture_time"]
-    trackOps = ["max", "mean", "min", "std"]
+    trackOps = ["max", "mean", "min", "std", "maxArea"]
     level1dat_trackAve = (
         level1dat_track2D_4ave.max(["track_step", "camera"]),
         level1dat_track2D_4ave.mean(["track_step", "camera"]),
         level1dat_track2D_4ave.min(["track_step", "camera"]),
         level1dat_track2D_4ave.std(["track_step", "camera"]),
+        # all variables from the single observation (camera & track step)
+        # with the largest area, e.g. shape of a rotating particle at its
+        # broadest projection
+        _selectAtMaxArea(level1dat_track2D_4ave),
     )
     level1dat_trackAve = xr.concat(level1dat_trackAve, dim="cameratrack")
     level1dat_trackAve["cameratrack"] = trackOps
@@ -2402,6 +2408,49 @@ def getPerTrackStatistics(level1dat, maxAngleDiff=20, extraVars=[]):
         individualDataPoints,
         tracksCut,
     )
+
+
+def _selectAtMaxArea(dat, areaVar="area"):
+    """
+    Select all variables at the observation with the largest area per track.
+
+    The observation is searched along both `track_step` and `camera`. Used
+    for the "maxArea" entry of the `cameratrack` dimension. Variables
+    without a `camera` dimension (velocity, track_angle) are selected by
+    `track_step` only and can be NaN if that step has no value (e.g. step 0
+    of a difference). Tracks without any valid area are NaN.
+
+    Parameters
+    ----------
+    dat : xarray.Dataset
+        Track data with dimensions track_id, track_step and camera.
+    areaVar : str, optional
+        Variable defining the largest observation, defaults to "area".
+
+    Returns
+    -------
+    xarray.Dataset
+        Dataset reduced over track_step and camera.
+    """
+    area = dat[areaVar].transpose("track_id", "camera", "track_step")
+    nStep = area.sizes["track_step"]
+    flat = area.values.reshape(area.sizes["track_id"], -1)
+    valid = np.isfinite(flat).any(axis=1)
+    iFlat = np.argmax(np.where(np.isfinite(flat), flat, -np.inf), axis=1)
+    iCam = xr.DataArray(iFlat // nStep, dims="track_id")
+    iStep = xr.DataArray(iFlat % nStep, dims="track_id")
+    valid = xr.DataArray(valid, dims="track_id")
+
+    res = {}
+    for k, v in dat.data_vars.items():
+        if "camera" in v.dims:
+            r = v.isel(camera=iCam, track_step=iStep, drop=True)
+        elif "track_step" in v.dims:
+            r = v.isel(track_step=iStep, drop=True)
+        else:
+            r = v
+        res[k] = r.where(valid)
+    return xr.Dataset(res)
 
 
 def removeTrackEdges(level1dat_track2D, maxAngleDiff):

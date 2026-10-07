@@ -2221,7 +2221,7 @@ REPROCESS_AFTER = {
     "level1track": datetime.datetime(2026, 10, 1, 15, 50, 0),  # learned-scale tracker + track_expectedLength + coasting fix
     "level2detect": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
     "level2match": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
-    "level2track": datetime.datetime(2026, 10, 1, 15, 50, 0),  # turn-angle track edges + trackingIncomplete flag
+    "level2track": datetime.datetime(2026, 10, 7, 10, 50, 0),  # cameratrack="maxArea"
 }
 
 

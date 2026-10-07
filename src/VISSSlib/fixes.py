@@ -1382,8 +1382,7 @@ def createMosaicFrameMapping(
                             "dmin": best["dmin"],
                             "resolved": (best["iqr"] <= maxIqr)
                             and (best["ratio"] >= minIqrRatio),
-                            "resolved_peak": (best["ratio"] >= minIqrRatio)
-                            and (best["peakFrac"] >= minPeakFrac)
+                            "resolved_peak": (best["peakFrac"] >= minPeakFrac)
                             and (
                                 best["peakFrac"]
                                 >= minPeakFracRatio * best["peakFrac2nd"]
@@ -1397,7 +1396,10 @@ def createMosaicFrameMapping(
     # alternative acceptance via the peak fraction, but only if the vertical
     # offset agrees with the segments of the same day resolved by the IQR
     # criterion (camera geometry does not change within a day)
+    # (if none, the peak-qualified segments themselves are the reference)
     dzRef = [r["dz_median"] for r in rows if r["resolved"]]
+    if len(dzRef) == 0:
+        dzRef = [r["dz_median"] for r in rows if r.get("resolved_peak", False)]
     for r in rows:
         peakOk = r.pop("resolved_peak", False)
         if (not r["resolved"]) and peakOk and (len(dzRef) > 0):

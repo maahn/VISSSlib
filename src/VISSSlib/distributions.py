@@ -3069,6 +3069,12 @@ def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):
             nDetectedL,
         ) = _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, "leader")
 
+        if "mosaicFrameMapping" in config.dataFixes:
+            # follower particles without reliable frame mapping are dropped
+            processingFailed = processingFailed | fixes.mosaicUnmappedTimes(
+                case, config, timeIndex
+            )
+
         (
             recordingFailedF,
             _________,

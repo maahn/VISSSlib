@@ -1585,3 +1585,61 @@ def mosaicCaptureIdOffset(leader1D, follower1D, dim="fpid"):
     jj = np.clip(np.searchsorted(fRt, lRt), 0, len(fRt) - 1)
     diff = fId[jj] - leader1D.capture_id.values.astype(np.int64)
     return int(np.round(np.median(diff) / P)) * P
+
+
+def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
+    """
+    Flag time bins in which follower frames could not be mapped to leader
+    frames (no resolved metaFrameMapping segment, e.g. around follower
+    restarts or for unresolved segments). Follower particles of such periods
+    are dropped by mosaicFollowerCaptureIdToLeader, so level2match/track
+    would otherwise silently report too few particles.
+
+    Parameters
+    ----------
+    case : str
+        Day YYYYMMDD
+    config : dict
+        Settings
+    timeIndex : pandas.DatetimeIndex
+        Start times of the level2 time bins (with freq)
+    maxUnmappedS : float
+        Bins with more than this many seconds not covered by a resolved
+        segment are flagged
+
+    Returns
+    -------
+    xarray.DataArray of bool with dimension time
+    """
+    import os
+
+    import pandas as pd
+
+    freqS = timeIndex.freq.nanos * 1e-9
+    starts = []
+    ends = []
+    day = pd.Timestamp(case[:8])
+    for dd in [day - pd.Timedelta("1D"), day, day + pd.Timedelta("1D")]:
+        fname = mosaicFrameMappingFname(dd.strftime("%Y%m%d"), config)
+        if not os.path.isfile(fname):
+            continue
+        with xr.open_dataset(fname) as ds:
+            if "segment" not in ds.dims:
+                continue
+            ok = ds.resolved.values.astype(bool)
+            starts.append(ds.fct_start.values[ok])
+            ends.append(ds.fct_end.values[ok])
+    if len(starts) > 0:
+        starts = np.concatenate(starts)
+        ends = np.concatenate(ends)
+    binStart = timeIndex.values.astype("datetime64[ns]")
+    binEnd = binStart + np.timedelta64(int(freqS * 1e9), "ns")
+    covered = np.zeros(len(binStart))
+    for s, e in zip(starts, ends):
+        overlap = (np.minimum(binEnd, e) - np.maximum(binStart, s)) / np.timedelta64(
+            1, "s"
+        )
+        covered += np.clip(overlap, 0, None)
+    unmapped = (freqS - covered) > maxUnmappedS
+    log.info(f"mosaicUnmappedTimes: {unmapped.sum()} of {len(unmapped)} bins flagged")
+    return xr.DataArray(unmapped, dims=["time"], coords=[timeIndex])

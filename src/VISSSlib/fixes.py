@@ -1009,6 +1009,22 @@ def _mosaicSegmentsAndGhosts(dat, period, correctGhosts=True):
             u[i1:segEnd] -= extra
             drop[i0 + 1 : i1] = True
             ghosts.append((i0, i1, extra))
+
+    # ghost frames hidden in a block of dropped frames: capture_id advances
+    # by 1-3 more than the elapsed frame periods (e.g. 275 ids for 274.007
+    # periods, 20200106 07:54). Observed rarely, but each one shifts the lag
+    # by one for the rest of the run.
+    if correctGhosts:
+        excess = dc - np.round(dt)
+        hidden = np.flatnonzero((dt > 1.5) & (excess >= 1) & (excess <= 3))
+        for i0 in hidden:
+            i1 = i0 + 1
+            if seg[i0] != seg[i1]:
+                continue
+            extra = int(excess[i0])
+            u[i1 : ends[seg[i1]]] -= extra
+            ghosts.append((i0, i1, extra))
+        ghosts.sort()
     return seg, u, drop, ghosts
 
 

@@ -3783,6 +3783,14 @@ def createMetaRotation(
             fixedRot, fixedRotErr = tryFixFromScratch(
                 ffl1, "rotation not updated despite enough particles"
             )
+            if (fixedRot is not None) and ("rejectRotationJumps" in config.dataFixes):
+                # a from-scratch fit has no prior and diverges in dense
+                # snowfall (MOSAiC 20200212): same rule as for the normal retrieval
+                accepted, pendingJumps = fixes.rejectRotationJump(
+                    fixedRot, rotate_default, pendingJumps
+                )
+                if accepted is None:
+                    fixedRot, fixedRotErr = None, None
             if fixedRot is not None:
                 metaRotation.append(
                     tools.rotDict2Xr(fixedRot, fixedRotErr, ffl1.datetime64)

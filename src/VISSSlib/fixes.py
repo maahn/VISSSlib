@@ -1250,7 +1250,17 @@ def createMosaicFrameMapping(
     fname = mosaicFrameMappingFname(case, config)
     if skipExisting and os.path.isfile(fname):
         with xr.open_dataset(fname) as ds:
-            return ds.load()
+            cached = ds.load()
+        # files from before the clock offset knots were added must be rebuilt
+        if ("segment" not in cached.dims) or ("knot_time" in cached):
+            return cached
+        if not writeNc:
+            raise RuntimeError(
+                f"{fname} is outdated (no clock offset knots), rebuild with "
+                "VISSSlib.fixes.createMosaicFrameMapping(case, config, "
+                "skipExisting=False)"
+            )
+        log.warning(f"{fname} is outdated (no clock offset knots), rebuilding")
 
     log.info(f"createMosaicFrameMapping {case}")
     P = MOSAIC_CAPTURE_ID_PERIOD
@@ -1259,6 +1269,7 @@ def createMosaicFrameMapping(
 
     rows = []
     ghostRows = []
+    knotRows = []
     if (L is not None) and (F is not None):
         lPeriod = _mosaicFramePeriod(L, config)
         fPeriod = _mosaicFramePeriod(F, config)
@@ -1427,6 +1438,39 @@ def createMosaicFrameMapping(
                     )
                 rows.append(row)
 
+        # clock offset between the cameras: capture_time of a follower frame
+        # minus capture_time of the same frame of the leader. The clocks of
+        # the cameras are ~1-2 s apart and drift ~28 ppm, so follower
+        # capture_time cannot be compared with the leader's directly (the
+        # matching cuts the follower to the time range of leader slices,
+        # which fails for short slices, i.e. during dense snowfall).
+        for ir, r in enumerate(rows):
+            if r["n_pairs"] <= 0:
+                continue
+            lm = lSegF == r["lsegment"]
+            fm = (fSegF == r["fsegment"]) & fKeep
+            fUs = fu[fm]
+            fct = F["ct"][fm]
+            target = lu[lm] + r["lag"]
+            jj = np.clip(np.searchsorted(fUs, target), 0, len(fUs) - 1)
+            ok = fUs[jj] == target
+            if ok.sum() < 100:
+                continue
+            tF = fct[jj[ok]]
+            offs = (tF - L["ct"][lm][ok]) * 1e-6
+            bins = ((tF - tF[0]) // 60_000_000).astype(int)
+            for b in np.unique(bins):
+                sel = bins == b
+                if sel.sum() < 50:
+                    continue
+                knotRows.append(
+                    {
+                        "knot_segment": ir,
+                        "knot_time": int(np.median(tF[sel])),
+                        "knot_offset": float(np.median(offs[sel])),
+                    }
+                )
+
     # alternative acceptance (peak fraction or consensus), but only if the vertical
     # offset agrees with the segments of the same day resolved by the IQR
     # criterion (camera geometry does not change within a day)
@@ -1465,6 +1509,20 @@ def createMosaicFrameMapping(
                 )
             else:
                 ds[key] = asArray(key, ghostRows, "ghost", np.int64)
+    if len(knotRows) > 0:
+        for key in knotRows[0].keys():
+            if key == "knot_time":
+                ds[key] = (
+                    asArray(key, knotRows, "knot", np.int64)
+                    .astype("datetime64[us]")
+                    .astype("datetime64[ns]")
+                )
+            else:
+                ds[key] = asArray(key, knotRows, "knot")
+        ds["knot_offset"].attrs["units"] = "s"
+        ds["knot_offset"].attrs[
+            "long_name"
+        ] = "follower minus leader capture_time of the same frame"
     ds.attrs["description"] = (
         "MOSAiC leader/follower frame mapping: leader capture_id = "
         "((follower capture_id - ghost_extra of preceding ghosts in the same "
@@ -1527,6 +1585,9 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
     )
     newId = np.full(len(raw), -1, dtype=np.int64)
     ghostDrop = np.zeros(len(raw), dtype=bool)
+    ctNs = ct.astype(np.int64)
+    shiftNs = np.zeros(len(raw))
+    noClock = np.zeros(len(raw), dtype=bool)
     for day in days:
         mapping = createMosaicFrameMapping(
             day,
@@ -1553,7 +1614,24 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
                     nBefore += (ct[m] >= gEnd) * int(g.ghost_extra.values[gg])
             newId[m] = ((raw[m] - nBefore - int(seg.lag_mod) - 1) % P) + 1
 
-    keep = (newId > 0) & ~ghostDrop
+            # follower capture_time -> leader clock
+            kk = (
+                (mapping.knot_segment.values == ss)
+                if "knot_time" in mapping
+                else np.zeros(0, dtype=bool)
+            )
+            if kk.any():
+                kt = (
+                    mapping.knot_time.values[kk]
+                    .astype("datetime64[ns]")
+                    .astype(np.int64)
+                )
+                ko = mapping.knot_offset.values[kk] * 1e9
+                shiftNs[m] = np.interp(ctNs[m], kt, ko)
+            else:
+                noClock[m] = True
+
+    keep = (newId > 0) & ~ghostDrop & ~noClock
     log.info(
         f"mosaicFollowerCaptureIdToLeader: kept {keep.sum()} of {len(keep)} "
         f"follower particles ({ghostDrop.sum()} in ghost frames, "
@@ -1564,6 +1642,10 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
     follower1D = follower1D.isel({dim: keep})
     follower1D["capture_id"] = xr.DataArray(
         newId[keep].astype(follower1D.capture_id.dtype), dims=[dim]
+    )
+    follower1D["capture_time"] = xr.DataArray(
+        (ctNs[keep] - shiftNs[keep]).astype(np.int64).astype("datetime64[ns]"),
+        dims=[dim],
     )
     return follower1D
 

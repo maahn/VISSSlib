@@ -2672,12 +2672,16 @@ def matchParticles(
     end = leader1D.capture_time[-1].values + np.timedelta64(2, "s")
     log.info(tools.concat(f"opening {fnames1F}"))
     mosaicFrameMapping = "mosaicFrameMapping" in config.dataFixes
+    # MOSAiC: follower capture_time is on its own clock, up to some seconds
+    # away from the leader's, and is only converted to the leader clock below
+    startF = start - np.timedelta64(30, "s") if mosaicFrameMapping else start
+    endF = end + np.timedelta64(30, "s") if mosaicFrameMapping else end
     try:
         follower1DAll = tools.open_mflevel1detect(
             fnames1F,
             config,
-            start=start,
-            end=end,
+            start=startF,
+            end=endF,
             skipFixes=["captureIdOverflows"] if mosaicFrameMapping else [],
         )  # with foxes
         if mosaicFrameMapping and (follower1DAll is not None):
@@ -2686,6 +2690,14 @@ def matchParticles(
             follower1DAll = fixes.mosaicFollowerCaptureIdToLeader(
                 follower1DAll, config
             )
+            if follower1DAll is not None:
+                # capture_time is now on the leader clock, restrict to leader period
+                inTime = (follower1DAll.capture_time >= start) & (
+                    follower1DAll.capture_time <= end
+                )
+                follower1DAll = follower1DAll.isel(fpid=inTime.values)
+                if len(follower1DAll.fpid) == 0:
+                    follower1DAll = None
             if (follower1DAll is not None) and (
                 "captureIdOverflows" in config.dataFixes
             ):

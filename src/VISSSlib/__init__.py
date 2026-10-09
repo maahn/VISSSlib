@@ -67,6 +67,19 @@ logger.add(
 # )
 
 
+# dask's threaded scheduler (used by xarray open_mfdataset/.load()/.compute()) defaults
+# to os.cpu_count() threads and ignores OMP_NUM_THREADS, so many concurrent workers
+# oversubscribe a node. Follow OMP_NUM_THREADS (exported per job by products.py); if
+# unset (interactive use), leave dask's default untouched.
+try:
+    _nThreads = int(os.environ["OMP_NUM_THREADS"])
+    if _nThreads >= 1:
+        import dask
+
+        dask.config.set(num_workers=_nThreads)
+except (KeyError, ValueError):
+    pass
+
 from . import (
     analysis,
     av,

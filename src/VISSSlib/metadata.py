@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 from loguru import logger as log
 
-from . import __version__, detection, files, fixes, quicklooks, tools
+from . import __version__, av, detection, files, fixes, quicklooks, tools
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -691,7 +691,7 @@ def _getMetaData1(
                 "%s: helper file not found, counting moving pixels" % (helperFname)
             )
 
-            inVid = cv2.VideoCapture(fname)
+            inVid = cv2.VideoCapture(fname, *av.decoderThreadArgs())
 
             ii = -1
             if not inVid.isOpened:

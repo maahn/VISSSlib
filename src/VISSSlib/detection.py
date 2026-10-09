@@ -1691,7 +1691,9 @@ def _getTrainingFrames(fnamesV, trainingSize, config):
     inVidTraining = {}
     for nThread, fnameV in fnamesV.items():
         assert fnameV.endswith(config.movieExtension)
-        vid = cv2.VideoCapture(fnameV)
+        vid = cv2.VideoCapture(
+            fnameV, *av.decoderThreadArgs(config.level1detect.cv2NumThreads)
+        )
         if int(vid.get(cv2.CAP_PROP_FRAME_COUNT)) > 0:
             inVidTraining[nThread] = vid
 
@@ -2042,7 +2044,9 @@ def detectParticles(
     nFramesByThread = {}
     for nThread, fnameV in fnamesV.items():
         assert fnameV.endswith(config.movieExtension)
-        inVid[nThread] = cv2.VideoCapture(fnameV)
+        inVid[nThread] = cv2.VideoCapture(
+            fnameV, *av.decoderThreadArgs(cv2NumThreads)
+        )
         nFramesByThread[nThread] = int(inVid[nThread].get(cv2.CAP_PROP_FRAME_COUNT))
         log.info(f"opened {fnameV} with {nFramesByThread[nThread]} frames.")
         assert nFramesByThread[nThread] > 0, f"too few frames: {nFramesByThread[nThread]}"

@@ -1187,6 +1187,7 @@ def createMosaicFrameMapping(
     minPeakFrac=0.15,
     minPeakFracRatio=3.0,
     minConsensusIqrRatio=1.1,
+    minConsensusActivityZ=5.0,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1219,6 +1220,10 @@ def createMosaicFrameMapping(
         Maximum IQR (px) of the vertical position difference for the best lag
     minIqrRatio : float
         Minimum ratio IQR(2nd best lag)/IQR(best lag)
+    minConsensusActivityZ : float
+        Minimum z-score of the activity cross correlation peak for the
+        consensus route (the activity lag must agree within 1 frame with
+        the record_time and the particle lag)
     minConsensusIqrRatio : float
         Alternative acceptance if the best lag agrees within 1 frame with
         both the activity (z >= 8) and the record_time estimate: minimum
@@ -1428,7 +1433,7 @@ def createMosaicFrameMapping(
                             # little within one frame
                             or (
                                 (best["ratio"] >= minConsensusIqrRatio)
-                                and (row["activity_z"] >= 8)
+                                and (row["activity_z"] >= minConsensusActivityZ)
                                 and (abs(best["lag"] - row["lag_activity"]) <= 1)
                                 and (abs(best["lag"] - row["lag_recordTime"]) <= 1)
                             ),
@@ -2033,3 +2038,62 @@ def despikeRotationWithMatches(
                 )
         _interpolateRotation(new, before, first, after, only=accept)
     return new, replaced
+
+
+def rejectRotationJump(
+    rot,
+    rotDefault,
+    pending,
+    ofzTol=20.0,
+    angleTol=1.0,
+    confirmN=6,
+    confirmTol=(5.0, 0.3, 0.3),
+):
+    """
+    Do not let a single implausible rotation retrieval become the new
+    default (prior) of the following files.
+
+    In dense snowfall the retrieval can diverge (MOSAiC 20200212 17:20: Ofz
+    -94 px instead of -33, phi +7.8 deg instead of -1.0) while reporting a
+    small formal error, and since every retrieval is the first guess of the
+    next one, the garbage is carried on for hours or days (20200210 06:25 to
+    20200211 19:10). The geometry of a deployment is stable for long periods and
+    real changes are announced in the settings file (`rotate` seeds). A
+    retrieval that is farther from the current default than the tolerances
+    is therefore rejected, unless confirmN consecutive retrievals agree
+    with each other within confirmTol (then it is a real new level).
+
+    Parameters
+    ----------
+    rot, rotDefault : dict or pandas.Series
+        current retrieval and current default with camera_Ofz,
+        camera_phi, camera_theta
+    pending : list
+        rejected retrievals since the default was last updated
+        (returned, pass it back in for the next file)
+
+    Returns
+    -------
+    (rot or None, pending)
+        the retrieval to accept, or None if it is rejected (use the
+        default instead)
+    """
+    keys = ["camera_Ofz", "camera_phi", "camera_theta"]
+    tol = [ofzTol, angleTol, angleTol]
+    jump = any(abs(float(rot[k]) - float(rotDefault[k])) > t for k, t in zip(keys, tol))
+    if not jump:
+        return rot, []
+    pending = list(pending) + [rot]
+    if len(pending) >= confirmN:
+        last = pending[-confirmN:]
+        if all(
+            max(float(r[k]) for r in last) - min(float(r[k]) for r in last) <= t
+            for k, t in zip(keys, confirmTol)
+        ):
+            return rot, []
+    log.warning(
+        f"rejectRotationJump: retrieval {dict((k, round(float(rot[k]), 3)) for k in keys)} "
+        f"is far from the current default {dict((k, round(float(rotDefault[k]), 3)) for k in keys)}, "
+        "keeping the default"
+    )
+    return None, pending

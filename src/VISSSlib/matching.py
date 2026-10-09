@@ -3556,6 +3556,7 @@ def createMetaRotation(
 
     maxConsecutiveFixFailures = 5
     consecutiveFixFailures = 0
+    pendingJumps = []  # rejected retrievals, see fixes.rejectRotationJump
 
     def tryFixFromScratch(ffl1, reason):
         """
@@ -3729,6 +3730,19 @@ def createMetaRotation(
                 ((nM // nF) < 0.01),
             )
         )
+
+        # optional: a retrieval far from the current default is not trusted
+        # (see fixes.rejectRotationJump)
+        if (
+            ("rejectRotationJumps" in config.dataFixes)
+            and (rot is not None)
+            and (not isinstance(rot, float))
+        ):
+            accepted, pendingJumps = fixes.rejectRotationJump(
+                rot, rotate_default, pendingJumps
+            )
+            if accepted is None:
+                rot, rot_err = rotate_default, rotate_err_default
 
         # append result to metaRotation object
         if rot is not None:

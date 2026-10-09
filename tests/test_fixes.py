@@ -225,3 +225,29 @@ class TestDespikeRotation:
         assert n == 0
         r, n = fixes.despikeRotation(self._rot([-38, -38, -60, -60, -60, -60, -60]))
         assert n == 0
+
+
+class TestRejectRotationJump:
+    @staticmethod
+    def _r(ofz, phi=-1.0, theta=-1.2):
+        import pandas as pd
+
+        return pd.Series(dict(camera_Ofz=ofz, camera_phi=phi, camera_theta=theta))
+
+    def test_spike_is_rejected(self):
+        from VISSSlib import fixes
+
+        default, pending, out = self._r(-33.0), [], []
+        for x in [self._r(-34), self._r(-94, 7.8, 0.0), self._r(-86, 5.5, -0.9), self._r(-33.5)]:
+            a, pending = fixes.rejectRotationJump(x, default, pending)
+            out.append(None if a is None else float(a.camera_Ofz))
+        assert out == [-34.0, None, None, -33.5]
+
+    def test_persistent_level_is_accepted_after_confirmation(self):
+        from VISSSlib import fixes
+
+        default, pending, out = self._r(-33.0), [], []
+        for x in [self._r(-80.0)] * 8:
+            a, pending = fixes.rejectRotationJump(x, default, pending)
+            out.append(None if a is None else float(a.camera_Ofz))
+        assert out[:5] == [None] * 5 and out[5] == -80.0

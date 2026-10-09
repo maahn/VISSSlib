@@ -97,6 +97,44 @@ for the problem categories that don't need visual judgment to spot --
                  ~zero bias; a file a rotation refit fully recovered had
                  sigma ~1.4).
 
+  - matchscore_drop  a run of consecutive real level1match files whose
+                 median matchScore is far below that of their neighbours
+                 (only checked with --matchscore-drop). Opens the
+                 matchScore of every file of a day and compares each file
+                 with the median of the files around it, so it catches a
+                 localized failure that a random sample or the absolute
+                 threshold of --matchscore-check misses (e.g. Hyytiala
+                 20241206 04:50: matchScore 0.0015 against 0.026 around
+                 it, 10 instead of 100 thousand pairs). The usual cause is
+                 an implausible per-file rotation in metaRotation (a
+                 retrieval that locked onto false pairs, relaxing over the
+                 next file or two): compare camera_Ofz/phi/theta of those
+                 files with their neighbours and, if confirmed, see
+                 fixes.despikeRotationWithMatches (evidence-based,
+                 replaces only files whose pairs agree better with the
+                 interpolated rotation) and rerun the children with
+                 scripts/reprocess_levels.py. Other causes: follower
+                 restart / unresolved frame mapping (MOSAiC), a timing
+                 glitch.
+  - level2_ratio_suspect  minutes in which level2detect shows particles
+                 on BOTH cameras but level2match (and level2track) show
+                 (almost) none, although no quality flag explains it
+                 (only checked with --level2-compare). level2detect does
+                 not depend on matching, so it is an independent
+                 reference for every minute: a minute with Ntot >=
+                 --level2-min-ntot in both level2detect files and a match
+                 Ntot of zero or below --level2-ratio-factor (default 0.3) times the
+                 day's typical match/detect ratio means that particles
+                 were seen but lost in matching (found at MOSAiC: 19 %
+                 of such minutes had exactly zero match Ntot because the
+                 follower clock was ~1 s off the leader's, and Hyytiala
+                 20241206 04:50-05:00 from a rotation outlier). The ratio
+                 itself is site dependent (level2match Ntot can be above
+                 or below level2detect), hence the comparison with the
+                 day's own median. Minutes already carrying a recording/
+                 processing/blocked/blowing-snow quality flag in
+                 level2match are expected losses and not reported.
+
 It deliberately does not attempt "does this look physically plausible"
 checks (rotation-angle continuity, particle-count trends, PSD shape) --
 those need a human looking at quicklooks; see scripts/README_qc.md for
@@ -335,6 +373,149 @@ def _check_match_quality(path, config, matchscore_factor):
     return matchscoreResult, zSigmaResult
 
 
+def _matchscore_drop(files, factor=0.5, window=6, minRef=None):
+    """
+    Find runs of consecutive level1match files whose median matchScore is
+    far below that of the files around them.
+
+    Parameters
+    ----------
+    files : list of str
+        real level1match files of one day (sorted here by name)
+    factor : float
+        a file is flagged if its median matchScore is below factor times
+        the median of the medians of the up to `window` files before and
+        after it (not counting flagged neighbours as reference)
+    minRef : float or None
+        only flag where the reference itself is at least this good (so a
+        day that is bad everywhere is left to --matchscore-check)
+
+    Returns
+    -------
+    list of dict(first, last, nFiles, median, reference, nPairsMedian)
+    """
+    import numpy as np
+    import xarray as xr
+
+    files = sorted(files)
+    med = np.full(len(files), np.nan)
+    npairs = np.zeros(len(files), dtype=int)
+    for i, f in enumerate(files):
+        try:
+            with xr.open_dataset(f) as ds:
+                n = ds.sizes.get("pair_id", 0)
+                npairs[i] = n
+                if n > 0:
+                    med[i] = float(ds.matchScore.median())
+        except Exception:
+            pass
+    ref = np.full(len(files), np.nan)
+    for i in range(len(files)):
+        nb = np.r_[med[max(0, i - window) : i], med[i + 1 : i + 1 + window]]
+        nb = nb[np.isfinite(nb)]
+        if len(nb) >= 3:
+            ref[i] = np.median(nb)
+    flagged = np.isfinite(med) & np.isfinite(ref) & (med < factor * ref)
+    if minRef is not None:
+        flagged &= ref >= minRef
+    runs = []
+    i = 0
+    while i < len(files):
+        if flagged[i]:
+            j = i
+            while j + 1 < len(files) and flagged[j + 1]:
+                j += 1
+            runs.append(
+                dict(
+                    first=files[i],
+                    last=files[j],
+                    nFiles=j - i + 1,
+                    median=float(np.nanmedian(med[i : j + 1])),
+                    reference=float(np.nanmedian(ref[i : j + 1])),
+                    nPairsMedian=int(np.median(npairs[i : j + 1])),
+                )
+            )
+            i = j + 1
+        else:
+            i += 1
+    return runs
+
+
+# bits of qualityFlags (np.packbits of recordingFailed, processingFailed,
+# cameraBlocked, blowingSnow, obervationsDiffer, trackingIncomplete,
+# zResidualTooWide): the ones that explain a legitimate lack of matches
+_QF_EXPLAINS_LOSS = 128 | 64 | 32 | 16
+
+
+def _level2_intercompare(
+    matchFile, detLeaderFile, detFollowerFile, minNtot=100.0, ratioFactor=0.3
+):
+    """
+    Compare level2match with level2detect minute by minute (see the
+    level2_ratio_suspect category).
+
+    Returns
+    -------
+    dict or None
+        nGood: minutes with both level2detect Ntot >= minNtot and clean
+        level2detect flags; nZero: of these, minutes with match Ntot == 0;
+        nSuspect: minutes with match Ntot == 0 or below ratioFactor times
+        the day's median match/detect ratio and no explaining flag in the
+        match file; first/last: first/last suspect minute; medianRatio
+    """
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+
+    def ntot(ds):
+        n = ds.Ntot
+        if n.ndim > 1:
+            n = n.isel({k: 0 for k in n.dims if k != "time"})
+        return n.to_series()
+
+    with xr.open_dataset(matchFile) as m, xr.open_dataset(
+        detLeaderFile
+    ) as dl, xr.open_dataset(detFollowerFile) as df_:
+        d = pd.DataFrame(
+            {
+                "match": ntot(m),
+                "detL": ntot(dl).reindex(m.time.values),
+                "detF": ntot(df_).reindex(m.time.values),
+                "qm": m.qualityFlags.to_series(),
+                "qL": dl.qualityFlags.to_series().reindex(m.time.values),
+                "qF": df_.qualityFlags.to_series().reindex(m.time.values),
+            }
+        )
+    good = (
+        (d.detL >= minNtot)
+        & (d.detF >= minNtot)
+        & ((d.qL.fillna(255).astype(int) & _QF_EXPLAINS_LOSS) == 0)
+        & ((d.qF.fillna(255).astype(int) & _QF_EXPLAINS_LOSS) == 0)
+    )
+    if good.sum() == 0:
+        return None
+    ratio = d.match.fillna(0) / np.minimum(d.detL, d.detF)
+    medianRatio = float(ratio[good].median())
+    low = (d.match.fillna(0) == 0) | (ratio < ratioFactor * medianRatio)
+    explained = (d.qm.fillna(0).astype(int) & _QF_EXPLAINS_LOSS) != 0
+    suspect = good & low & ~explained
+    # longest run of consecutive suspect minutes
+    longest = run = 0
+    for v in suspect.values:
+        run = run + 1 if v else 0
+        longest = max(longest, run)
+    out = dict(
+        longestRun=longest,
+        nGood=int(good.sum()),
+        nZero=int((good & (d.match.fillna(0) == 0)).sum()),
+        nSuspect=int(suspect.sum()),
+        medianRatio=medianRatio,
+        first=str(d.index[suspect][0])[11:16] if suspect.any() else None,
+        last=str(d.index[suspect][-1])[11:16] if suspect.any() else None,
+    )
+    return out
+
+
 def _find_reduced_coverage(rows, cases, config):
     """
     Flag daily-aggregate levels (level2match/level2track, see PARENT_LEVEL)
@@ -390,6 +571,9 @@ def scan(
     config, cases, levels, integrity="none", sample_size=30,
     include_known_bad=False, retry_broken_metarotation=True,
     matchscore_check="none", matchscore_threshold_factor=10.0,
+    matchscore_drop="none", drop_day_fraction=0.2, drop_factor=0.5,
+    level2_compare=False, level2_min_ntot=100.0, level2_ratio_factor=0.3,
+    level2_min_minutes=5, level2_min_run=3,
 ):
     """
     Run the structural QC scan and return a findings DataFrame.
@@ -627,6 +811,86 @@ def scan(
                                 )
                             )
 
+    # per-day checks that need the files of a whole day / several levels
+    for case in cases:
+        if not include_known_bad:
+            isBad, _ = tools.isBadPeriod(case, config, product="level1match")
+            if isBad:
+                continue
+        leader = files.FindFiles(case, config.leader, config)
+        follower = files.FindFiles(case, config.follower, config)
+
+        if (
+            matchscore_drop != "none"
+            and "level1match" in levels
+            and (matchscore_drop == "all" or random.random() < drop_day_fraction)
+        ):
+            realFiles = leader.listFiles("level1match")
+            if len(realFiles) >= 8:
+                for run in _matchscore_drop(
+                    realFiles,
+                    factor=drop_factor,
+                    minRef=config.quality.minMatchScore,
+                ):
+                    rows.append(
+                        dict(
+                            level="level1match",
+                            camera=config.leader,
+                            case=case,
+                            category="matchscore_drop",
+                            detail=f"{run['first']} .. {os.path.basename(run['last'])} | "
+                            f"{run['nFiles']} file(s) median matchScore="
+                            f"{run['median']:.2e} vs {run['reference']:.2e} in the "
+                            f"neighbouring files, median nPairs={run['nPairsMedian']} | "
+                            "check metaRotation of these files for an implausible "
+                            "rotation (fixes.despikeRotationWithMatches), a follower "
+                            "restart or a timing glitch",
+                        )
+                    )
+
+        if level2_compare:
+            detL = leader.listFiles("level2detect")
+            detF = follower.listFiles("level2detect")
+            for level2 in ["level2match", "level2track"]:
+                if level2 not in levels:
+                    continue
+                matchFiles = leader.listFiles(level2)
+                if not (matchFiles and detL and detF):
+                    continue
+                try:
+                    res = _level2_intercompare(
+                        matchFiles[0], detL[0], detF[0],
+                        minNtot=level2_min_ntot, ratioFactor=level2_ratio_factor,
+                    )
+                except Exception as e:
+                    rows.append(
+                        dict(
+                            level=level2, camera=config.leader, case=case,
+                            category="corrupt", detail=f"{matchFiles[0]} | {e}",
+                        )
+                    )
+                    continue
+                if (
+                    res is not None
+                    and res["nSuspect"] >= level2_min_minutes
+                    and res["longestRun"] >= level2_min_run
+                ):
+                    rows.append(
+                        dict(
+                            level=level2,
+                            camera=config.leader,
+                            case=case,
+                            category="level2_ratio_suspect",
+                            detail=f"{res['nSuspect']} of {res['nGood']} minute(s) with "
+                            f"level2detect Ntot >= {level2_min_ntot:g} on both cameras "
+                            f"have no/little {level2} Ntot ({res['nZero']} exactly zero, "
+                            f"longest run {res['longestRun']} min), "
+                            f"no explaining quality flag; first {res['first']} last "
+                            f"{res['last']} UTC; median {level2}/detect ratio of the day "
+                            f"{res['medianRatio']:.2f}",
+                        )
+                    )
+
     rows.extend(_find_reduced_coverage(rows, cases, config))
 
     columns = ["level", "camera", "case", "category", "detail"]
@@ -701,6 +965,36 @@ def main():
         "(default: 10.0)",
     )
     parser.add_argument(
+        "--matchscore-drop",
+        choices=["none", "sample", "all"],
+        default="none",
+        help="Find runs of consecutive level1match files whose median "
+        "matchScore is far below their neighbours' (matchscore_drop; see "
+        "its description). Reads matchScore of every file of a day: "
+        "'sample' checks a random fraction of the days (--drop-day-"
+        "fraction), 'all' every day.",
+    )
+    parser.add_argument("--drop-day-fraction", type=float, default=0.2,
+                        help="fraction of days checked by --matchscore-drop sample (default 0.2)")
+    parser.add_argument("--drop-factor", type=float, default=0.5,
+                        help="flag a file below this factor times its neighbours' median matchScore (default 0.5)")
+    parser.add_argument(
+        "--level2-compare",
+        action="store_true",
+        help="Compare level2match/level2track with level2detect minute by "
+        "minute (level2_ratio_suspect): minutes with particles on both "
+        "cameras in level2detect but (almost) none in the matched product "
+        "and no explaining quality flag. level2detect must exist.",
+    )
+    parser.add_argument("--level2-min-ntot", type=float, default=100.0,
+                        help="minimum level2detect Ntot (1/m3) on both cameras for a minute to count (default 100)")
+    parser.add_argument("--level2-min-minutes", type=int, default=5,
+                        help="report a day only with at least this many suspect minutes (default 5) ...")
+    parser.add_argument("--level2-min-run", type=int, default=3,
+                        help="... including a run of at least this many consecutive minutes (default 3); isolated minutes are scatter")
+    parser.add_argument("--level2-ratio-factor", type=float, default=0.3,
+                        help="flag minutes whose match/detect ratio is below this factor times the day's median (default 0.1)")
+    parser.add_argument(
         "--include-known-bad",
         action="store_true",
         help="Also report findings inside periods listed in config.badData "
@@ -730,6 +1024,14 @@ def main():
         retry_broken_metarotation=args.retry_broken_metarotation,
         matchscore_check=args.matchscore_check,
         matchscore_threshold_factor=args.matchscore_threshold_factor,
+        matchscore_drop=args.matchscore_drop,
+        drop_day_fraction=args.drop_day_fraction,
+        drop_factor=args.drop_factor,
+        level2_compare=args.level2_compare,
+        level2_min_ntot=args.level2_min_ntot,
+        level2_ratio_factor=args.level2_ratio_factor,
+        level2_min_minutes=args.level2_min_minutes,
+        level2_min_run=args.level2_min_run,
     )
 
     df.to_csv(args.out, index=False)

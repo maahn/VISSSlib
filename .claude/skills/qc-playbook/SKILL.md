@@ -1,6 +1,6 @@
 ---
 name: qc-playbook
-description: Run the VISSS quality-control playbook against a deployment settings YAML — structural scan, resubmit broken files via the task queue, re-scan, sample-then-escalate matchScore/Z-residual checks, classify remaining findings as accepted-unfixable vs. genuinely new, loop submit/re-check against `allDone` (the full DAG, not just level1track/level2match/level2track) until it actually settles, and deliver a broken-periods table. Use this whenever the user asks to "run QC", "QC scan", "quality control", "check for broken/missing files", or "reprocess broken" against a VISSSlib config/settings YAML, or names a deployment (e.g. "run the QC playbook on hyytiala2_v3") — even if they don't spell out the individual steps, since this skill already encodes the ordering and the repo-specific idioms (task queue, DataProductRange, memory-keyed accepted-unfixable list) that make doing it ad hoc error-prone. Never declare a pass complete while `allDone`'s `generateAllCommands()` is still non-empty and unsubmitted.
+description: Run the VISSS quality-control playbook against a deployment settings YAML — structural scan, resubmit broken files via the task queue, re-scan, sample-then-escalate matchScore/Z-residual checks, classify remaining findings as accepted-unfixable vs. genuinely new, loop submit/re-check against `allDone` (the full DAG, not just level1track/level2match/level2track) until it actually settles, and deliver a broken-periods table. Use this whenever the user asks to "run QC", "QC scan", "quality control", "check for broken/missing files", or "reprocess broken" against a VISSSlib config/settings YAML, or names a deployment (e.g. "run the QC playbook on hyytiala2_v3") — even if they don't spell out the individual steps, since this skill already encodes the ordering and the repo-specific idioms (task queue, DataProductRange, memory-keyed accepted-unfixable list) that make doing it ad hoc error-prone. Includes two checks that find matching losses no sentinel file ever reports: a minute-by-minute level2match vs level2detect intercomparison and a per-file matchScore-drop scan. Never declare a pass complete while `allDone`'s `generateAllCommands()` is still non-empty and unsubmitted.
 ---
 
 # VISSS QC playbook
@@ -157,6 +157,82 @@ that suggests the sample undercounts a real systemic problem. A sample
 turning up nothing, or one or two isolated one-off files, does not warrant
 the full scan.
 
+## Step 4b — level2 intercomparison against level2detect (matching losses that raise nothing)
+
+```bash
+python scripts/qc_report.py <config>.yaml --levels level2match,level2track --level2-compare \
+    --out /tmp/qc_<config-basename>_level2cmp.csv
+```
+
+`level2detect` does not depend on stereo matching, so it is an independent
+reference for every minute. The check compares Ntot of `level2match` (and
+`level2track`) with the smaller of the two cameras' `level2detect` Ntot and
+reports `level2_ratio_suspect` for a day when at least 5 minutes — including a
+run of at least 3 consecutive ones — have particles on both cameras
+(Ntot >= 100 m^-3, clean flags) but a match Ntot of zero or below 0.3 x the
+day's own median match/detect ratio, with no recording/processing/blocked/
+blowing-snow flag in the matched product explaining it. The ratio is not 1
+(it is site dependent, e.g. ~1.6 at Hyytiala, ~0.7 at MOSAiC), hence the
+comparison with the day's own median. **If the user says "detect shows 1e3
+and match shows 0, something is wrong" they are right: treat it as new, do not
+file it as accepted.**
+
+Requires `level2detect` for both cameras; if the deployment has none (e.g.
+`processL2detect: False`), say so and skip. Isolated minutes are scatter and
+are not reported on purpose; lower `--level2-min-minutes/--level2-min-run` only
+when hunting a specific event. What it caught so far: MOSAiC (19 % of all such
+minutes exactly zero, follower clock ~1 s off the leader so the per-slice
+follower cut missed the frames, plus follower restarts) and Hyytiala 2024-12-06
+04:50-05:00 (rotation outlier).
+
+## Step 4c — matchScore drop between neighbouring files
+
+```bash
+python scripts/qc_report.py <config>.yaml --levels level1match --matchscore-drop sample \
+    --out /tmp/qc_<config-basename>_drop.csv     # 'all' for every day
+```
+
+`--matchscore-check` only sees files below an absolute threshold and only in a
+random sample. A localized failure is better found by comparing each file with
+the files around it: `matchscore_drop` reports runs of consecutive level1match
+files whose median matchScore is below 0.5 x the median of their ±6 neighbours
+(`--drop-factor 0.75` also shows milder drops; use `--matchscore-drop all` for a
+complete audit of a deployment, it reads matchScore of every file).
+
+For each finding look at the metaRotation of those files first
+(`xr.open_dataset(metaRotation)` → camera_Ofz/phi/theta per file) and
+classify the cause:
+
+1. **Isolated implausible rotation** (one to a few files far from their neighbours
+   in Ofz/phi/theta, which return to the old values; e.g. Hyytiala 2024-12-06
+   04:50/05:00: Ofz -61/-30 px instead of -5). Fix: `fixes.despikeRotationWithMatches`
+   — evidence-based, replaces a candidate only if the original rotation leaves
+   a Z bias of >= 2 px on the file's own level1match pairs and the interpolated
+   one reduces it below 70 %. Rewrite the metaRotation file with
+   `tools.touchOutputFile` (real mtime!), then regenerate the children with
+   `scripts/reprocess_levels.py --levels level1match level1track level2match level2track`
+   (and `level3combinedRiming` where enabled). New days are already protected by
+   `createMetaRotation` (clear outliers only). Do not replace on geometry alone:
+   about half of such candidates match fine because the rotation parameters
+   are partly degenerate.
+2. **Carried-over prior** (the rotation is *constant* over many files with an
+   identical formal error, then jumps at the first successful retrieval; e.g.
+   Hyytiala 2024-12-05 until 09:10: Ofz 0.01/phi 2.2/theta 0.45 against -4.5 afterwards).
+   The retrieval failed or had too few particles for hours and the previous value
+   was used. `despikeRotation*` cannot see this (no differing neighbours). Needs a
+   refit on those files' own pairs (`matching.refitRotationFromMatches`) or a
+   back-fill from the first good retrieval; confirm with the Z bias of the pairs
+   under both rotations (`fixes.zResidualBias`). Report as new.
+3. **Follower restart / unresolved frame mapping / timing glitch** — MOSAiC
+   (see `fixes.createMosaicFrameMapping`; `qualityFlags` bit processingFailed marks
+   unmapped minutes), or a `detectTimingGlitches`-type issue elsewhere.
+4. **Environment errors** — before analysing any `.broken.txt`, grep it for
+   `ImportError|has no attribute '__version__'|undefined symbol|libtiff`. These come
+   from jobs that started while the conda env was being updated or on workers that
+   started before an update; they are not data problems. Clear them with
+   `scripts/clear_env_broken.py <minutes> [data-root-glob]` (removes only sentinels whose content matches
+   such a message) and let the normal reprocessing regenerate them.
+
 ## Step 5 — classify the remainder
 
 For everything still outstanding after Steps 3–4, sort into:
@@ -169,6 +245,10 @@ For everything still outstanding after Steps 3–4, sort into:
   of real correspondence ambiguity, not a new bug — it does not need further
   investigation. Cross-check against the prior periods already listed in
   `project_<config-basename>_qc_status.md` (Step 0) if that file existed.
+
+- **Never accepted, always new**: any `level2_ratio_suspect` (Step 4b) and any
+  `matchscore_drop` (Step 4c) that is not already listed for that exact period in
+  the config's memory file. These are silent matching losses.
 
 - **Genuinely new — investigate**: anything else that didn't resolve:
   persistent `broken`/`missing`/`matchscore_suspect`/`nodata_suspect`

@@ -1156,14 +1156,29 @@ def _mosaicParticleLagTest(
     if len(res) < 2:
         return None
     res.sort()
+    best = res[0]
+    # In dense snowfall almost all pairs of single-particle frames are random
+    # at every lag, the IQR is ~300 px for all of them and its minimum is
+    # arbitrary, while the correct lag still shows a clear peak (fraction of
+    # pairs within +-10 px of the median; 20200117 00:00: 0.23 at the right lag,
+    # 0.04 at the lag with the smallest IQR). A decisive peak wins.
+    peakBest = max(res, key=lambda r: r[4])
+    others = [r[4] for r in res if r is not peakBest]
+    if (
+        (peakBest is not best)
+        and (peakBest[4] >= 0.15)
+        and (peakBest[4] >= 3.0 * max(others))
+    ):
+        best = peakBest
+    rest = [r for r in res if r is not best]
     return {
-        "lag": int(res[0][1]),
-        "iqr": float(res[0][0]),
-        "iqr2nd": float(res[1][0]),
-        "n": int(res[0][2]),
-        "dz": float(res[0][3]),
-        "peakFrac": float(res[0][4]),
-        "peakFrac2nd": float(max(r[4] for r in res[1:])),
+        "lag": int(best[1]),
+        "iqr": float(best[0]),
+        "iqr2nd": float(min(r[0] for r in rest)),
+        "n": int(best[2]),
+        "dz": float(best[3]),
+        "peakFrac": float(best[4]),
+        "peakFrac2nd": float(max(r[4] for r in rest)),
     }
 
 

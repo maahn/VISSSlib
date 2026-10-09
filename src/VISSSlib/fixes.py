@@ -1727,17 +1727,20 @@ def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
     return xr.DataArray(unmapped, dims=["time"], coords=[timeIndex])
 
 
-def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4):
+def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4, maxRun=3):
     """
-    Replace isolated outliers in a series of per-file rotation estimates.
+    Replace short runs of implausible per-file rotation estimates.
 
     A retrieval can lock onto false pairs (typically during dense snowfall)
     and return an implausible rotation with a small formal uncertainty (e.g.
     MOSAiC 20200203 15:55: Ofz -15 px instead of -38, phi -1.9 instead of
-    -0.97). Such a value is replaced by the previous file's estimate if it
-    differs from both neighbours by more than the tolerances while the
-    neighbours agree with each other. Persistent changes (camera moved) are
-    kept.
+    -0.97), and the following files, which start from this value, can need a
+    file or two to relax (Hyytiala 20241206 04:50-05:00: Ofz -61 and -30
+    instead of -5). A run of up to maxRun files that all differ from the
+    last good file by more than the tolerances, followed by a file that
+    agrees with that last good file again, is replaced by a linear
+    interpolation between the two. Persistent changes (e.g. camera moved)
+    are kept because they do not return to the old values.
 
     Parameters
     ----------
@@ -1747,6 +1750,8 @@ def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4):
         with mean and err)
     ofzTol, angleTol : float
         Tolerances for camera_Ofz (px) and camera_phi/camera_theta (deg)
+    maxRun : int
+        Maximum number of consecutive files to replace
 
     Returns
     -------
@@ -1755,8 +1760,7 @@ def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4):
     """
     tol = {"camera_Ofz": ofzTol, "camera_phi": angleTol, "camera_theta": angleTol}
     vals = {
-        k: metaRotation[k].sel(camera_rotation="mean").values.astype(float)
-        for k in tol
+        k: metaRotation[k].sel(camera_rotation="mean").values.astype(float) for k in tol
     }
     n = len(metaRotation.file_starttime)
     if n < 3:
@@ -1765,21 +1769,38 @@ def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4):
     def far(i, j):
         return np.any([abs(vals[k][i] - vals[k][j]) > tol[k] for k in tol])
 
-    replaced = []
-    for i in range(1, n - 1):
-        if np.any([np.isnan(vals[k][[i - 1, i, i + 1]]).any() for k in tol]):
-            continue
-        if far(i, i - 1) and far(i, i + 1) and not far(i - 1, i + 1):
-            replaced.append(i)
-    if len(replaced) == 0:
+    def valid(i):
+        return not np.any([np.isnan(vals[k][i]) for k in tol])
+
+    runs = []
+    i = 1
+    while i < n - 1:
+        if valid(i - 1) and valid(i) and far(i, i - 1):
+            for j in range(i + 1, min(i + maxRun, n - 1) + 1):
+                if not valid(j):
+                    break
+                if not far(j, i - 1):
+                    runs.append((i - 1, i, j))
+                    i = j
+                    break
+        i += 1
+    if len(runs) == 0:
         return metaRotation, 0
 
     metaRotation = metaRotation.copy(deep=True)
-    for i in replaced:
-        for k in tol:
-            metaRotation[k].values[i, :] = metaRotation[k].values[i - 1, :]
+    nReplaced = 0
+    for before, first, after in runs:
+        for i in range(first, after):
+            w = (i - before) / (after - before)
+            for k in tol:
+                for c in [0, 1]:
+                    metaRotation[k].values[i, c] = (1 - w) * metaRotation[k].values[
+                        before, c
+                    ] + w * metaRotation[k].values[after, c]
+            nReplaced += 1
         log.warning(
-            f"despikeRotation: replaced rotation of {metaRotation.file_starttime.values[i]} "
-            "by that of the previous file"
+            "despikeRotation: replaced rotation of "
+            f"{metaRotation.file_starttime.values[first]} to "
+            f"{metaRotation.file_starttime.values[after - 1]} by interpolation"
         )
-    return metaRotation, len(replaced)
+    return metaRotation, nReplaced

@@ -184,3 +184,44 @@ class TestIsDroppableTrailingFrameShortfall:
         # be silently swallowed
         assert isDroppableTrailingFrameShortfall(26, maxFrames=25) is False
         assert isDroppableTrailingFrameShortfall(5000) is False
+
+
+class TestDespikeRotation:
+    @staticmethod
+    def _rot(ofz, phi=None, theta=None):
+        import numpy as np
+        import xarray as xr
+
+        n = len(ofz)
+        phi = [-1.0] * n if phi is None else phi
+        theta = [-1.25] * n if theta is None else theta
+        t = np.datetime64("2020-01-01T00:00") + np.arange(n) * np.timedelta64(5, "m")
+        out = {}
+        for k, v in [("camera_Ofz", ofz), ("camera_phi", phi), ("camera_theta", theta)]:
+            vals = np.stack([np.array(v, float), np.full(n, 0.3)], axis=1)
+            out[k] = xr.DataArray(
+                vals,
+                dims=["file_starttime", "camera_rotation"],
+                coords=dict(file_starttime=t, camera_rotation=["mean", "err"]),
+            )
+        return xr.Dataset(out)
+
+    def test_single_spike_and_run(self):
+        from VISSSlib import fixes
+
+        r, n = fixes.despikeRotation(self._rot([-38, -38, -15, -37, -37, -37]))
+        assert n == 1
+        assert abs(float(r.camera_Ofz.sel(camera_rotation="mean")[2]) + 37.5) < 1
+        r, n = fixes.despikeRotation(
+            self._rot([-5, -4, -60, -30, -8, -7, -6], phi=[2.1] * 7)
+        )
+        assert n == 2
+        assert float(r.camera_Ofz.sel(camera_rotation="mean").min()) > -9
+
+    def test_persistent_change_is_kept(self):
+        from VISSSlib import fixes
+
+        r, n = fixes.despikeRotation(self._rot([-38] * 4 + [-60] * 6))
+        assert n == 0
+        r, n = fixes.despikeRotation(self._rot([-38, -38, -60, -60, -60, -60, -60]))
+        assert n == 0

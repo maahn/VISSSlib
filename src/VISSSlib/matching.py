@@ -3810,6 +3810,7 @@ def createMetaRotation(
         # merge results
         if len(metaRotation) > 0:
             metaRotation = xr.concat(metaRotation, dim="file_starttime")
+            metaRotation, _ = fixes.despikeRotation(metaRotation)
 
         if writeNc:
             metaRotation = tools.finishNc(metaRotation, config.site, config.visssGen, config=config)

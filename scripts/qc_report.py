@@ -373,7 +373,7 @@ def _check_match_quality(path, config, matchscore_factor):
     return matchscoreResult, zSigmaResult
 
 
-def _matchscore_drop(files, factor=0.5, window=6, minRef=None):
+def _matchscore_drop(files, factor=0.5, window=6, minRef=None, minPairs=50):
     """
     Find runs of consecutive level1match files whose median matchScore is
     far below that of the files around them.
@@ -389,6 +389,10 @@ def _matchscore_drop(files, factor=0.5, window=6, minRef=None):
     minRef : float or None
         only flag where the reference itself is at least this good (so a
         day that is bad everywhere is left to --matchscore-check)
+    minPairs : int
+        only flag files with at least this many pairs: the median matchScore
+        of a handful of pairs takes discrete values (e.g. ~0.0101 at MOSAiC)
+        and says nothing about the matching quality
 
     Returns
     -------
@@ -418,6 +422,7 @@ def _matchscore_drop(files, factor=0.5, window=6, minRef=None):
     flagged = np.isfinite(med) & np.isfinite(ref) & (med < factor * ref)
     if minRef is not None:
         flagged &= ref >= minRef
+    flagged &= npairs >= minPairs
     runs = []
     i = 0
     while i < len(files):

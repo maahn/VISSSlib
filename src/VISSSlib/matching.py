@@ -2533,6 +2533,13 @@ def matchParticles(
     fname1Match = ffl1.fname["level1match"]
     fnames1F = ffl1.filenamesOtherCamera(graceInterval=-1, level="level1detect")
     fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=-1, level="level0txt")
+    if ("mosaicFrameMapping" in config.dataFixes) and (len(fnames1F) == 0):
+        # MOSAiC follower files are not always newFileInt long: if a new-file
+        # event is skipped, one file covers 10 minutes and no follower file
+        # starts inside the window of the leader file that lies in its
+        # second half
+        fnames1F = ffl1.filenamesOtherCamera(graceInterval=0, level="level1detect")
+        fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=0, level="level0txt")
     fnameMetaRotation = ffl1.fname["metaRotation"]
 
     rotate_time = None

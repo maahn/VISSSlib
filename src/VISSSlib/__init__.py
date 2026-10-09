@@ -83,6 +83,7 @@ except (KeyError, ValueError):
 from . import (
     analysis,
     av,
+    commissioning,
     detection,
     distributions,
     files,

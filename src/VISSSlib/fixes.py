@@ -1901,7 +1901,12 @@ def despikeRotationWithMatches(
     (the original rotation is favoured by construction, because it was used
     to find the pairs). Candidates without level1match
     file (or fewer than minPairs pairs) are only replaced if the geometric
-    deviation is large (more than 3 times the tolerances).
+    deviation is large (more than 3 times the tolerances) or if they belong
+    to a run in which at least one file was replaced on the evidence of its
+    pairs (a bad value carried over as prior over many files, mostly during
+    periods without matched data). A file with pairs that fell short of the
+    criterion is taken along only if its rotation is identical to that of a
+    replaced file.
 
     Parameters
     ----------
@@ -1941,6 +1946,8 @@ def despikeRotationWithMatches(
         trial = metaRotation.copy(deep=True)
         _interpolateRotation(trial, before, first, after)
         accept = set()
+        withEvidence = set()
+        runTimes = {str(t) for t in metaRotation.file_starttime.values[first:after]}
         for i in range(first, after):
             t = metaRotation.file_starttime.values[i]
             old = {
@@ -1966,6 +1973,7 @@ def despikeRotationWithMatches(
                         info["biasOld"], _ = zResidualBias(m, old, config)
                         info["biasNew"], _ = zResidualBias(m, interp, config)
                         info["evidence"] = True
+                        withEvidence.add(i)
             except Exception as e:
                 log.warning(f"despikeRotationWithMatches: {fname}: {e}")
             if info["evidence"]:
@@ -1980,5 +1988,48 @@ def despikeRotationWithMatches(
             if ok:
                 accept.add(i)
                 replaced.append(info)
+        # files of the same run without usable pairs (typically a bad value
+        # that was carried over as prior over many files, mostly during
+        # periods with no matched data) follow the decision for the run
+        if any(r["evidence"] for r in replaced if r["file_starttime"] in runTimes):
+            acceptedOld = {
+                tuple(round(r["old"][k], 4) for k in keys)
+                for r in replaced
+                if r["file_starttime"] in runTimes
+            }
+            for i in range(first, after):
+                if i in accept:
+                    continue
+                same = (
+                    tuple(
+                        round(float(metaRotation[k].sel(camera_rotation="mean")[i]), 4)
+                        for k in keys
+                    )
+                    in acceptedOld
+                )
+                # files with pairs that fell short of the criterion are only
+                # taken along if their rotation is identical to an accepted
+                # one (same carried-over value, same cause)
+                if (i in withEvidence) and not same:
+                    continue
+                accept.add(i)
+                replaced.append(
+                    dict(
+                        file_starttime=str(metaRotation.file_starttime.values[i]),
+                        old={
+                            k: float(metaRotation[k].sel(camera_rotation="mean")[i])
+                            for k in keys
+                        },
+                        new={
+                            k: float(trial[k].sel(camera_rotation="mean")[i])
+                            for k in keys
+                        },
+                        biasOld=np.nan,
+                        biasNew=np.nan,
+                        nPairs=0,
+                        evidence=False,
+                        followsRun=True,
+                    )
+                )
         _interpolateRotation(new, before, first, after, only=accept)
     return new, replaced

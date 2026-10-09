@@ -185,6 +185,19 @@ minutes exactly zero, follower clock ~1 s off the leader so the per-slice
 follower cut missed the frames, plus follower restarts) and Hyytiala 2024-12-06
 04:50-05:00 (rotation outlier).
 
+### Still to be added: level2match vs level2track
+
+`level2match` and `level2track` describe the same particles, so their Ntot (and
+size distributions) should agree more or less minute by minute; a day where
+they disagree strongly points at tracking losing particles
+(`trackingIncomplete`, dropped frames, a level1track backlog or an outdated
+level1track) rather than at matching. **Open item (the user, 2026-10-09):** no
+check and no thresholds yet — work out what "more or less" means (expected
+level2track/level2match ratio, how it depends on particle size and fall speed,
+which minutes are legitimately lower) when this is first looked at on real data,
+not before. Until then, at least eyeball the two Ntot time series for the
+suspicious days found in Steps 4b/4c.
+
 ## Step 4c — matchScore drop between neighbouring files
 
 ```bash

@@ -1727,36 +1727,17 @@ def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
     return xr.DataArray(unmapped, dims=["time"], coords=[timeIndex])
 
 
-def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4, maxRun=3):
+def _rotationOutlierRuns(metaRotation, ofzTol, angleTol, maxRun):
     """
-    Replace short runs of implausible per-file rotation estimates.
-
-    A retrieval can lock onto false pairs (typically during dense snowfall)
-    and return an implausible rotation with a small formal uncertainty (e.g.
-    MOSAiC 20200203 15:55: Ofz -15 px instead of -38, phi -1.9 instead of
-    -0.97), and the following files, which start from this value, can need a
-    file or two to relax (Hyytiala 20241206 04:50-05:00: Ofz -61 and -30
-    instead of -5). A run of up to maxRun files that all differ from the
-    last good file by more than the tolerances, followed by a file that
-    agrees with that last good file again, is replaced by a linear
-    interpolation between the two. Persistent changes (e.g. camera moved)
-    are kept because they do not return to the old values.
-
-    Parameters
-    ----------
-    metaRotation : xarray.Dataset
-        Rotation estimates with dimension file_starttime and variables
-        camera_Ofz, camera_phi, camera_theta (dimension camera_rotation
-        with mean and err)
-    ofzTol, angleTol : float
-        Tolerances for camera_Ofz (px) and camera_phi/camera_theta (deg)
-    maxRun : int
-        Maximum number of consecutive files to replace
+    Find runs of up to maxRun consecutive files whose rotation differs from
+    the last good file by more than the tolerances, followed by a file that
+    agrees with that last good file again.
 
     Returns
     -------
-    xarray.Dataset, int
-        Corrected dataset and number of replaced files
+    list of tuple
+        (index of last good file, index of first outlier, index of first
+        file that is good again)
     """
     tol = {"camera_Ofz": ofzTol, "camera_phi": angleTol, "camera_theta": angleTol}
     vals = {
@@ -1764,7 +1745,7 @@ def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4, maxRun=3):
     }
     n = len(metaRotation.file_starttime)
     if n < 3:
-        return metaRotation, 0
+        return []
 
     def far(i, j):
         return np.any([abs(vals[k][i] - vals[k][j]) > tol[k] for k in tol])
@@ -1784,23 +1765,209 @@ def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4, maxRun=3):
                     i = j
                     break
         i += 1
+    return runs
+
+
+def _interpolateRotation(metaRotation, before, first, after, only=None):
+    """replace files first..after-1 by linear interpolation between files
+    before and after (only the indices in `only`, if given)"""
+    for i in range(first, after):
+        if (only is not None) and (i not in only):
+            continue
+        w = (i - before) / (after - before)
+        for k in ["camera_Ofz", "camera_phi", "camera_theta"]:
+            for c in [0, 1]:
+                metaRotation[k].values[i, c] = (1 - w) * metaRotation[k].values[
+                    before, c
+                ] + w * metaRotation[k].values[after, c]
+
+
+def despikeRotation(metaRotation, ofzTol=8.0, angleTol=0.4, maxRun=3):
+    """
+    Replace short runs of implausible per-file rotation estimates.
+
+    A retrieval can lock onto false pairs (typically during dense snowfall)
+    and return an implausible rotation with a small formal uncertainty (e.g.
+    MOSAiC 20200203 15:55: Ofz -15 px instead of -38, phi -1.9 instead of
+    -0.97), and the following files, which start from this value, can need a
+    file or two to relax (Hyytiala 20241206 04:50-05:00: Ofz -61 and -30
+    instead of -5). A run of up to maxRun files that all differ from the
+    last good file by more than the tolerances, followed by a file that
+    agrees with that last good file again, is replaced by a linear
+    interpolation between the two. Persistent changes (e.g. camera moved)
+    are kept because they do not return to the old values.
+
+    Without further evidence this also replaces correct estimates (about
+    every second candidate with the default tolerances, since the rotation
+    parameters are partly degenerate), so createMetaRotation only uses it
+    with large tolerances. For existing data use
+    despikeRotationWithMatches, which checks every candidate against the
+    pairs of its level1match file.
+
+    Parameters
+    ----------
+    metaRotation : xarray.Dataset
+        Rotation estimates with dimension file_starttime and variables
+        camera_Ofz, camera_phi, camera_theta (dimension camera_rotation
+        with mean and err)
+    ofzTol, angleTol : float
+        Tolerances for camera_Ofz (px) and camera_phi/camera_theta (deg)
+    maxRun : int
+        Maximum number of consecutive files to replace
+
+    Returns
+    -------
+    xarray.Dataset, int
+        Corrected dataset and number of replaced files
+    """
+    runs = _rotationOutlierRuns(metaRotation, ofzTol, angleTol, maxRun)
     if len(runs) == 0:
         return metaRotation, 0
-
     metaRotation = metaRotation.copy(deep=True)
     nReplaced = 0
     for before, first, after in runs:
-        for i in range(first, after):
-            w = (i - before) / (after - before)
-            for k in tol:
-                for c in [0, 1]:
-                    metaRotation[k].values[i, c] = (1 - w) * metaRotation[k].values[
-                        before, c
-                    ] + w * metaRotation[k].values[after, c]
-            nReplaced += 1
+        _interpolateRotation(metaRotation, before, first, after)
+        nReplaced += after - first
         log.warning(
             "despikeRotation: replaced rotation of "
             f"{metaRotation.file_starttime.values[first]} to "
             f"{metaRotation.file_starttime.values[after - 1]} by interpolation"
         )
     return metaRotation, nReplaced
+
+
+def zResidualBias(matchedDat, rotate, config):
+    """
+    Median and standard deviation (px) of the per-pair Z residual
+    L_z - L_z_estimated of matched pairs for a given rotation (recomputed,
+    not taken from the file).
+    """
+    import copy
+
+    from . import matching
+
+    matchedDat = matchedDat.drop_vars("position3D_center", errors="ignore")
+    config = copy.deepcopy(config)
+    cams = [str(c) for c in matchedDat.camera.values]
+    config["leader"], config["follower"] = cams[0], cams[1]
+    L_x, L_z, F_y, F_z = matching.get3DPosition(
+        matchedDat.sel(camera=cams[0]), matchedDat.sel(camera=cams[1]), config
+    )
+    diffZ = np.asarray(L_z) - np.asarray(
+        matching.calc_L_z_withOffsets(L_x, F_y, F_z, **dict(rotate))
+    )
+    return float(np.nanmedian(diffZ)), float(np.nanstd(diffZ))
+
+
+def level1matchFnameFromMetaRotation(fnameMetaRotation, file_starttime):
+    """name of the level1match file of the file starting at file_starttime
+    that belongs to a metaRotation file"""
+    import os
+
+    root = fnameMetaRotation.split("/metaRotation/")[0]
+    base = os.path.basename(fnameMetaRotation)
+    ts = (
+        str(np.datetime64(file_starttime, "s"))
+        .replace("-", "")
+        .replace("T", "-")
+        .replace(":", "")
+    )
+    fname = base.replace("metaRotation", "level1match").replace(
+        "_" + base.split("_")[-1], f"_{ts}.nc"
+    )
+    return f"{root}/level1match/{ts[:4]}/{ts[4:6]}/{ts[6:8]}/{fname}"
+
+
+def despikeRotationWithMatches(
+    metaRotation,
+    fnameMetaRotation,
+    config,
+    ofzTol=8.0,
+    angleTol=0.4,
+    maxRun=12,
+    minPairs=50,
+):
+    """
+    Replace implausible per-file rotation estimates of existing data, but
+    only where the replacement is supported by the data.
+
+    Candidates are found as in despikeRotation (default: up to 12 files).
+    For each candidate file, the pairs of its level1match file are
+    evaluated with the original and with the interpolated rotation, and the
+    file is only replaced if the interpolated rotation reduces the absolute
+    median Z residual (the original rotation is favoured by construction,
+    because it was used to find the pairs). Candidates without level1match
+    file (or fewer than minPairs pairs) are only replaced if the geometric
+    deviation is large (more than 3 times the tolerances).
+
+    Parameters
+    ----------
+    metaRotation : xarray.Dataset
+        Rotation estimates (see despikeRotation)
+    fnameMetaRotation : str
+        Name of the metaRotation file (to find the level1match files)
+    config : dict
+        Settings of the deployment (frame size is needed)
+    ofzTol, angleTol, maxRun : float
+        See despikeRotation
+    minPairs : int
+        Minimum number of pairs for the evidence check
+
+    Returns
+    -------
+    xarray.Dataset, list
+        Corrected dataset and list of dicts describing every replaced file
+        (file_starttime, old and new values, bias of the pairs with the old
+        and new rotation)
+    """
+    import os
+
+    keys = ["camera_Ofz", "camera_phi", "camera_theta"]
+    runs = _rotationOutlierRuns(metaRotation, ofzTol, angleTol, maxRun)
+    if len(runs) == 0:
+        return metaRotation, []
+    new = metaRotation.copy(deep=True)
+    replaced = []
+    for before, first, after in runs:
+        trial = metaRotation.copy(deep=True)
+        _interpolateRotation(trial, before, first, after)
+        accept = set()
+        for i in range(first, after):
+            t = metaRotation.file_starttime.values[i]
+            old = {
+                k: float(metaRotation[k].sel(camera_rotation="mean")[i]) for k in keys
+            }
+            interp = {k: float(trial[k].sel(camera_rotation="mean")[i]) for k in keys}
+            fname = level1matchFnameFromMetaRotation(fnameMetaRotation, t)
+            info = dict(
+                file_starttime=str(t),
+                old=old,
+                new=interp,
+                biasOld=np.nan,
+                biasNew=np.nan,
+                nPairs=0,
+                evidence=False,
+            )
+            try:
+                if os.path.isfile(fname):
+                    with xr.open_dataset(fname) as ds:
+                        m = ds.load()
+                    if m.sizes["pair_id"] >= minPairs:
+                        info["nPairs"] = int(m.sizes["pair_id"])
+                        info["biasOld"], _ = zResidualBias(m, old, config)
+                        info["biasNew"], _ = zResidualBias(m, interp, config)
+                        info["evidence"] = True
+            except Exception as e:
+                log.warning(f"despikeRotationWithMatches: {fname}: {e}")
+            if info["evidence"]:
+                ok = abs(info["biasNew"]) < abs(info["biasOld"])
+            else:
+                ok = any(
+                    abs(old[k] - interp[k]) > 3 * tol
+                    for k, tol in zip(keys, [ofzTol, angleTol, angleTol])
+                )
+            if ok:
+                accept.add(i)
+                replaced.append(info)
+        _interpolateRotation(new, before, first, after, only=accept)
+    return new, replaced

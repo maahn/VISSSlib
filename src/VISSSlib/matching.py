@@ -3810,7 +3810,10 @@ def createMetaRotation(
         # merge results
         if len(metaRotation) > 0:
             metaRotation = xr.concat(metaRotation, dim="file_starttime")
-            metaRotation, _ = fixes.despikeRotation(metaRotation)
+            # only clear outliers without further evidence, see despikeRotation
+            metaRotation, _ = fixes.despikeRotation(
+                metaRotation, ofzTol=20.0, angleTol=1.0, maxRun=3
+            )
 
         if writeNc:
             metaRotation = tools.finishNc(metaRotation, config.site, config.visssGen, config=config)

@@ -1886,6 +1886,8 @@ def despikeRotationWithMatches(
     angleTol=0.4,
     maxRun=12,
     minPairs=50,
+    minBias=2.0,
+    improvement=0.7,
 ):
     """
     Replace implausible per-file rotation estimates of existing data, but
@@ -1894,9 +1896,10 @@ def despikeRotationWithMatches(
     Candidates are found as in despikeRotation (default: up to 12 files).
     For each candidate file, the pairs of its level1match file are
     evaluated with the original and with the interpolated rotation, and the
-    file is only replaced if the interpolated rotation reduces the absolute
-    median Z residual (the original rotation is favoured by construction,
-    because it was used to find the pairs). Candidates without level1match
+    file is only replaced if the original leaves a median Z residual of at
+    least minBias pixels and the interpolated rotation reduces it clearly
+    (the original rotation is favoured by construction, because it was used
+    to find the pairs). Candidates without level1match
     file (or fewer than minPairs pairs) are only replaced if the geometric
     deviation is large (more than 3 times the tolerances).
 
@@ -1912,6 +1915,12 @@ def despikeRotationWithMatches(
         See despikeRotation
     minPairs : int
         Minimum number of pairs for the evidence check
+    minBias : float
+        The original rotation must leave a median Z residual of at least
+        this many pixels (matching tolerates ~1.7 px) to be replaced
+    improvement : float
+        The replacement must reduce the absolute median Z residual to below
+        this fraction of the original one
 
     Returns
     -------
@@ -1960,7 +1969,9 @@ def despikeRotationWithMatches(
             except Exception as e:
                 log.warning(f"despikeRotationWithMatches: {fname}: {e}")
             if info["evidence"]:
-                ok = abs(info["biasNew"]) < abs(info["biasOld"])
+                ok = (abs(info["biasOld"]) >= minBias) and (
+                    abs(info["biasNew"]) < improvement * abs(info["biasOld"])
+                )
             else:
                 ok = any(
                     abs(old[k] - interp[k]) > 3 * tol

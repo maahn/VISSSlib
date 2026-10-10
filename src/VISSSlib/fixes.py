@@ -2055,12 +2055,19 @@ def despikeRotationWithMatches(
     return new, replaced
 
 
+def medianRotation(rotations):
+    """component-wise median of a list of rotation dicts/Series"""
+    import pandas as pd
+
+    return pd.DataFrame([dict(r) for r in rotations]).median()
+
+
 def rejectRotationJump(
     rot,
     rotDefault,
     pending,
-    ofzTol=20.0,
-    angleTol=1.0,
+    ofzTol=8.0,
+    angleTol=0.4,
     confirmN=6,
     confirmTol=(5.0, 0.3, 0.3),
 ):
@@ -2074,9 +2081,12 @@ def rejectRotationJump(
     next one, the garbage is carried on for hours or days (20200210 06:25 to
     20200211 19:10). The geometry of a deployment is stable for long periods and
     real changes are announced in the settings file (`rotate` seeds). A
-    retrieval that is farther from the current default than the tolerances
-    is therefore rejected, unless confirmN consecutive retrievals agree
-    with each other within confirmTol (then it is a real new level).
+    retrieval that is farther from the reference (rotDefault) than the
+    tolerances is therefore rejected, unless confirmN consecutive retrievals
+    agree with each other within confirmTol (then it is a real new level).
+    The reference should be robust, e.g. the median of the last 12 accepted
+    retrievals (medianRotation): 20200213 ended with a retrieval only ~10 px
+    off that was adopted, carried for 11 hours and biased the matching.
 
     Parameters
     ----------

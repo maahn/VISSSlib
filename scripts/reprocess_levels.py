@@ -61,6 +61,7 @@ tools.getCaseRange's special-cased 0. See --case.
 import argparse
 import glob
 import os
+import re
 import subprocess
 import sys
 import time
@@ -114,20 +115,42 @@ def processingCount(queue):
     return len(glob.glob(os.path.join(workerCwd(queue), "*.processing.txt")))
 
 
-def runningWorkerJobs():
+def runningWorkerJobs(queue=None):
+    """Number of running slurm_launch_workers jobs; if `queue` is given, only
+    those serving that queue (other queues' workers cannot drain it)."""
     try:
         out = subprocess.run(
-            ["squeue", "-u", os.environ.get("USER", "mmaahn"), "-h", "-o", "%j"],
+            ["squeue", "-u", os.environ.get("USER", "mmaahn"), "-h", "-o", "%i %j"],
             capture_output=True, text=True, timeout=30,
         ).stdout
+        n = 0
+        for line in out.splitlines():
+            jobid, _, name = line.partition(" ")
+            if "slurm_launch_workers" not in name:
+                continue
+            if queue is not None:
+                info = subprocess.run(
+                    ["scontrol", "show", "job", jobid],
+                    capture_output=True, text=True, timeout=30,
+                ).stdout
+                m = re.search(r"StdOut=(\S+)", info)
+                # the launch script echoes "srun ... worker <queue>" first
+                head = ""
+                if m and os.path.exists(m.group(1)):
+                    with open(m.group(1), errors="replace") as f:
+                        head = f.read(4000)
+                if queue.rstrip("/") + "/" not in head.replace("\n", "/\n") and \
+                        queue.rstrip("/") + "\n" not in head + "\n":
+                    continue
+            n += 1
+        return n
     except Exception as e:
         log(f"squeue check failed ({e}), assuming 0 running")
         return 0
-    return sum(1 for line in out.splitlines() if "slurm_launch_workers" in line)
 
 
 def ensureWorkers(target, queue, condaEnv):
-    running = runningWorkerJobs()
+    running = runningWorkerJobs(queue)
     toLaunch = max(0, target - running)
     if toLaunch == 0:
         return

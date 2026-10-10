@@ -3564,6 +3564,25 @@ def createMetaRotation(
     maxConsecutiveFixFailures = 5
     consecutiveFixFailures = 0
     pendingJumps = []  # rejected retrievals, see fixes.rejectRotationJump
+    # recent accepted retrievals, their median is the reference of the jump
+    # check (a single mildly wrong retrieval must not become the reference);
+    # starts with the end of the previous day
+    recentAccepted = []
+    if "rejectRotationJumps" in config.dataFixes:
+        try:
+            if isinstance(rotate, str) and (rotate == "config") and (len(prevFile) > 0):
+                for ii in range(max(0, len(prevDat.file_starttime) - 12), len(prevDat.file_starttime)):
+                    recentAccepted.append(
+                        pd.Series(
+                            {
+                                k: float(prevDat[k].sel(camera_rotation="mean")[ii])
+                                for k in ["camera_Ofz", "camera_phi", "camera_theta"]
+                            }
+                        )
+                    )
+        except Exception:
+            recentAccepted = []
+        recentAccepted.append(rotate_default)
 
     def tryFixFromScratch(ffl1, reason):
         """
@@ -3746,10 +3765,12 @@ def createMetaRotation(
             and (not isinstance(rot, float))
         ):
             accepted, pendingJumps = fixes.rejectRotationJump(
-                rot, rotate_default, pendingJumps
+                rot, fixes.medianRotation(recentAccepted[-12:]), pendingJumps
             )
             if accepted is None:
                 rot, rot_err = rotate_default, rotate_err_default
+            else:
+                recentAccepted.append(rot)
 
         # append result to metaRotation object
         if rot is not None:
@@ -3787,10 +3808,12 @@ def createMetaRotation(
                 # a from-scratch fit has no prior and diverges in dense
                 # snowfall (MOSAiC 20200212): same rule as for the normal retrieval
                 accepted, pendingJumps = fixes.rejectRotationJump(
-                    fixedRot, rotate_default, pendingJumps
+                    fixedRot, fixes.medianRotation(recentAccepted[-12:]), pendingJumps
                 )
                 if accepted is None:
                     fixedRot, fixedRotErr = None, None
+                else:
+                    recentAccepted.append(fixedRot)
             if fixedRot is not None:
                 metaRotation.append(
                     tools.rotDict2Xr(fixedRot, fixedRotErr, ffl1.datetime64)

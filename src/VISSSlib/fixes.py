@@ -2122,3 +2122,66 @@ def rejectRotationJump(
         "keeping the default"
     )
     return None, pending
+
+
+def mosaicFollowerFiles(
+    ffl1, config, leaderStart, leaderEnd, level="level1detect", marginSeconds=5
+):
+    """
+    Files of the other camera that cover the time span of one file.
+
+    MOSAiC files are not always newFileInt long: if a new-file event is
+    skipped, one file covers 10 minutes. Looking only for files of the
+    other camera that START within the nominal window of this file then
+    misses (a) the other camera's long file that started before the window
+    and (b) the other camera's files in the second half of this file when it
+    is long itself (20191201 01:45-01:55: no 01:50 file, the follower
+    files at 01:50 were never read and nothing matched in the second half).
+    A file of the other camera covers the time from its start to the start
+    of the next file.
+
+    Parameters
+    ----------
+    ffl1 : files.FilenamesFromLevel
+        the file (of one camera) to find the other camera's files for
+    leaderStart, leaderEnd : numpy.datetime64
+        time span of this file (capture_time, i.e. of its own clock)
+    level : str
+        level of the files to return, e.g. level1detect or level0txt
+    marginSeconds : float
+        safety margin for the offset between the clocks of the cameras
+
+    Returns
+    -------
+    list of str
+        file names (as filenamesOtherCamera, may include sentinels)
+    """
+    import pandas as pd
+
+    margin = np.timedelta64(int(marginSeconds), "s")
+    cand = ffl1.filenamesOtherCamera(graceInterval=1200, level=level)
+    if len(cand) == 0:
+        return []
+    if (config.nThreads is not None) and level in ["level0", "level0txt"]:
+        ts = [f.split("_")[-2] for f in cand]
+    else:
+        ts = [f.split("_")[-1].split(".")[0] for f in cand]
+    try:
+        starts = pd.to_datetime(ts, format="%Y%m%d-%H%M%S").values
+    except ValueError:
+        return list(cand)
+    order = np.argsort(starts)
+    starts = starts[order]
+    cand = [cand[i] for i in order]
+    # a sentinel (.nodata/.broken) and the real file of the same start must not
+    # count as "next file"
+    uniqueStarts = np.unique(starts)
+    nextStart = {}
+    for a, b in zip(uniqueStarts[:-1], uniqueStarts[1:]):
+        nextStart[a] = b
+    keep = []
+    for f, s in zip(cand, starts):
+        end = nextStart.get(s, s + np.timedelta64(int(config.newFileInt) + 300, "s"))
+        if (s <= leaderEnd + margin) and (end > leaderStart - margin):
+            keep.append(f)
+    return keep

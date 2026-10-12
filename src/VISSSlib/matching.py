@@ -2641,6 +2641,24 @@ def matchParticles(
 
     file_starttime = leader1D.file_starttime[0].values
 
+    if "mosaicFrameMapping" in config.dataFixes:
+        # the other camera's files that cover the real time span of this file
+        # (files can be 10 min long, see fixes.mosaicFollowerFiles)
+        fnames1F = fixes.mosaicFollowerFiles(
+            ffl1,
+            config,
+            leader1D.capture_time.values.min(),
+            leader1D.capture_time.values.max(),
+            "level1detect",
+        )
+        fnames1FRAW = fixes.mosaicFollowerFiles(
+            ffl1,
+            config,
+            leader1D.capture_time.values.min(),
+            leader1D.capture_time.values.max(),
+            "level0txt",
+        )
+
     if len(fnames1FRAW) != len(fnames1F):
         log.error(tools.concat(f"no follower data for {fnameLv1Detect} processed YET"))
         log.error(tools.concat(fnames1F))

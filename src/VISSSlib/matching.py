@@ -3857,7 +3857,13 @@ def createMetaRotation(
                 tools.rotDict2Xr(rotate_default, rotate_err_default, ffl1.datetime64)
             )
 
-    if tryAgain and (nError > 0):
+    # a rerun of a whole day is useless when errors are the rule (very dense data,
+    # e.g. MOSAiC), it only doubles the processing time
+    if (
+        tryAgain
+        and (nError > 0)
+        and ("rotationNoRetry" not in config.dataFixes)
+    ):
         # lets simply try to run it again in case it failed
         # we assume the last rotate_default and rotate_err_default were ok
         return createMetaRotation(

@@ -3600,6 +3600,13 @@ def createMetaRotation(
                     )
         except Exception:
             recentAccepted = []
+        # an announced change (rotation seed in the settings file) starts a new
+        # history
+        if (len(recentAccepted) > 0) and any(
+            abs(float(recentAccepted[-1][k]) - float(rotate_default[k])) > t
+            for k, t in [("camera_Ofz", 8.0), ("camera_phi", 0.4), ("camera_theta", 0.4)]
+        ):
+            recentAccepted = []
         recentAccepted.append(rotate_default)
 
     def tryFixFromScratch(ffl1, reason):

@@ -268,3 +268,39 @@ class TestMosaicFrameMappingCache:
             "20200228", types.SimpleNamespace(), skipExisting=True, writeNc=False
         )
         assert not bool(out.resolved.any())
+
+
+class TestMosaicRotatedLagTest:
+    def _setup(self, lag=7, n=400, seed=1):
+        from VISSSlib import matching
+
+        rng = np.random.default_rng(seed)
+        rotate = dict(camera_Ofz=120.0, camera_phi=-11.5, camera_theta=-1.3)
+        fw = 1280
+        lx = rng.uniform(0, fw, n)
+        fx = rng.uniform(0, fw, n)
+        fz = rng.uniform(0, 1000, n)
+        lzTrue = np.asarray(
+            matching.calc_L_z_withOffsets(lx, fw - fx, fz, **rotate)
+        ) + rng.normal(0, 1.0, n)
+        # leader frame i is seen by the follower in frame i + lag
+        u = np.arange(n) * 3
+        lPart = dict(D=np.full(n, 30.0), z=lzTrue, xc=lx)
+        fPart = dict(D=np.full(n, 30.0), z=fz, xc=fx)
+        seg = np.zeros(n, dtype=int)
+        return lPart, fPart, seg, u, u + lag, rotate, fw
+
+    def test_rotated_residual_finds_lag(self):
+        from VISSSlib.fixes import _mosaicParticleLagTest
+
+        lPart, fPart, seg, lU, fU, rotate, fw = self._setup()
+        cand = list(range(0, 15))
+        raw = _mosaicParticleLagTest(lPart, seg, lU, 0, fPart, seg, fU, 0, cand, 8)
+        rot = _mosaicParticleLagTest(
+            lPart, seg, lU, 0, fPart, seg, fU, 0, cand, 8, rotate=rotate, frameWidth=fw
+        )
+        assert rot["lag"] == 7
+        assert rot["iqr"] < 3
+        assert rot["iqr2nd"] > 10 * rot["iqr"]
+        # the raw difference is broad even for the right lag
+        assert raw["iqr"] > 20 or raw["lag"] != 7

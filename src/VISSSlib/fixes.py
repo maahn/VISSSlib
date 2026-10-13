@@ -1082,6 +1082,7 @@ def _mosaicLoadParticles(case, camera, config):
             if len(ds.pid) == 0:
                 continue
             z = ds.position_upperLeft.sel(dim2D="y") + ds.Droi.sel(dim2D="y") / 2.0
+            xc = ds.position_upperLeft.sel(dim2D="x") + ds.Droi.sel(dim2D="x") / 2.0
             parts.append(
                 {
                     "ct": ds.capture_time.values.astype("datetime64[us]").astype(
@@ -1089,6 +1090,7 @@ def _mosaicLoadParticles(case, camera, config):
                     ),
                     "D": ds.Dmax.values.astype(float),
                     "z": z.values.astype(float),
+                    "xc": xc.values.astype(float),
                 }
             )
     if len(parts) == 0:
@@ -1125,7 +1127,19 @@ def _mosaicSingleParticles(part, pSeg, pU, segId, Dmin):
 
 
 def _mosaicParticleLagTest(
-    lPart, lSeg, lU, ls, fPart, fSeg, fU, fs, candidates, Dmin, minPairs=20
+    lPart,
+    lSeg,
+    lU,
+    ls,
+    fPart,
+    fSeg,
+    fU,
+    fs,
+    candidates,
+    Dmin,
+    minPairs=20,
+    rotate=None,
+    frameWidth=None,
 ):
     """
     For each candidate lag, pair single-particle frames of both cameras and
@@ -1146,7 +1160,24 @@ def _mosaicParticleLagTest(
         hit = fUs[jj] == target
         if hit.sum() < minPairs:
             continue
-        dz = lPart["z"][li[hit]] - fPart["z"][fi[jj[hit]]]
+        if rotate is None:
+            dz = lPart["z"][li[hit]] - fPart["z"][fi[jj[hit]]]
+        else:
+            # residual after applying the camera rotation: independent of
+            # the position in the image, i.e. narrow for the correct lag even
+            # if the cameras are rotated against each other (MOSAiC after
+            # 5 May 2020: IQR of the raw difference > 120 px)
+            from . import matching
+
+            fIdx = fi[jj[hit]]
+            dz = lPart["z"][li[hit]] - np.asarray(
+                matching.calc_L_z_withOffsets(
+                    lPart["xc"][li[hit]],
+                    frameWidth - fPart["xc"][fIdx],
+                    fPart["z"][fIdx],
+                    **rotate,
+                )
+            )
         q75, q25 = np.percentile(dz, [75, 25])
         # fraction of pairs in a narrow peak around the median: robust
         # during heavy snowfall, when many "single particle" frames pair
@@ -1182,6 +1213,36 @@ def _mosaicParticleLagTest(
     }
 
 
+def _mosaicDayRotation(case, config):
+    """function (rt_start, rt_end in us) -> median rotation of the daily
+    metaRotation within that period, or None if there is no metaRotation"""
+    import os
+
+    from . import files
+
+    fn = files.FindFiles(case, config.leader, config).fnamesDaily["metaRotation"]
+    if not os.path.isfile(fn):
+        return None
+    with xr.open_dataset(fn) as ds:
+        ds = ds.sel(camera_rotation="mean").load()
+    keys = ["camera_Ofz", "camera_phi", "camera_theta"]
+    t = np.atleast_1d(ds.file_starttime.values).astype("datetime64[us]").astype(np.int64)
+    vals = {k: np.atleast_1d(ds[k].values).astype(float) for k in keys}
+    good = np.all([np.isfinite(v) for v in vals.values()], axis=0)
+    if good.sum() == 0:
+        return None
+    t = t[good]
+    vals = {k: v[good] for k, v in vals.items()}
+
+    def get(t0, t1):
+        sel = (t >= t0 - 600e6) & (t <= t1)
+        if not sel.any():
+            sel = np.ones(len(t), dtype=bool)
+        return {k: float(np.nanmedian(v[sel])) for k, v in vals.items()}
+
+    return get
+
+
 def mosaicFrameMappingFname(case, config):
     """daily cache file next to metaRotation"""
     from . import files
@@ -1203,6 +1264,9 @@ def createMosaicFrameMapping(
     minPeakFracRatio=3.0,
     minConsensusIqrRatio=1.1,
     minConsensusActivityZ=5.0,
+    useRotation=False,
+    maxIqrRotated=15.0,
+    minIqrRatioRotated=2.0,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1247,6 +1311,14 @@ def createMosaicFrameMapping(
         Alternative acceptance when the IQR is broad (heavy snowfall): the
         fraction of pairs within +-10 px of the median must be at least
         minPeakFrac and minPeakFracRatio times that of every other lag
+    useRotation : bool
+        Second chance for segments the other criteria could not resolve:
+        repeat the particle test with the vertical position difference
+        corrected by the camera rotation of the day's metaRotation (needs
+        that file, i.e. only possible after createMetaRotation). Accepted
+        if the IQR of the residual is <= maxIqrRotated and the next best
+        lag has at least minIqrRatioRotated times the IQR. Necessary when
+        the cameras are rotated against each other (raw IQR > 100 px).
     activitySearchRange : int
         Frames around the record_time guess searched by the activity cross
         correlation. Must be wide because the clocks of the two computers
@@ -1295,6 +1367,7 @@ def createMosaicFrameMapping(
     rows = []
     ghostRows = []
     knotRows = []
+    candidateSets = {}
     if (L is not None) and (F is not None):
         lPeriod = _mosaicFramePeriod(L, config)
         fPeriod = _mosaicFramePeriod(F, config)
@@ -1358,6 +1431,7 @@ def createMosaicFrameMapping(
                     "peak_frac": np.nan,
                     "peak_frac_2nd": np.nan,
                     "resolved": False,
+                    "rotated": False,
                 }
 
                 # 1. record_time first guess
@@ -1402,6 +1476,7 @@ def createMosaicFrameMapping(
                 if (lPart is None) or (fPart is None):
                     rows.append(row)
                     continue
+                candidateSets[id(row)] = (ls, fs, sorted(candidates))
                 best = None
                 for Dmin in [8, 20]:
                     res = _mosaicParticleLagTest(
@@ -1463,6 +1538,83 @@ def createMosaicFrameMapping(
                     )
                 rows.append(row)
 
+        # alternative acceptance (peak fraction or consensus), but only if the vertical
+        # offset agrees with the segments of the same day resolved by the IQR
+        # criterion (camera geometry does not change within a day)
+        # (if none, the peak-qualified segments themselves are the reference)
+        dzRef = [r["dz_median"] for r in rows if r["resolved"]]
+        if len(dzRef) == 0:
+            dzRef = [r["dz_median"] for r in rows if r.get("resolved_peak", False)]
+        for r in rows:
+            peakOk = r.pop("resolved_peak", False)
+            if (not r["resolved"]) and peakOk and (len(dzRef) > 0):
+                r["resolved"] = bool(abs(r["dz_median"] - np.median(dzRef)) < 10)
+
+        if useRotation and (lPart is not None) and (fPart is not None):
+            getRotation = _mosaicDayRotation(case, config)
+            for r in rows:
+                if r["resolved"] or (id(r) not in candidateSets) or (getRotation is None):
+                    continue
+                ls, fs, cc = candidateSets[id(r)]
+                rotate = getRotation(r["rt_start"], r["rt_end"])
+                best = None
+                for Dmin in [8, 20]:
+                    res = _mosaicParticleLagTest(
+                        lPart,
+                        lPSeg,
+                        lPU,
+                        ls,
+                        fPart,
+                        fPSeg,
+                        fPU,
+                        fs,
+                        cc,
+                        Dmin,
+                        rotate=rotate,
+                        frameWidth=config.frame_width,
+                    )
+                    if res is None:
+                        continue
+                    res["dmin"] = Dmin
+                    res["ratio"] = res["iqr2nd"] / max(res["iqr"], 1e-3)
+                    if (best is None) or (res["ratio"] > best["ratio"]):
+                        if (best is not None) and (best["lag"] != res["lag"]):
+                            if min(best["ratio"], res["ratio"]) >= minIqrRatioRotated:
+                                best = None
+                                break
+                        best = res
+                log.info(
+                    f"rotated lag test segment {r['lsegment']}/{r['fsegment']} "
+                    f"rotation {rotate}: "
+                    + (
+                        "no result"
+                        if best is None
+                        else f"lag {best['lag']} iqr {best['iqr']:.1f} "
+                        f"2nd {best['iqr2nd']:.1f} n {best['n']} "
+                        f"residual median {best['dz']:.1f}"
+                    )
+                )
+                if (
+                    (best is not None)
+                    and (best["iqr"] <= maxIqrRotated)
+                    and (best["ratio"] >= minIqrRatioRotated)
+                ):
+                    r.update(
+                        {
+                            "lag": best["lag"],
+                            "lag_mod": best["lag"] % P,
+                            "dz_iqr": best["iqr"],
+                            "dz_iqr_2nd": best["iqr2nd"],
+                            "dz_median": best["dz"],
+                            "n_pairs": best["n"],
+                            "dmin": best["dmin"],
+                            "peak_frac": best["peakFrac"],
+                            "peak_frac_2nd": best["peakFrac2nd"],
+                            "resolved": True,
+                            "rotated": True,
+                        }
+                    )
+
         # clock offset between the cameras: capture_time of a follower frame
         # minus capture_time of the same frame of the leader. The clocks of
         # the cameras are ~1-2 s apart and drift ~28 ppm, so follower
@@ -1496,18 +1648,6 @@ def createMosaicFrameMapping(
                     }
                 )
 
-    # alternative acceptance (peak fraction or consensus), but only if the vertical
-    # offset agrees with the segments of the same day resolved by the IQR
-    # criterion (camera geometry does not change within a day)
-    # (if none, the peak-qualified segments themselves are the reference)
-    dzRef = [r["dz_median"] for r in rows if r["resolved"]]
-    if len(dzRef) == 0:
-        dzRef = [r["dz_median"] for r in rows if r.get("resolved_peak", False)]
-    for r in rows:
-        peakOk = r.pop("resolved_peak", False)
-        if (not r["resolved"]) and peakOk and (len(dzRef) > 0):
-            r["resolved"] = bool(abs(r["dz_median"] - np.median(dzRef)) < 10)
-
     def asArray(key, rr, dim, dtype=None):
         return xr.DataArray(np.array([r[key] for r in rr], dtype=dtype), dims=[dim])
 
@@ -1520,7 +1660,7 @@ def createMosaicFrameMapping(
                     .astype("datetime64[us]")
                     .astype("datetime64[ns]")
                 )
-            elif key == "resolved":
+            elif key in ["resolved", "rotated"]:
                 ds[key] = asArray(key, rows, "segment", np.int8)
             else:
                 ds[key] = asArray(key, rows, "segment")

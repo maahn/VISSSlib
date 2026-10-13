@@ -251,3 +251,20 @@ class TestRejectRotationJump:
             a, pending = fixes.rejectRotationJump(x, default, pending)
             out.append(None if a is None else float(a.camera_Ofz))
         assert out[:5] == [None] * 5 and out[5] == -80.0
+
+
+class TestMosaicFrameMappingCache:
+    def test_day_without_resolved_segment_is_not_outdated(self, tmp_path, monkeypatch):
+        from VISSSlib import fixes, tools
+
+        fname = str(tmp_path / "mapping.nc")
+        xr.Dataset(
+            {"resolved": ("segment", np.zeros(3, dtype=bool))},
+            coords={"segment": np.arange(3)},
+        ).to_netcdf(fname)
+        monkeypatch.setattr(tools, "readSettings", lambda c: c)
+        monkeypatch.setattr(fixes, "mosaicFrameMappingFname", lambda case, config: fname)
+        out = fixes.createMosaicFrameMapping(
+            "20200228", types.SimpleNamespace(), skipExisting=True, writeNc=False
+        )
+        assert not bool(out.resolved.any())

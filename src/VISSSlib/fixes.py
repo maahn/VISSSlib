@@ -1271,8 +1271,13 @@ def createMosaicFrameMapping(
     if skipExisting and os.path.isfile(fname):
         with xr.open_dataset(fname) as ds:
             cached = ds.load()
-        # files from before the clock offset knots were added must be rebuilt
-        if ("segment" not in cached.dims) or ("knot_time" in cached):
+        # files from before the clock offset knots were added must be rebuilt;
+        # a day without any resolved segment has no knots by construction
+        if (
+            ("segment" not in cached.dims)
+            or ("knot_time" in cached)
+            or (not bool(cached["resolved"].any()))
+        ):
             return cached
         if not writeNc:
             raise RuntimeError(

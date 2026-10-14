@@ -1267,6 +1267,7 @@ def createMosaicFrameMapping(
     useRotation=False,
     maxIqrRotated=15.0,
     minIqrRatioRotated=2.0,
+    rotation=None,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1319,6 +1320,11 @@ def createMosaicFrameMapping(
         if the IQR of the residual is <= maxIqrRotated and the next best
         lag has at least minIqrRatioRotated times the IQR. Necessary when
         the cameras are rotated against each other (raw IQR > 100 px).
+    rotation : dict, optional
+        Use this rotation (camera_Ofz, camera_phi, camera_theta) instead of
+        the one of the metaRotation file. The residual median of the
+        result tells how far Ofz is off, the IQR whether phi and theta are
+        right.
     activitySearchRange : int
         Frames around the record_time guess searched by the activity cross
         correlation. Must be wide because the clocks of the two computers
@@ -1551,7 +1557,10 @@ def createMosaicFrameMapping(
                 r["resolved"] = bool(abs(r["dz_median"] - np.median(dzRef)) < 10)
 
         if useRotation and (lPart is not None) and (fPart is not None):
-            getRotation = _mosaicDayRotation(case, config)
+            if rotation is not None:
+                getRotation = lambda t0, t1: dict(rotation)  # noqa: E731
+            else:
+                getRotation = _mosaicDayRotation(case, config)
             for r in rows:
                 if r["resolved"] or (id(r) not in candidateSets) or (getRotation is None):
                     continue

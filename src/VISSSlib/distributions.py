@@ -2820,10 +2820,14 @@ def _getDataQuality1(case, config, timeIndex, timeIndex1, sublevel, camera):
 
     blockedPixels1 = event1.blocking.sel(blockingThreshold=50, drop=True)
 
+    # tools.removeBlockedBlowingData takes the nearest event without any
+    # tolerance, so a single missing event (e.g. 20200113 03:00: events at
+    # 02:55 and 03:05) removed the data of the whole gap while its minutes were
+    # not flagged here; reach one event further (1.1 files) to stay consistent
     blockedPixels1 = blockedPixels1.reindex(
         file_starttime=timeIndex,
         method="nearest",
-        tolerance=np.timedelta64(int(config.newFileInt / 1.9), "s"),
+        tolerance=np.timedelta64(int(config.newFileInt * 1.1), "s"),
     )
     blockedPixels1 = blockedPixels1.rename(file_starttime="time")
 

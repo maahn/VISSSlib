@@ -1833,14 +1833,31 @@ def mosaicCaptureIdOffset(leader1D, follower1D, dim="fpid"):
     record_time (good to a few seconds, i.e. << 65535 frames).
     """
     P = MOSAIC_CAPTURE_ID_PERIOD
-    lRt = leader1D.record_time.values.astype("datetime64[ns]").astype(np.int64)
-    fRt = follower1D.record_time.values.astype("datetime64[ns]").astype(np.int64)
-    order = np.argsort(fRt)
-    fRt = fRt[order]
-    fId = follower1D.capture_id.values.astype(np.int64)[order]
-    jj = np.clip(np.searchsorted(fRt, lRt), 0, len(fRt) - 1)
-    diff = fId[jj] - leader1D.capture_id.values.astype(np.int64)
-    return int(np.round(np.median(diff) / P)) * P
+
+    def medianDiff(timeName, maxDtS):
+        lT = leader1D[timeName].values.astype("datetime64[ns]").astype(np.int64)
+        fT = follower1D[timeName].values.astype("datetime64[ns]").astype(np.int64)
+        order = np.argsort(fT)
+        fT = fT[order]
+        fId = follower1D.capture_id.values.astype(np.int64)[order]
+        jj = np.clip(np.searchsorted(fT, lT), 0, len(fT) - 1)
+        close = np.abs(fT[jj] - lT) < maxDtS * 1e9
+        if close.sum() < 50:
+            return None
+        diff = fId[jj] - leader1D.capture_id.values.astype(np.int64)
+        return np.median(diff[close])
+
+    # capture_time of the follower has been moved to the leader clock
+    # (mosaicFollowerCaptureIdToLeader), so it is good to milliseconds; the
+    # record_time is only good to seconds, and it is not even reliable after
+    # a follower restart (20191201 10:51: wrong multiple of 65535, i.e. not a
+    # single match for 4 minutes of heavy snowfall)
+    med = medianDiff("capture_time", 0.05)
+    if med is None:
+        med = medianDiff("record_time", 20.0)
+    if med is None:
+        return 0
+    return int(np.round(med / P)) * P
 
 
 def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):

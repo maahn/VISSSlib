@@ -2641,7 +2641,16 @@ def matchParticles(
 
     file_starttime = leader1D.file_starttime[0].values
 
+    mosaicClockOffset = 0.0
     if "mosaicFrameMapping" in config.dataFixes:
+        # follower clock minus leader clock (s), normally seconds, ~30 min in
+        # gochang_v1 when the camera time synchronisation failed
+        mosaicClockOffset = fixes.mosaicClockOffsetSeconds(
+            ffl1.case.split("-")[0],
+            config,
+            leader1D.capture_time.values.min(),
+            leader1D.capture_time.values.max(),
+        )
         # the other camera's files that cover the real time span of this file
         # (files can be 10 min long, see fixes.mosaicFollowerFiles)
         fnames1F = fixes.mosaicFollowerFiles(
@@ -2650,6 +2659,7 @@ def matchParticles(
             leader1D.capture_time.values.min(),
             leader1D.capture_time.values.max(),
             "level1detect",
+            offsetSeconds=mosaicClockOffset,
         )
         fnames1FRAW = fixes.mosaicFollowerFiles(
             ffl1,
@@ -2657,6 +2667,7 @@ def matchParticles(
             leader1D.capture_time.values.min(),
             leader1D.capture_time.values.max(),
             "level0txt",
+            offsetSeconds=mosaicClockOffset,
         )
 
     if len(fnames1FRAW) != len(fnames1F):
@@ -2699,8 +2710,9 @@ def matchParticles(
     mosaicFrameMapping = "mosaicFrameMapping" in config.dataFixes
     # MOSAiC: follower capture_time is on its own clock, up to some seconds
     # away from the leader's, and is only converted to the leader clock below
-    startF = start - np.timedelta64(30, "s") if mosaicFrameMapping else start
-    endF = end + np.timedelta64(30, "s") if mosaicFrameMapping else end
+    offsetF = np.timedelta64(int(round(mosaicClockOffset * 1e3)), "ms")
+    startF = start - np.timedelta64(30, "s") + offsetF if mosaicFrameMapping else start
+    endF = end + np.timedelta64(30, "s") + offsetF if mosaicFrameMapping else end
     try:
         follower1DAll = tools.open_mflevel1detect(
             fnames1F,
@@ -2783,7 +2795,12 @@ def matchParticles(
             return fname1Match, None, None, None, None, None, None, errors
 
     if "ptpStatus" in fEvents.data_vars:
-        fEventsInterpolated = _newfileEventsAt(fEvents, follower1DAll.capture_time)
+        fEventsInterpolated = _newfileEventsAt(
+            fEvents,
+            follower1DAll.capture_time_followerClock
+            if "capture_time_followerClock" in follower1DAll
+            else follower1DAll.capture_time,
+        )
         if not np.all(np.isin(fEventsInterpolated.ptpStatus, ["Slave", "Disabled"])):
             brokenDat = fEventsInterpolated.ptpStatus.isel(
                 fpid=~np.isin(fEventsInterpolated.ptpStatus, ["Slave", "Disabled"])
@@ -2800,6 +2817,9 @@ def matchParticles(
             errors["leaderPtpError"] = True
             return fname1Match, None, None, None, None, None, None, errors
 
+    if "capture_time_followerClock" in follower1DAll:
+        follower1DAll = follower1DAll.drop_vars("capture_time_followerClock")
+
     # try to figure out when follower was restarted in leader time period
     followerRestartedII = np.where(
         [
@@ -2808,6 +2828,9 @@ def matchParticles(
         ]
     )[0]
     followerRestarted = fEvents.file_starttime[followerRestartedII].values
+    if mosaicFrameMapping:
+        # event times are on the follower clock, capture_time on the leader's
+        followerRestarted = followerRestarted - offsetF
 
     # Pre-PTP hardware could silently drop a captured frame's index,
     # which permanently offsets the leader-follower capture_id
@@ -3463,7 +3486,11 @@ def createMetaRotation(
 
     if "mosaicFrameMapping" in config.dataFixes:
         # daily follower->leader frame mapping, used by matchParticles
-        fixes.createMosaicFrameMapping(case, config, skipExisting=skipExisting)
+        # searchRotation: last resort for segments in dense snow or after the
+        # cameras were moved, see fixes._mosaicRotationSearch
+        fixes.createMosaicFrameMapping(
+            case, config, skipExisting=skipExisting, searchRotation=True
+        )
 
     # collect results here later
     metaRotation = []

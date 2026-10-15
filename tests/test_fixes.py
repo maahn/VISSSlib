@@ -304,3 +304,76 @@ class TestMosaicRotatedLagTest:
         assert rot["iqr2nd"] > 10 * rot["iqr"]
         # the raw difference is broad even for the right lag
         assert raw["iqr"] > 20 or raw["lag"] != 7
+
+
+class TestMosaicRotationSearch:
+    def test_finds_lag_and_rotation_without_prior(self):
+        from VISSSlib import matching
+        from VISSSlib.fixes import _mosaicRotationSearch
+
+        rng = np.random.default_rng(3)
+        rotate = dict(camera_Ofz=60.0, camera_phi=-3.0, camera_theta=0.75)
+        fw, n, lag = 1280, 3000, 11
+        lx = rng.uniform(0, fw, n)
+        fx = rng.uniform(0, fw, n)
+        fz = rng.uniform(0, 1000, n)
+        lz = np.asarray(
+            matching.calc_L_z_withOffsets(lx, fw - fx, fz, **rotate)
+        ) + rng.normal(0, 1.0, n)
+        u = np.arange(n) * 3
+        lPart = dict(D=np.full(n, 30.0), z=lz, xc=lx)
+        fPart = dict(D=np.full(n, 30.0), z=fz, xc=fx)
+        seg = np.zeros(n, dtype=int)
+        out = _mosaicRotationSearch(
+            lPart,
+            seg,
+            u,
+            0,
+            fPart,
+            seg,
+            u + lag,
+            0,
+            list(range(lag - 3, lag + 4)),
+            fw,
+            phiRange=(-5.0, 0.0),
+            thetaRange=(-1.0, 2.0),
+        )
+        assert out is not None
+        assert out["lag"] == lag
+        assert abs(out["phi"] - rotate["camera_phi"]) < 0.3
+        assert abs(out["theta"] - rotate["camera_theta"]) < 0.3
+        assert abs(out["Ofz"] - rotate["camera_Ofz"]) < 8
+
+    def test_no_result_for_random_pairs(self):
+        from VISSSlib.fixes import _mosaicRotationSearch
+
+        rng = np.random.default_rng(4)
+        n, fw = 3000, 1280
+        lPart = dict(D=np.full(n, 30.0), z=rng.uniform(0, 1000, n), xc=rng.uniform(0, fw, n))
+        fPart = dict(D=np.full(n, 30.0), z=rng.uniform(0, 1000, n), xc=rng.uniform(0, fw, n))
+        seg = np.zeros(n, dtype=int)
+        u = np.arange(n) * 3
+        out = _mosaicRotationSearch(
+            lPart, seg, u, 0, fPart, seg, u + 5, 0, list(range(2, 9)), fw,
+            phiRange=(-3.0, 1.0), thetaRange=(-1.0, 1.0),
+        )
+        assert out is None
+
+
+class TestMosaicClockOffset:
+    def test_offset_from_knots(self, monkeypatch):
+        from VISSSlib import fixes
+
+        t0 = np.datetime64("2025-12-10T22:00:00")
+        kt = t0 + np.arange(5) * np.timedelta64(60, "s") + np.timedelta64(1739, "s")
+        ds = xr.Dataset(
+            {"knot_time": ("knot", kt.astype("datetime64[ns]")),
+             "knot_offset": ("knot", np.full(5, 1739.0))}
+        )
+        monkeypatch.setattr(fixes, "createMosaicFrameMapping", lambda *a, **k: ds)
+        off = fixes.mosaicClockOffsetSeconds(
+            "20251210", None, t0, t0 + np.timedelta64(300, "s")
+        )
+        assert off == pytest.approx(1739.0)
+        monkeypatch.setattr(fixes, "createMosaicFrameMapping", lambda *a, **k: None)
+        assert fixes.mosaicClockOffsetSeconds("20251210", None, t0, t0) == 0.0

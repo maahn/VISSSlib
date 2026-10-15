@@ -1261,7 +1261,14 @@ def removeBlockedBlowingData(dat1D, events, config, threshold=0.1):
     blocked = events.blocking.sel(blockingThreshold=50) > threshold
 
     # interpolate blocking status to observed particles
-    isBlocked = blocked.sel(file_starttime=dat1D.capture_time, method="nearest").values
+    # events are on the clock of their own camera; with the mosaicFrameMapping
+    # fix capture_time has been moved to the leader clock
+    ctEvents = (
+        dat1D.capture_time_followerClock
+        if "capture_time_followerClock" in dat1D
+        else dat1D.capture_time
+    )
+    isBlocked = blocked.sel(file_starttime=ctEvents, method="nearest").values
     dat1D = dat1D.isel(fpid=(~isBlocked))
     events.close()
 

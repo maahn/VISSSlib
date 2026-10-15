@@ -1213,6 +1213,130 @@ def _mosaicParticleLagTest(
     }
 
 
+def _mosaicRotationGridSearch(lx, lz, fy, fz, phis, thetas, binw=1.0, win=2):
+    """
+    Camera rotation that makes most pairs agree: for each (phi, theta) of a
+    grid the residual leader z - estimated leader z (Ofz = 0) of all pairs is
+    histogrammed, the fullest bin (+-win bins) counts the consistent pairs and
+    its position is the Ofz-like vertical shift. Returns (count, phi, theta,
+    shift) of the best grid point.
+    """
+    from . import matching
+
+    edges = np.arange(-1500, 1500 + binw, binw)
+    best = (-1, np.nan, np.nan, np.nan)
+    for ph in phis:
+        for th in thetas:
+            est = np.asarray(
+                matching.calc_L_z_withOffsets(
+                    lx, fy, fz, camera_phi=ph, camera_theta=th, camera_Ofz=0.0
+                )
+            )
+            h, _ = np.histogram(lz - est, bins=edges)
+            hs = np.convolve(h, np.ones(2 * win + 1), mode="same")
+            k = int(np.argmax(hs))
+            if hs[k] > best[0]:
+                best = (int(hs[k]), ph, th, edges[k] + binw / 2)
+    return best
+
+
+def _mosaicRotationSearch(
+    lPart,
+    lSeg,
+    lU,
+    ls,
+    fPart,
+    fSeg,
+    fU,
+    fs,
+    candidates,
+    frameWidth,
+    Dmin=8,
+    maxPairs=30000,
+    minPairs=100,
+    phiRange=(-14.0, 2.0),
+    thetaRange=(-4.0, 3.0),
+    step=0.25,
+    minRatio=3.0,
+):
+    """
+    Frame lag AND camera rotation of a segment from single particle frames,
+    without any a priori rotation: for each candidate lag the pairs of
+    single-particle frames are scanned over a grid of camera angles, and the
+    number of pairs that become consistent in height is counted. Only the
+    correct lag has a rotation that makes a large fraction of the pairs agree
+    (20200506: 36000 consistent pairs at the right lag, <1600 at the others).
+    Useful where the cameras were moved (floe motion) and the rotation of the
+    neighbouring periods does not apply.
+
+    Returns a dict (lag, count, count2nd, n, Ofz, phi, theta) or None.
+    """
+    from . import matching
+
+    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin)
+    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin)
+    if (len(li) < minPairs) or (len(fi) < minPairs):
+        return None
+    fUs = fU[fi]
+    rng = np.random.default_rng(0)
+    phis = np.arange(phiRange[0], phiRange[1] + 1e-9, step)
+    thetas = np.arange(thetaRange[0], thetaRange[1] + 1e-9, step)
+    res = []
+    for lag in candidates:
+        target = lU[li] + lag
+        jj = np.clip(np.searchsorted(fUs, target), 0, len(fUs) - 1)
+        hit = fUs[jj] == target
+        if hit.sum() < minPairs:
+            continue
+        a = li[hit]
+        b = fi[jj[hit]]
+        if len(a) > maxPairs:
+            sel = rng.choice(len(a), maxPairs, replace=False)
+            a, b = a[sel], b[sel]
+        lx = lPart["xc"][a]
+        lz = lPart["z"][a]
+        fy = frameWidth - fPart["xc"][b]
+        fz = fPart["z"][b]
+        cnt, ph, th, shift = _mosaicRotationGridSearch(lx, lz, fy, fz, phis, thetas)
+        res.append((cnt, lag, len(a), ph, th, shift, (lx, lz, fy, fz)))
+    if len(res) < 2:
+        return None
+    res.sort(key=lambda r: -r[0])
+    best = res[0]
+    second = res[1][0]
+    if best[0] < minRatio * max(second, 1):
+        return None
+    cnt, lag, n, ph, th, shift, (lx, lz, fy, fz) = best
+    # refine: finer angles, then the vertical offset where the residual of the
+    # consistent pairs is zero
+    phis2 = np.arange(ph - 0.3, ph + 0.3001, 0.05)
+    thetas2 = np.arange(th - 0.3, th + 0.3001, 0.05)
+    cnt2, ph, th, shift = _mosaicRotationGridSearch(
+        lx, lz, fy, fz, phis2, thetas2, binw=0.5, win=3
+    )
+    Ofz = float(shift)
+    for _ in range(3):
+        est = np.asarray(
+            matching.calc_L_z_withOffsets(
+                lx, fy, fz, camera_phi=ph, camera_theta=th, camera_Ofz=Ofz
+            )
+        )
+        d = lz - est
+        inl = np.abs(d) < 5
+        if inl.sum() < 20:
+            break
+        Ofz += float(np.median(d[inl]))
+    return {
+        "lag": int(lag),
+        "count": int(cnt2),
+        "count2nd": int(second),
+        "n": int(n),
+        "Ofz": float(Ofz),
+        "phi": float(ph),
+        "theta": float(th),
+    }
+
+
 def _mosaicDayRotation(case, config):
     """function (rt_start, rt_end in us) -> median rotation of the daily
     metaRotation within that period, or None if there is no metaRotation"""
@@ -1268,6 +1392,7 @@ def createMosaicFrameMapping(
     maxIqrRotated=15.0,
     minIqrRatioRotated=2.0,
     rotation=None,
+    searchRotation=False,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1320,6 +1445,11 @@ def createMosaicFrameMapping(
         if the IQR of the residual is <= maxIqrRotated and the next best
         lag has at least minIqrRatioRotated times the IQR. Necessary when
         the cameras are rotated against each other (raw IQR > 100 px).
+    searchRotation : bool
+        Last resort for segments that are still unresolved (also after the
+        rotation-corrected test): search lag and camera rotation together
+        (see _mosaicRotationSearch). The rotation found is stored as rot_Ofz,
+        rot_phi and rot_theta of the segment.
     rotation : dict, optional
         Use this rotation (camera_Ofz, camera_phi, camera_theta) instead of
         the one of the metaRotation file. The residual median of the
@@ -1438,6 +1568,9 @@ def createMosaicFrameMapping(
                     "peak_frac_2nd": np.nan,
                     "resolved": False,
                     "rotated": False,
+                    "rot_Ofz": np.nan,
+                    "rot_phi": np.nan,
+                    "rot_theta": np.nan,
                 }
 
                 # 1. record_time first guess
@@ -1624,6 +1757,46 @@ def createMosaicFrameMapping(
                         }
                     )
 
+        if searchRotation and (lPart is not None) and (fPart is not None):
+            for r in rows:
+                if r["resolved"] or (id(r) not in candidateSets):
+                    continue
+                ls, fs, cc = candidateSets[id(r)]
+                if r["lag_activity"] != -1:
+                    # the activity lag is a candidate however weak the peak
+                    cc = sorted(set(cc) | set(range(r["lag_activity"] - 3, r["lag_activity"] + 4)))
+                found = _mosaicRotationSearch(
+                    lPart,
+                    lPSeg,
+                    lPU,
+                    ls,
+                    fPart,
+                    fPSeg,
+                    fPU,
+                    fs,
+                    cc,
+                    config.frame_width,
+                )
+                log.info(
+                    f"rotation search segment {r['lsegment']}/{r['fsegment']}: "
+                    + ("no result" if found is None else str(found))
+                )
+                if found is not None:
+                    r.update(
+                        {
+                            "lag": found["lag"],
+                            "lag_mod": found["lag"] % P,
+                            "n_pairs": found["n"],
+                            "dz_iqr": np.nan,
+                            "dz_median": np.nan,
+                            "resolved": True,
+                            "rotated": True,
+                            "rot_Ofz": found["Ofz"],
+                            "rot_phi": found["phi"],
+                            "rot_theta": found["theta"],
+                        }
+                    )
+
         # clock offset between the cameras: capture_time of a follower frame
         # minus capture_time of the same frame of the leader. The clocks of
         # the cameras are ~1-2 s apart and drift ~28 ppm, so follower
@@ -1757,6 +1930,7 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
             ]
         )
     )
+    linearIds = bool(raw.max() > P)
     newId = np.full(len(raw), -1, dtype=np.int64)
     ghostDrop = np.zeros(len(raw), dtype=bool)
     ctNs = ct.astype(np.int64)
@@ -1786,7 +1960,12 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
                     gEnd = g.ghost_ct_end.values[gg]
                     ghostDrop[m] |= (ct[m] > gStart) & (ct[m] < gEnd)
                     nBefore += (ct[m] >= gEnd) * int(g.ghost_extra.values[gg])
-            newId[m] = ((raw[m] - nBefore - int(seg.lag_mod) - 1) % P) + 1
+            if linearIds:
+                # capture_id does not wrap (32 bit counter, e.g. gochang_v1):
+                # the lag is the plain difference of the ids
+                newId[m] = raw[m] - nBefore - int(seg.lag)
+            else:
+                newId[m] = ((raw[m] - nBefore - int(seg.lag_mod) - 1) % P) + 1
 
             # follower capture_time -> leader clock
             kk = (
@@ -1816,6 +1995,11 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
     follower1D = follower1D.isel({dim: keep})
     follower1D["capture_id"] = xr.DataArray(
         newId[keep].astype(follower1D.capture_id.dtype), dims=[dim]
+    )
+    # the follower's own clock is needed to look up its events (blocking,
+    # ptpStatus); removed again in matchParticles
+    follower1D["capture_time_followerClock"] = xr.DataArray(
+        ctNs[keep].astype(np.int64).astype("datetime64[ns]"), dims=[dim]
     )
     follower1D["capture_time"] = xr.DataArray(
         (ctNs[keep] - shiftNs[keep]).astype(np.int64).astype("datetime64[ns]"),
@@ -2295,8 +2479,40 @@ def rejectRotationJump(
     return None, pending
 
 
+def mosaicClockOffsetSeconds(case, config, tStart, tEnd, marginS=600):
+    """
+    Follower minus leader clock (s) around a leader time span, from the
+    clock offset knots of the day's frame mapping. The cameras' clocks are
+    seconds apart in MOSAiC, but were up to ~30 min apart in gochang_v1 when
+    the camera time synchronisation failed (20251205-20251221), so the
+    follower files and events must be looked up with that offset.
+    Returns 0 if there is no mapping or no knot.
+    """
+    try:
+        m = createMosaicFrameMapping(case, config, skipExisting=True, writeNc=False)
+    except Exception:
+        return 0.0
+    if (m is None) or ("knot_time" not in m):
+        return 0.0
+    kt = m.knot_time.values.astype("datetime64[ns]").astype(np.int64)
+    ko = m.knot_offset.values.astype(float)
+    leaderT = kt - (ko * 1e9).astype(np.int64)
+    t0 = np.datetime64(tStart, "ns").astype(np.int64) - int(marginS * 1e9)
+    t1 = np.datetime64(tEnd, "ns").astype(np.int64) + int(marginS * 1e9)
+    sel = (leaderT >= t0) & (leaderT <= t1)
+    if sel.sum() == 0:
+        return float(np.median(ko))
+    return float(np.median(ko[sel]))
+
+
 def mosaicFollowerFiles(
-    ffl1, config, leaderStart, leaderEnd, level="level1detect", marginSeconds=5
+    ffl1,
+    config,
+    leaderStart,
+    leaderEnd,
+    level="level1detect",
+    marginSeconds=5,
+    offsetSeconds=0.0,
 ):
     """
     Files of the other camera that cover the time span of one file.
@@ -2321,6 +2537,8 @@ def mosaicFollowerFiles(
         level of the files to return, e.g. level1detect or level0txt
     marginSeconds : float
         safety margin for the offset between the clocks of the cameras
+    offsetSeconds : float
+        follower minus leader clock, see mosaicClockOffsetSeconds
 
     Returns
     -------
@@ -2330,7 +2548,12 @@ def mosaicFollowerFiles(
     import pandas as pd
 
     margin = np.timedelta64(int(marginSeconds), "s")
-    cand = ffl1.filenamesOtherCamera(graceInterval=1200, level=level)
+    shift = np.timedelta64(int(round(offsetSeconds * 1e3)), "ms")
+    leaderStart = leaderStart + shift
+    leaderEnd = leaderEnd + shift
+    cand = ffl1.filenamesOtherCamera(
+        graceInterval=1200 + int(abs(offsetSeconds)), level=level
+    )
     if len(cand) == 0:
         return []
     if (config.nThreads is not None) and level in ["level0", "level0txt"]:

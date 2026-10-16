@@ -3494,6 +3494,7 @@ def createMetaRotation(
             skipExisting=skipExisting,
             searchRotation=True,
             blockLags=True,
+            denseLags=True,
         )
 
     # collect results here later

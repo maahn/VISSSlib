@@ -1213,6 +1213,128 @@ def _mosaicParticleLagTest(
     }
 
 
+def _mosaicFramePairs(idxA, uA, idxB, uB, lag, maxFrames, maxPairs, rng):
+    """all (A, B) particle index pairs of frames which are `lag` frames apart
+    (frame of B = frame of A + lag); idxA/idxB sorted by frame number uA/uB,
+    only frames with at most Kmax particles are expected here"""
+    fa, sa, ca = np.unique(uA[idxA], return_index=True, return_counts=True)
+    fb, sb, cb = np.unique(uB[idxB], return_index=True, return_counts=True)
+    jj = np.clip(np.searchsorted(fb, fa + lag), 0, len(fb) - 1)
+    hit = fb[jj] == fa + lag
+    fa, sa, ca, jj = fa[hit], sa[hit], ca[hit], jj[hit]
+    # random subset of frames within a budget of particle pairs
+    perm = rng.permutation(len(fa))
+    nPairs = np.cumsum((ca * cb[jj])[perm])
+    perm = perm[nPairs <= maxPairs]
+    if len(perm) > maxFrames:
+        perm = perm[:maxFrames]
+    sel = np.sort(perm)
+    fa, sa, ca, jj = fa[sel], sa[sel], ca[sel], jj[sel]
+    if len(fa) == 0:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
+    # every particle of A frame x every particle of the matching B frame
+    pA = np.repeat(np.arange(len(fa)), ca)
+    posA = np.concatenate([sa[i] + np.arange(ca[i]) for i in range(len(fa))])
+    nB = cb[jj][pA]
+    A = np.repeat(idxA[posA], nB)
+    startB = np.repeat(sb[jj][pA], nB)
+    offs = np.arange(nB.sum()) - np.repeat(np.cumsum(nB) - nB, nB)
+    B = idxB[startB + offs]
+    return A, B
+
+
+def _mosaicDenseLagTest(
+    lPart,
+    lSeg,
+    lU,
+    ls,
+    fPart,
+    fSeg,
+    fU,
+    fs,
+    candidates,
+    Dmin=0,
+    Kmax=200,
+    maxFrames=3000,
+    maxPairs=4_000_000,
+    halfWidth=3,
+    zRange=400,
+    rotate=None,
+    frameWidth=None,
+    seed=0,
+):
+    """
+    Lag test for dense snowfall, when (almost) no frame contains a single
+    particle. All particles of a leader frame are paired with all particles
+    of the follower frame at the candidate lag. The pairs of the particles
+    seen by both cameras pile up at the vertical offset between the cameras
+    (a sharp peak of a few pixels), all others are spread over the image.
+    For a wrong lag the same particles are displaced by their fall speed
+    (tens to hundreds of pixels, differing from particle to particle), i.e.
+    the peak is smeared out.
+
+    Returns dict(lag, z, z2nd, dz, excess, n) of the best candidate or None.
+    z is the peak height over the background in units of its Poisson noise,
+    excess the number of pairs in the peak above the background.
+    """
+    rng = np.random.default_rng(seed)
+
+    def frames(part, seg, U, s):
+        m = np.flatnonzero((seg == s) & (part["D"] >= Dmin))
+        if len(m) == 0:
+            return m
+        m = m[np.argsort(U[m], kind="stable")]
+        _, inv, cnt = np.unique(U[m], return_inverse=True, return_counts=True)
+        return m[cnt[inv] <= Kmax]
+
+    li = frames(lPart, lSeg, lU, ls)
+    fi = frames(fPart, fSeg, fU, fs)
+    if (len(li) < 200) or (len(fi) < 200):
+        return None
+    res = []
+    for lag in candidates:
+        A, B = _mosaicFramePairs(li, lU, fi, fU, lag, maxFrames, maxPairs, rng)
+        if len(A) < 500:
+            continue
+        if rotate is None:
+            dz = lPart["z"][A] - fPart["z"][B]
+        else:
+            from . import matching
+
+            dz = lPart["z"][A] - np.asarray(
+                matching.calc_L_z_withOffsets(
+                    lPart["xc"][A],
+                    frameWidth - fPart["xc"][B],
+                    fPart["z"][B],
+                    **rotate,
+                )
+            )
+        h, edges = np.histogram(dz, bins=2 * zRange, range=(-zRange, zRange))
+        w = 2 * halfWidth + 1
+        win = np.convolve(h, np.ones(w), mode="same")
+        ip = int(np.argmax(win[halfWidth:-halfWidth])) + halfWidth
+        # background from the windows next to the peak (the difference of
+        # two random positions is not flat but triangular)
+        dist = np.abs(np.arange(len(win)) - ip)
+        near = (dist > 2 * w) & (dist <= 12 * w)
+        bg = float(np.mean(win[near]))
+        excess = float(win[ip] - bg)
+        z = excess / np.sqrt(bg + 1.0)
+        res.append((z, int(lag), excess, float(edges[ip] + 0.5), len(A)))
+    if len(res) < 2:
+        return None
+    res.sort(reverse=True)
+    best = res[0]
+    return {
+        "lag": best[1],
+        "z": best[0],
+        "z2nd": res[1][0],
+        "excess": best[2],
+        "dz": best[3],
+        "n": int(best[4]),
+    }
+
+
 def _mosaicRotationGridSearch(lx, lz, fy, fz, phis, thetas, binw=1.0, win=2):
     """
     Camera rotation that makes most pairs agree: for each (phi, theta) of a
@@ -1487,6 +1609,9 @@ def createMosaicFrameMapping(
     searchRotation=False,
     searchWide=True,
     blockLags=False,
+    denseLags=False,
+    minDenseZ=10.0,
+    minDenseZRatio=2.0,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1539,6 +1664,13 @@ def createMosaicFrameMapping(
         if the IQR of the residual is <= maxIqrRotated and the next best
         lag has at least minIqrRatioRotated times the IQR. Necessary when
         the cameras are rotated against each other (raw IQR > 100 px).
+    denseLags : bool
+        Second chance for segments without enough single-particle frames
+        (dense snowfall): pair all particles of corresponding frames and look
+        for a sharp peak of the vertical offset (see _mosaicDenseLagTest).
+        Accepted if the peak is minDenseZ noise sigmas high, minDenseZRatio
+        times higher than for any other candidate lag and (if other
+        segments of the day are resolved) within 10 px of their offset.
     blockLags : bool
         Last resort for long unresolved segments: lag per time block with the
         rotation of the day (or the config prior), see _mosaicBlockLags
@@ -1668,6 +1800,7 @@ def createMosaicFrameMapping(
                     "peak_frac_2nd": np.nan,
                     "resolved": False,
                     "rotated": False,
+                    "dense": False,
                     "rot_Ofz": np.nan,
                     "rot_phi": np.nan,
                     "rot_theta": np.nan,
@@ -1803,6 +1936,43 @@ def createMosaicFrameMapping(
             peakOk = r.pop("resolved_peak", False)
             if (not r["resolved"]) and peakOk and (len(dzRef) > 0):
                 r["resolved"] = bool(abs(r["dz_median"] - np.median(dzRef)) < 10)
+
+        if denseLags and (lPart is not None) and (fPart is not None):
+            dzDay = [r["dz_median"] for r in rows if r["resolved"] and r["n_pairs"] > 0]
+            dzDay = float(np.median(dzDay)) if len(dzDay) > 0 else None
+            for r in rows:
+                if r["resolved"] or (id(r) not in candidateSets):
+                    continue
+                ls, fs, cc = candidateSets[id(r)]
+                found = _mosaicDenseLagTest(
+                    lPart, lPSeg, lPU, ls, fPart, fPSeg, fPU, fs, cc
+                )
+                log.info(
+                    f"dense lag test segment {r['lsegment']}/{r['fsegment']}: "
+                    + (
+                        "no result"
+                        if found is None
+                        else f"lag {found['lag']} z {found['z']:.1f} "
+                        f"2nd {found['z2nd']:.1f} dz {found['dz']:.1f} "
+                        f"excess {found['excess']:.0f} (day dz {dzDay})"
+                    )
+                )
+                if (
+                    (found is not None)
+                    and (found["z"] >= minDenseZ)
+                    and (found["z"] >= minDenseZRatio * max(found["z2nd"], 1.0))
+                    and ((dzDay is None) or (abs(found["dz"] - dzDay) < 10))
+                ):
+                    r.update(
+                        {
+                            "lag": found["lag"],
+                            "lag_mod": found["lag"] % P,
+                            "dz_median": found["dz"],
+                            "n_pairs": int(found["excess"]),
+                            "resolved": True,
+                            "dense": True,
+                        }
+                    )
 
         if useRotation and (lPart is not None) and (fPart is not None):
             if rotation is not None:
@@ -2047,7 +2217,7 @@ def createMosaicFrameMapping(
                     .astype("datetime64[us]")
                     .astype("datetime64[ns]")
                 )
-            elif key in ["resolved", "rotated"]:
+            elif key in ["resolved", "rotated", "dense"]:
                 ds[key] = asArray(key, rows, "segment", np.int8)
             else:
                 ds[key] = asArray(key, rows, "segment")

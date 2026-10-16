@@ -422,3 +422,62 @@ class TestMosaicBlockLags:
             0, int(10 * 60e6), blockMinutes=10, halfRange=5, minPairs=40,
         )
         assert all(b[2] is None for b in out)
+
+
+class TestMosaicDenseLagTest:
+    @staticmethod
+    def _dense(lag, K=20, nFrames=400, dz0=48.0, seed=5):
+        rng = np.random.default_rng(seed)
+        lu, lz, fu, fz = [], [], [], []
+        vel = rng.uniform(80, 300, (nFrames, K))
+        for u in range(nFrames):
+            z = rng.uniform(0, 1000, K)
+            lu += [u] * K
+            lz += list(z)
+            # same particles one frame earlier/later are displaced by their
+            # fall speed, which differs from particle to particle
+            for dl, shift in [(lag, 0.0), (lag + 1, 1.0), (lag - 1, -1.0)]:
+                zz = z - dz0 + shift * vel[u] + rng.normal(0, 1.5, K)
+                fu += [u + dl] * K
+                fz += list(zz)
+        lu, fu = np.array(lu), np.array(fu)
+        order = np.argsort(fu, kind="stable")
+        lPart = dict(D=np.full(len(lu), 30.0), z=np.array(lz), xc=np.zeros(len(lu)))
+        fz = np.array(fz)[order]
+        fPart = dict(D=np.full(len(fu), 30.0), z=fz, xc=np.zeros(len(fu)))
+        return lPart, lu, fPart, fu[order]
+
+    def test_finds_lag_without_single_particle_frames(self):
+        from VISSSlib.fixes import _mosaicDenseLagTest
+
+        lag = 65535 * 3 + 7
+        lPart, lu, fPart, fu = self._dense(lag)
+        out = _mosaicDenseLagTest(
+            lPart,
+            np.zeros(len(lu), int),
+            lu,
+            0,
+            fPart,
+            np.zeros(len(fu), int),
+            fu,
+            0,
+            list(range(lag - 3, lag + 4)),
+        )
+        assert out is not None
+        assert out["lag"] == lag
+        assert abs(out["dz"] - 48.0) < 2
+        assert out["z"] > 10 and out["z"] > 2 * out["z2nd"]
+
+    def test_no_peak_for_unrelated_frames(self):
+        from VISSSlib.fixes import _mosaicDenseLagTest
+
+        rng = np.random.default_rng(6)
+        n = 8000
+        lu = np.repeat(np.arange(400), 20)
+        fu = np.repeat(np.arange(400), 20)
+        lPart = dict(D=np.full(n, 30.0), z=rng.uniform(0, 1000, n), xc=np.zeros(n))
+        fPart = dict(D=np.full(n, 30.0), z=rng.uniform(0, 1000, n), xc=np.zeros(n))
+        out = _mosaicDenseLagTest(
+            lPart, np.zeros(n, int), lu, 0, fPart, np.zeros(n, int), fu, 0, list(range(-3, 4))
+        )
+        assert (out is None) or (out["z"] < 8)

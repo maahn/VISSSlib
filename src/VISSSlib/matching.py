@@ -3489,7 +3489,11 @@ def createMetaRotation(
         # searchRotation: last resort for segments in dense snow or after the
         # cameras were moved, see fixes._mosaicRotationSearch
         fixes.createMosaicFrameMapping(
-            case, config, skipExisting=skipExisting, searchRotation=True
+            case,
+            config,
+            skipExisting=skipExisting,
+            searchRotation=True,
+            blockLags=True,
         )
 
     # collect results here later

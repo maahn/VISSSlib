@@ -1337,6 +1337,98 @@ def _mosaicRotationSearch(
     }
 
 
+def _mosaicBlockLags(
+    lPart,
+    lSeg,
+    lU,
+    ls,
+    fPart,
+    fSeg,
+    fU,
+    fs,
+    lagCenter,
+    rotate,
+    frameWidth,
+    tStart,
+    tEnd,
+    blockMinutes=10,
+    halfRange=60,
+    minPairs=40,
+    minFrac=0.25,
+    minRatio=2.0,
+    Dmin=8,
+):
+    """
+    Frame lag in consecutive time blocks of one leader/follower run, for runs
+    in which the lag is not constant. After the camera time synchronisation
+    failed in gochang_v1 (20251205-20251221) the lag drifted by one frame
+    every ~1.5 h (20251214: -229 at 00 UTC, -216 at 20 UTC), and a single lag
+    per run resolves nothing. The correct lag of a block is the one for which
+    most pairs of single-particle frames agree in height with the known
+    camera rotation (60-90 % of the pairs, against ~5 % at the other lags).
+
+    Returns list of (t0, t1, lag, n, fraction) with t0, t1 in follower
+    capture_time (us); blocks without a decisive lag are returned with
+    lag None.
+    """
+    from . import matching
+
+    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin)
+    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin)
+    if (len(li) < minPairs) or (len(fi) < minPairs):
+        return []
+    lUs = lU[li]
+    lx = lPart["xc"][li]
+    lz = lPart["z"][li]
+    fUsAll = fU[fi]
+    fct = fPart["ct"][fi]
+    blockUs = int(blockMinutes * 60e6)
+    edges = np.arange(tStart, tEnd + blockUs, blockUs)
+    out = []
+    for t0, t1 in zip(edges[:-1], edges[1:]):
+        sel = (fct >= t0) & (fct < t1)
+        if sel.sum() < minPairs:
+            out.append((int(t0), int(t1), None, int(sel.sum()), np.nan))
+            continue
+        fIdx = fi[sel]
+        fUb = fUsAll[sel]
+        order = np.argsort(fUb)
+        fIdx, fUb = fIdx[order], fUb[order]
+        lo = np.searchsorted(lUs, fUb.min() - lagCenter - halfRange - 5)
+        hi = np.searchsorted(lUs, fUb.max() - lagCenter + halfRange + 5)
+        if hi - lo < minPairs:
+            out.append((int(t0), int(t1), None, int(hi - lo), np.nan))
+            continue
+        lUb, lxb, lzb = lUs[lo:hi], lx[lo:hi], lz[lo:hi]
+        scores = []
+        for lag in range(lagCenter - halfRange, lagCenter + halfRange + 1):
+            tgt = lUb + lag
+            jj = np.clip(np.searchsorted(fUb, tgt), 0, len(fUb) - 1)
+            hit = fUb[jj] == tgt
+            n = int(hit.sum())
+            if n < minPairs:
+                continue
+            b = fIdx[jj[hit]]
+            est = np.asarray(
+                matching.calc_L_z_withOffsets(
+                    lxb[hit], frameWidth - fPart["xc"][b], fPart["z"][b], **rotate
+                )
+            )
+            d = lzb[hit] - est
+            cnt = int((np.abs(d - np.median(d)) < 3).sum())
+            scores.append((cnt / n, cnt, n, lag))
+        if len(scores) < 2:
+            out.append((int(t0), int(t1), None, 0, np.nan))
+            continue
+        scores.sort(reverse=True)
+        best, second = scores[0], scores[1]
+        if (best[0] >= minFrac) and (best[0] >= minRatio * second[0]):
+            out.append((int(t0), int(t1), int(best[3]), int(best[2]), float(best[0])))
+        else:
+            out.append((int(t0), int(t1), None, int(best[2]), float(best[0])))
+    return out
+
+
 def _mosaicDayRotation(case, config):
     """function (rt_start, rt_end in us) -> median rotation of the daily
     metaRotation within that period, or None if there is no metaRotation"""
@@ -1393,6 +1485,8 @@ def createMosaicFrameMapping(
     minIqrRatioRotated=2.0,
     rotation=None,
     searchRotation=False,
+    searchWide=True,
+    blockLags=False,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -1445,6 +1539,12 @@ def createMosaicFrameMapping(
         if the IQR of the residual is <= maxIqrRotated and the next best
         lag has at least minIqrRatioRotated times the IQR. Necessary when
         the cameras are rotated against each other (raw IQR > 100 px).
+    blockLags : bool
+        Last resort for long unresolved segments: lag per time block with the
+        rotation of the day (or the config prior), see _mosaicBlockLags
+    searchWide : bool
+        Also use the peak of the activity correlation over all lags as a
+        candidate (clocks far apart)
     searchRotation : bool
         Last resort for segments that are still unresolved (also after the
         rotation-corrected test): search lag and camera rotation together
@@ -1610,6 +1710,21 @@ def createMosaicFrameMapping(
                     row["activity_z"] = zAct
                     if zAct > 8:
                         candidates |= set(range(lagAct - 3, lagAct + 4))
+                # the record_time guess is off by many minutes if the cameras'
+                # clocks are (gochang_v1 20251214: 29 min, i.e. 240000 frames,
+                # far outside the search range): the unrestricted peak of the
+                # activity correlation is a further candidate
+                if searchWide:
+                    lagWide, zWide = _mosaicActivityLag(
+                        lu[lmm],
+                        L["nmp"][lmm],
+                        fu[fmm],
+                        F["nmp"][fmm],
+                        guess,
+                        searchRange=10**9,
+                    )
+                    if (lagWide is not None) and (zWide > 8):
+                        candidates |= set(range(lagWide - 3, lagWide + 4))
 
                 # 3. exact lag from particles
                 if (lPart is None) or (fPart is None):
@@ -1797,6 +1912,91 @@ def createMosaicFrameMapping(
                         }
                     )
 
+        if blockLags and (lPart is not None) and (fPart is not None):
+            newRows = []
+            getRot = _mosaicDayRotation(case, config)
+            for r in rows:
+                durMin = (r["rt_end"] - r["rt_start"]) / 60e6
+                if r["resolved"] or (r["lag_recordTime"] == -1) or (durMin < 20):
+                    newRows.append(r)
+                    continue
+                if getRot is not None:
+                    rotate = getRot(r["rt_start"], r["rt_end"])
+                else:
+                    rotate, _, _ = tools.getPrevRotationEstimates(
+                        np.datetime64(
+                            f"{case[:4]}-{case[4:6]}-{case[6:8]}"
+                        ),
+                        config,
+                    )
+                    rotate = dict(rotate)
+                blocks = _mosaicBlockLags(
+                    lPart,
+                    lPSeg,
+                    lPU,
+                    r["lsegment"],
+                    fPart,
+                    fPSeg,
+                    fPU,
+                    r["fsegment"],
+                    int(r["lag_recordTime"]),
+                    rotate,
+                    config.frame_width,
+                    int(r["fct_start"]),
+                    int(r["fct_end"]),
+                )
+                good = [b for b in blocks if b[2] is not None]
+                # blocks without enough single-particle frames take the lag of
+                # the nearest block with one (the lag only changes by one frame
+                # every ~1.5 h; a wrong lag cannot create false matches because
+                # it displaces the particles by ~200 px)
+                goodIdx = [i for i, b in enumerate(blocks) if b[2] is not None]
+                if len(goodIdx) >= 3:
+                    filled = []
+                    for i, b in enumerate(blocks):
+                        if b[2] is None:
+                            nearest = min(goodIdx, key=lambda j: abs(j - i))
+                            if abs(nearest - i) <= 18:
+                                b = (b[0], b[1], blocks[nearest][2], b[3], np.nan)
+                        filled.append(b)
+                    blocks = filled
+                log.info(
+                    f"block lags segment {r['lsegment']}/{r['fsegment']}: "
+                    f"{len(good)} of {len(blocks)} blocks, lags "
+                    + str(sorted({b[2] for b in good}))[:120]
+                )
+                if len(good) < 3:
+                    newRows.append(r)
+                    continue
+                # merge neighbouring blocks with the same lag into one row
+                cur = None
+                for b in blocks:
+                    if (b[2] is None) and (cur is None):
+                        continue
+                    if (cur is not None) and (b[2] == cur["lag"]):
+                        cur["fct_end"] = b[1] - 1
+                        cur["n_pairs"] += b[3]
+                        continue
+                    if cur is not None:
+                        newRows.append(cur)
+                        cur = None
+                    if b[2] is not None:
+                        cur = dict(r)
+                        cur.update(
+                            {
+                                "fct_start": b[0],
+                                "fct_end": b[1] - 1,
+                                "lag": b[2],
+                                "lag_mod": b[2] % P,
+                                "n_pairs": b[3],
+                                "resolved": True,
+                                "rotated": True,
+                            }
+                        )
+                if cur is not None:
+                    newRows.append(cur)
+            rows[:] = newRows
+
         # clock offset between the cameras: capture_time of a follower frame
         # minus capture_time of the same frame of the leader. The clocks of
         # the cameras are ~1-2 s apart and drift ~28 ppm, so follower
@@ -1807,7 +2007,12 @@ def createMosaicFrameMapping(
             if r["n_pairs"] <= 0:
                 continue
             lm = lSegF == r["lsegment"]
-            fm = (fSegF == r["fsegment"]) & fKeep
+            fm = (
+                (fSegF == r["fsegment"])
+                & fKeep
+                & (F["ct"] >= r["fct_start"])
+                & (F["ct"] <= r["fct_end"])
+            )
             fUs = fu[fm]
             fct = F["ct"][fm]
             target = lu[lm] + r["lag"]

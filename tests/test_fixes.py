@@ -377,3 +377,48 @@ class TestMosaicClockOffset:
         assert off == pytest.approx(1739.0)
         monkeypatch.setattr(fixes, "createMosaicFrameMapping", lambda *a, **k: None)
         assert fixes.mosaicClockOffsetSeconds("20251210", None, t0, t0) == 0.0
+
+
+class TestMosaicBlockLags:
+    def test_lag_steps_between_blocks(self):
+        from VISSSlib import matching
+        from VISSSlib.fixes import _mosaicBlockLags
+
+        rng = np.random.default_rng(5)
+        rotate = dict(camera_Ofz=-25.0, camera_phi=0.4, camera_theta=0.45)
+        fw, nPer = 1280, 600
+        lagTrue = [-229, -229, -228]  # one block each, lag drifts by one frame
+        n = nPer * len(lagTrue)
+        lx = rng.uniform(0, fw, n)
+        fx = rng.uniform(0, fw, n)
+        fz = rng.uniform(0, 1000, n)
+        lz = np.asarray(matching.calc_L_z_withOffsets(lx, fw - fx, fz, **rotate)) + rng.normal(0, 0.8, n)
+        lU = np.arange(n) * 4 + 10000
+        block = np.repeat(np.arange(len(lagTrue)), nPer)
+        fU = lU + np.array(lagTrue)[block]
+        blockUs = int(10 * 60e6)
+        fct = block * blockUs + np.tile(np.linspace(1e6, blockUs - 1e6, nPer), len(lagTrue)).astype(np.int64)
+        lPart = dict(D=np.full(n, 30.0), z=lz, xc=lx, ct=fct)
+        fPart = dict(D=np.full(n, 30.0), z=fz, xc=fx, ct=fct)
+        seg = np.zeros(n, dtype=int)
+        out = _mosaicBlockLags(
+            lPart, seg, lU, 0, fPart, seg, fU, 0, -229, rotate, fw,
+            0, blockUs * len(lagTrue), blockMinutes=10, halfRange=5, minPairs=40,
+        )
+        assert [b[2] for b in out] == lagTrue
+
+    def test_block_without_pairs_has_no_lag(self):
+        from VISSSlib.fixes import _mosaicBlockLags
+
+        n, fw = 200, 1280
+        rng = np.random.default_rng(6)
+        lPart = dict(D=np.full(n, 30.0), z=rng.uniform(0, 1000, n), xc=rng.uniform(0, fw, n), ct=np.arange(n) * 1000)
+        fPart = dict(D=np.full(n, 30.0), z=rng.uniform(0, 1000, n), xc=rng.uniform(0, fw, n), ct=np.arange(n) * 1000)
+        seg = np.zeros(n, dtype=int)
+        u = np.arange(n) * 3
+        out = _mosaicBlockLags(
+            lPart, seg, u, 0, fPart, seg, u + 7, 0, 7,
+            dict(camera_Ofz=-25.0, camera_phi=0.4, camera_theta=0.45), fw,
+            0, int(10 * 60e6), blockMinutes=10, halfRange=5, minPairs=40,
+        )
+        assert all(b[2] is None for b in out)

@@ -481,3 +481,35 @@ class TestMosaicDenseLagTest:
             lPart, np.zeros(n, int), lu, 0, fPart, np.zeros(n, int), fu, 0, list(range(-3, 4))
         )
         assert (out is None) or (out["z"] < 8)
+
+
+class TestMosaicDenseBlockLags:
+    def test_lag_change_inside_segment(self):
+        from VISSSlib.fixes import _mosaicDenseBlockLags
+
+        rng = np.random.default_rng(8)
+        nFrames, K, lag0, dz0 = 6000, 12, 1000, 43.0
+        lu, lz, fu, fz = [], [], [], []
+        for u in range(nFrames):
+            z = rng.uniform(0, 1000, K)
+            lag = lag0 if u < nFrames // 2 else lag0 + 1
+            lu += [u] * K
+            lz += list(z)
+            fu += [u + lag] * K
+            fz += list(z - dz0 + rng.normal(0, 1.5, K))
+        fu = np.array(fu)
+        order = np.argsort(fu, kind="stable")
+        lu = np.array(lu)
+        period = 7143
+        lPart = dict(D=np.full(len(lu), 4.0), z=np.array(lz), xc=np.zeros(len(lu)), ct=lu * period)
+        fPart = dict(D=np.full(len(fu), 4.0), z=np.array(fz)[order], xc=np.zeros(len(fu)), ct=fu[order] * period)
+        fu = fu[order]
+        blocks = _mosaicDenseBlockLags(
+            lPart, np.zeros(len(lu), int), lu, 0, fPart, np.zeros(len(fu), int), fu, 0,
+            lag0, int(fPart["ct"].min()), int(fPart["ct"].max()),
+            dzRef=dz0, blockMinutes=0.2, halfRange=3,
+        )
+        lags = [b[2] for b in blocks if b[2] is not None]
+        assert len(lags) >= 0.7 * len(blocks)
+        assert lags[0] == lag0 and lags[-1] == lag0 + 1
+        assert set(lags) == {lag0, lag0 + 1}

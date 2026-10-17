@@ -1262,6 +1262,7 @@ def _mosaicDenseLagTest(
     rotate=None,
     frameWidth=None,
     seed=0,
+    fMask=None,
 ):
     """
     Lag test for dense snowfall, when (almost) no frame contains a single
@@ -1272,6 +1273,9 @@ def _mosaicDenseLagTest(
     For a wrong lag the same particles are displaced by their fall speed
     (tens to hundreds of pixels, differing from particle to particle), i.e.
     the peak is smeared out.
+
+    fMask restricts the follower particles (boolean per particle), e.g. to a
+    time block.
 
     Returns dict(lag, z, z2nd, dz, excess, n) of the best candidate or None.
     z is the peak height over the background in units of its Poisson noise,
@@ -1289,6 +1293,8 @@ def _mosaicDenseLagTest(
 
     li = frames(lPart, lSeg, lU, ls)
     fi = frames(fPart, fSeg, fU, fs)
+    if fMask is not None:
+        fi = fi[fMask[fi]]
     if (len(li) < 200) or (len(fi) < 200):
         return None
     res = []
@@ -1333,6 +1339,61 @@ def _mosaicDenseLagTest(
         "dz": best[3],
         "n": int(best[4]),
     }
+
+
+def _mosaicDenseBlockLags(
+    lPart,
+    lSeg,
+    lU,
+    ls,
+    fPart,
+    fSeg,
+    fU,
+    fs,
+    lagCenter,
+    tStart,
+    tEnd,
+    dzRef=None,
+    blockMinutes=10,
+    halfRange=8,
+    minZ=8.0,
+    minRatio=1.5,
+    maxDzDiff=10.0,
+):
+    """
+    Lag per time block for long segments in which the lag changes (frames
+    lost at the start of a recording, the leader/follower lag then drifts by
+    one frame every few hours). The dense lag test (all particles of
+    corresponding frames) is applied to blocks of the follower capture_time.
+
+    Returns a list of (t0, t1, lag or None, n, z) like _mosaicBlockLags.
+    """
+    out = []
+    edges = np.arange(tStart, tEnd + 1, int(blockMinutes * 60_000_000))
+    if edges[-1] < tEnd:
+        edges = np.append(edges, tEnd + 1)
+    cands = list(range(lagCenter - halfRange, lagCenter + halfRange + 1))
+    for t0, t1 in zip(edges[:-1], edges[1:]):
+        mask = (fPart["ct"] >= t0) & (fPart["ct"] < t1)
+        found = _mosaicDenseLagTest(
+            lPart, lSeg, lU, ls, fPart, fSeg, fU, fs, cands, fMask=mask
+        )
+        ok = (
+            (found is not None)
+            and (found["z"] >= minZ)
+            and (found["z"] >= minRatio * max(found["z2nd"], 1.0))
+            and ((dzRef is None) or (abs(found["dz"] - dzRef) < maxDzDiff))
+        )
+        out.append(
+            (
+                int(t0),
+                int(t1),
+                int(found["lag"]) if ok else None,
+                int(found["n"]) if found is not None else 0,
+                float(found["z"]) if found is not None else np.nan,
+            )
+        )
+    return out
 
 
 def _mosaicRotationGridSearch(lx, lz, fy, fz, phis, thetas, binw=1.0, win=2):
@@ -1610,6 +1671,7 @@ def createMosaicFrameMapping(
     searchWide=True,
     blockLags=False,
     denseLags=False,
+    denseBlockLags=True,
     minDenseZ=10.0,
     minDenseZRatio=2.0,
 ):
@@ -1671,6 +1733,11 @@ def createMosaicFrameMapping(
         Accepted if the peak is minDenseZ noise sigmas high, minDenseZRatio
         times higher than for any other candidate lag and (if other
         segments of the day are resolved) within 10 px of their offset.
+    denseBlockLags : bool
+        With denseLags: segments of >= 20 min in which the dense test finds a
+        lag with the right vertical offset but not decisively (the lag drifts
+        within the segment) are split into 10 min blocks, see
+        _mosaicDenseBlockLags
     blockLags : bool
         Last resort for long unresolved segments: lag per time block with the
         rotation of the day (or the config prior), see _mosaicBlockLags
@@ -1940,6 +2007,7 @@ def createMosaicFrameMapping(
         if denseLags and (lPart is not None) and (fPart is not None):
             dzDay = [r["dz_median"] for r in rows if r["resolved"] and r["n_pairs"] > 0]
             dzDay = float(np.median(dzDay)) if len(dzDay) > 0 else None
+            denseDrift = {}
             for r in rows:
                 if r["resolved"] or (id(r) not in candidateSets):
                     continue
@@ -1973,6 +2041,86 @@ def createMosaicFrameMapping(
                             "dense": True,
                         }
                     )
+                elif (
+                    denseBlockLags
+                    and (found is not None)
+                    and (found["z"] >= minDenseZ)
+                    and ((dzDay is None) or (abs(found["dz"] - dzDay) < 10))
+                ):
+                    denseDrift[id(r)] = (ls, fs, found["lag"])
+
+            newRows = []
+            for r in rows:
+                if id(r) not in denseDrift:
+                    newRows.append(r)
+                    continue
+                ls, fs, lagC = denseDrift[id(r)]
+                durMin = (r["fct_end"] - r["fct_start"]) / 60e6
+                if durMin < 20:
+                    newRows.append(r)
+                    continue
+                blocks = _mosaicDenseBlockLags(
+                    lPart,
+                    lPSeg,
+                    lPU,
+                    ls,
+                    fPart,
+                    fPSeg,
+                    fPU,
+                    fs,
+                    int(lagC),
+                    int(r["fct_start"]),
+                    int(r["fct_end"]),
+                    dzRef=dzDay,
+                )
+                goodIdx = [i for i, b in enumerate(blocks) if b[2] is not None]
+                log.info(
+                    f"dense block lags segment {r['lsegment']}/{r['fsegment']}: "
+                    f"{len(goodIdx)} of {len(blocks)} blocks, lags "
+                    + str(sorted({blocks[i][2] for i in goodIdx}))[:120]
+                )
+                if len(goodIdx) < 3:
+                    newRows.append(r)
+                    continue
+                # blocks without a decisive peak (little snow): the lag
+                # drifts steadily, so interpolate between the neighbouring
+                # blocks (flat before the first / after the last one)
+                goodLag = np.array([blocks[i][2] for i in goodIdx], dtype=float)
+                filled = []
+                for i, b in enumerate(blocks):
+                    if b[2] is None:
+                        nearest = min(goodIdx, key=lambda j: abs(j - i))
+                        if abs(nearest - i) <= 18:
+                            lagI = int(np.round(np.interp(i, goodIdx, goodLag)))
+                            b = (b[0], b[1], lagI, b[3], np.nan)
+                    filled.append(b)
+                cur = None
+                for b in filled:
+                    if (b[2] is None) and (cur is None):
+                        continue
+                    if (cur is not None) and (b[2] == cur["lag"]):
+                        cur["fct_end"] = b[1] - 1
+                        cur["n_pairs"] += b[3]
+                        continue
+                    if cur is not None:
+                        newRows.append(cur)
+                        cur = None
+                    if b[2] is not None:
+                        cur = dict(r)
+                        cur.update(
+                            {
+                                "fct_start": b[0],
+                                "fct_end": b[1] - 1,
+                                "lag": b[2],
+                                "lag_mod": b[2] % P,
+                                "n_pairs": max(b[3], 1),
+                                "resolved": True,
+                                "dense": True,
+                            }
+                        )
+                if cur is not None:
+                    newRows.append(cur)
+            rows[:] = newRows
 
         if useRotation and (lPart is not None) and (fPart is not None):
             if rotation is not None:

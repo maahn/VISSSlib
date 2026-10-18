@@ -2005,7 +2005,12 @@ def createMosaicFrameMapping(
                 r["resolved"] = bool(abs(r["dz_median"] - np.median(dzRef)) < 10)
 
         if denseLags and (lPart is not None) and (fPart is not None):
-            dzDay = [r["dz_median"] for r in rows if r["resolved"] and r["n_pairs"] > 0]
+            # reference vertical offset of the day from well populated
+            # segments only (a few dozen pairs can be a false detection and
+            # would make the dense test reject every correct peak)
+            dzDay = [
+                r["dz_median"] for r in rows if r["resolved"] and r["n_pairs"] >= 300
+            ]
             dzDay = float(np.median(dzDay)) if len(dzDay) > 0 else None
             denseDrift = {}
             for r in rows:

@@ -513,3 +513,38 @@ class TestMosaicDenseBlockLags:
         assert len(lags) >= 0.7 * len(blocks)
         assert lags[0] == lag0 and lags[-1] == lag0 + 1
         assert set(lags) == {lag0, lag0 + 1}
+
+
+class TestMosaicDenseBlockLagsRotated:
+    def test_tracks_drifting_lag_with_rotation(self):
+        from VISSSlib import matching
+        from VISSSlib.fixes import _mosaicDenseBlockLags
+
+        rng = np.random.default_rng(11)
+        rotate = dict(camera_Ofz=-86.0, camera_phi=1.5, camera_theta=1.25)
+        fw, nFrames, K, lag0 = 1280, 12000, 10, 5000
+        lu, lx, lz, fu, fx, fz = [], [], [], [], [], []
+        for u in range(nFrames):
+            # lag drifts by one frame every 2000 frames
+            lag = lag0 + u // 2000
+            x = rng.uniform(0, fw, K)
+            fxx = rng.uniform(0, fw, K)
+            fzz = rng.uniform(0, 1000, K)
+            z = np.asarray(matching.calc_L_z_withOffsets(x, fw - fxx, fzz, **rotate)) + rng.normal(0, 1.0, K)
+            lu += [u] * K; lx += list(x); lz += list(z)
+            fu += [u + lag] * K; fx += list(fxx); fz += list(fzz)
+        lu = np.array(lu); fu = np.array(fu)
+        order = np.argsort(fu, kind="stable")
+        period = 7143
+        lPart = dict(D=np.full(len(lu), 4.0), z=np.array(lz), xc=np.array(lx), ct=lu * period)
+        fPart = dict(D=np.full(len(fu), 4.0), z=np.array(fz)[order], xc=np.array(fx)[order], ct=fu[order] * period)
+        fu = fu[order]
+        blocks = _mosaicDenseBlockLags(
+            lPart, np.zeros(len(lu), int), lu, 0, fPart, np.zeros(len(fu), int), fu, 0,
+            lag0, int(fPart["ct"].min()), int(fPart["ct"].max()),
+            blockMinutes=0.2, halfRange=3, rotate=rotate, frameWidth=fw, track=True,
+        )
+        lags = [b[2] for b in blocks if b[2] is not None]
+        assert len(lags) >= 0.7 * len(blocks)
+        assert lags[0] == lag0 and lags[-1] >= lag0 + 4
+        assert all(b >= a for a, b in zip(lags[:-1], lags[1:]))

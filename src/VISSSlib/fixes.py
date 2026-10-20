@@ -1359,6 +1359,9 @@ def _mosaicDenseBlockLags(
     minZ=8.0,
     minRatio=1.5,
     maxDzDiff=10.0,
+    rotate=None,
+    frameWidth=None,
+    track=False,
 ):
     """
     Lag per time block for long segments in which the lag changes (frames
@@ -1366,17 +1369,34 @@ def _mosaicDenseBlockLags(
     one frame every few hours). The dense lag test (all particles of
     corresponding frames) is applied to blocks of the follower capture_time.
 
+    With rotate (dict camera_Ofz/phi/theta) the vertical difference is
+    corrected for the camera rotation (cameras rotated against each other, no
+    constant raw offset); track=True moves the candidate window along with the
+    lag found in the previous block.
+
     Returns a list of (t0, t1, lag or None, n, z) like _mosaicBlockLags.
     """
     out = []
     edges = np.arange(tStart, tEnd + 1, int(blockMinutes * 60_000_000))
     if edges[-1] < tEnd:
         edges = np.append(edges, tEnd + 1)
-    cands = list(range(lagCenter - halfRange, lagCenter + halfRange + 1))
+    center = lagCenter
     for t0, t1 in zip(edges[:-1], edges[1:]):
+        cands = list(range(center - halfRange, center + halfRange + 1))
         mask = (fPart["ct"] >= t0) & (fPart["ct"] < t1)
         found = _mosaicDenseLagTest(
-            lPart, lSeg, lU, ls, fPart, fSeg, fU, fs, cands, fMask=mask
+            lPart,
+            lSeg,
+            lU,
+            ls,
+            fPart,
+            fSeg,
+            fU,
+            fs,
+            cands,
+            fMask=mask,
+            rotate=rotate,
+            frameWidth=frameWidth,
         )
         ok = (
             (found is not None)
@@ -1384,6 +1404,9 @@ def _mosaicDenseBlockLags(
             and (found["z"] >= minRatio * max(found["z2nd"], 1.0))
             and ((dzRef is None) or (abs(found["dz"] - dzRef) < maxDzDiff))
         )
+        if ok and track:
+            # the lag drifts steadily: follow it from block to block
+            center = int(found["lag"])
         out.append(
             (
                 int(t0),
@@ -2234,6 +2257,77 @@ def createMosaicFrameMapping(
                             "rot_theta": found["theta"],
                         }
                     )
+
+        if denseBlockLags and (lPart is not None) and (fPart is not None):
+            # long segments resolved by the rotation search got ONE lag for
+            # the whole run, but the lag drifts steadily (SAIL 20230209: 14 h
+            # run, wrong lag for hours): track it block by block
+            newRows = []
+            for r in rows:
+                durMin = (r["fct_end"] - r["fct_start"]) / 60e6
+                if not (r["resolved"] and r["rotated"] and np.isfinite(r["rot_Ofz"]) and durMin >= 20):
+                    newRows.append(r)
+                    continue
+                rot = dict(
+                    camera_Ofz=r["rot_Ofz"],
+                    camera_phi=r["rot_phi"],
+                    camera_theta=r["rot_theta"],
+                )
+                blocks = _mosaicDenseBlockLags(
+                    lPart,
+                    lPSeg,
+                    lPU,
+                    r["lsegment"],
+                    fPart,
+                    fPSeg,
+                    fPU,
+                    r["fsegment"],
+                    int(r["lag"]),
+                    int(r["fct_start"]),
+                    int(r["fct_end"]),
+                    rotate=rot,
+                    frameWidth=config.frame_width,
+                    track=True,
+                    halfRange=6,
+                )
+                goodIdx = [i for i, b in enumerate(blocks) if b[2] is not None]
+                log.info(
+                    f"rotated dense block lags segment {r['lsegment']}/{r['fsegment']}: "
+                    f"{len(goodIdx)} of {len(blocks)} blocks, lags "
+                    + str(sorted({blocks[i][2] for i in goodIdx}))[:120]
+                )
+                if len(goodIdx) < max(3, len(blocks) // 4):
+                    newRows.append(r)
+                    continue
+                goodLag = np.array([blocks[i][2] for i in goodIdx], dtype=float)
+                filled = []
+                for i, b in enumerate(blocks):
+                    if b[2] is None:
+                        lagI = int(np.round(np.interp(i, goodIdx, goodLag)))
+                        b = (b[0], b[1], lagI, b[3], np.nan)
+                    filled.append(b)
+                cur = None
+                for b in filled:
+                    if (cur is not None) and (b[2] == cur["lag"]):
+                        cur["fct_end"] = b[1] - 1
+                        cur["n_pairs"] += b[3]
+                        continue
+                    if cur is not None:
+                        newRows.append(cur)
+                    cur = dict(r)
+                    cur.update(
+                        {
+                            "fct_start": b[0],
+                            "fct_end": b[1] - 1,
+                            "lag": b[2],
+                            "lag_mod": b[2] % P,
+                            "n_pairs": max(b[3], 1),
+                            "dense": True,
+                        }
+                    )
+                if cur is not None:
+                    newRows.append(cur)
+            rows[:] = newRows
 
         if blockLags and (lPart is not None) and (fPart is not None):
             newRows = []

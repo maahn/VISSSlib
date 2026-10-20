@@ -1736,7 +1736,8 @@ def detectParticles(
     testing : list, optional
         Testing modes to enable, default is []
     writeNc : bool, optional
-        Whether to write NetCDF output, default is True
+        Whether to write any output (level1detect, metaDetection, imagesL1detect,
+        nodata/broken status files), default is True. False leaves all files untouched.
     stopAfter : tuple or int, optional
         Stop processing after specified frame, default is None
     version : str, optional
@@ -1798,15 +1799,20 @@ def detectParticles(
     log.info(f"running {fn.fname.level1detect}")
     camera = fn.camera
 
+    # writeNc=False must leave every output on disk untouched (metaDetection,
+    # imagesL1detect and the nodata/broken status files included), not just level1detect
+    writeStatus = fn.writeStatus if writeNc else (lambda *args, **kwargs: None)
+    writeImg = config.level1detect.writeImg and writeNc
+
     def _noData(message):
-        fn.writeStatus("metaDetection", "nodata", message)
-        fn.writeStatus("level1detect", "nodata", message)
+        writeStatus("metaDetection", "nodata", message)
+        writeStatus("level1detect", "nodata", message)
 
     def _broken(message):
         # unlike _noData, this means the raw data itself is missing/corrupt
         # (e.g. a failed transfer), not a confirmed absence of precipitation
-        fn.writeStatus("metaDetection", "broken.txt", message)
-        fn.writeStatus("level1detect", "broken.txt", message)
+        writeStatus("metaDetection", "broken.txt", message)
+        writeStatus("level1detect", "broken.txt", message)
 
     # check whether output exists
     if skipExisting and tools.checkForExisting(
@@ -1877,7 +1883,7 @@ def detectParticles(
     # otherwise discard data
     nFramesPerThread = np.unique(metaData.nThread.values, return_counts=True)[1]
     if np.any(nFramesPerThread <= 1):
-        fn.writeStatus("level1detect", "nodata", "no data in %s" % fn.fname.metaFrames)
+        writeStatus("level1detect", "nodata", "no data in %s" % fn.fname.metaFrames)
         log.warning(
             "metaFrames contains not enough frames " + str(list(nFramesPerThread))
         )
@@ -1974,7 +1980,7 @@ def detectParticles(
         fname11 = files.Filenames(fname1, config, version=version).prevFile()
 
         if (ii > 20) or (fname11 is None):
-            fn.writeStatus(
+            writeStatus(
                 "level1detect",
                 "notenoughframes",
                 "too few frames %i %i %s \r%s%s"
@@ -2053,7 +2059,7 @@ def detectParticles(
 
     frame = None
 
-    if config.level1detect.writeImg:
+    if writeImg:
         imagesL1detect = tools.imageZipFile(fn.fname.imagesL1detect, mode="w")
     imageWritten = False
 
@@ -2107,7 +2113,7 @@ def detectParticles(
                 log.warning(
                     "detected single frame issue %s thread %i" % (fname, nThread)
                 )
-                fn.writeStatus(
+                writeStatus(
                     "level1detect", "nodata", "no data (single frame problem)"
                 )
                 continue
@@ -2195,7 +2201,7 @@ def detectParticles(
         for part in snowParticles.lastFrame.values():
             hasData = True
 
-            if config.level1detect.writeImg:
+            if writeImg:
                 if (part.Dmax >= minDmax4write) and (part.blur >= minBlur4write):
                     pidStr = "%07i" % part.pid
                     # imName = '%s/%s/%s.npy' % (tarRoot, pidStr[:4], pidStr)
@@ -2215,7 +2221,7 @@ def detectParticles(
 
             part.dropImages()
 
-    if config.level1detect.writeImg:
+    if writeImg:
         try:
             imagesL1detect.close()
         except OSError:
@@ -2243,7 +2249,8 @@ def detectParticles(
     metaData = tools.finishNc(
         metaData, config.site, config.visssGen, config=config, extra={"blowingSnowFixed": "True"}
     )
-    tools.to_netcdf2(metaData, config, fn.fname.metaDetection)
+    if writeNc:
+        tools.to_netcdf2(metaData, config, fn.fname.metaDetection)
     metaData.close()
 
     if hasData:
@@ -2263,7 +2270,7 @@ def detectParticles(
             snowParticlesXR.close()
         return snowParticlesXR
     else:
-        fn.writeStatus("level1detect", "nodata", "no data")
+        writeStatus("level1detect", "nodata", "no data")
         log.info("no data %s" % fn.fname.level1detect)
         return None
 

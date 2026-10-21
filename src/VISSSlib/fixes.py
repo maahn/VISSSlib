@@ -2935,6 +2935,30 @@ def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
     if len(starts) > 0:
         starts = np.concatenate(starts)
         ends = np.concatenate(ends)
+    # files processed without the frame mapping (fallback) are not unmapped
+    fStart, fEnd = [], []
+    if bool(config.mosaicFrameMappingFallback):
+        from . import files as _files
+
+        try:
+            for fn in _files.FindFiles(case, config.leader, config).listFiles(
+                "level1match"
+            ):
+                if not fn.endswith(".nc"):
+                    continue
+                with xr.open_dataset(fn, decode_times=False) as dsf:
+                    isFallback = dsf.attrs.get("mosaicFrameMapping", "") == "fallback"
+                if isFallback:
+                    t0 = pd.Timestamp(
+                        os.path.basename(fn).split("_")[-1][:15].replace("-", "T")
+                    ).to_datetime64()
+                    fStart.append(t0)
+                    fEnd.append(t0 + np.timedelta64(int(config.newFileInt), "s"))
+        except Exception as e:
+            log.warning(f"mosaicUnmappedTimes: fallback files not checked: {e}")
+    if len(fStart) > 0:
+        starts = np.concatenate([np.atleast_1d(starts), np.array(fStart)]) if len(starts) > 0 else np.array(fStart)
+        ends = np.concatenate([np.atleast_1d(ends), np.array(fEnd)]) if len(ends) > 0 else np.array(fEnd)
     binStart = timeIndex.values.astype("datetime64[ns]")
     binEnd = binStart + np.timedelta64(int(freqS * 1e9), "ns")
     covered = np.zeros(len(binStart))

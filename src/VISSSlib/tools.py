@@ -119,10 +119,13 @@ LEVEL_REGISTRY = {
         "leaderOnly": True,
     },
     "level2detect": {
-        "parents": lambda camera, config: [
-            f"{camera}_level1detect",
-            f"{camera}_metaEvents",
-        ],
+        "parents": lambda camera, config: (
+            # the blur scale of level2detect uses level1detect of the other camera, too
+            ["leader_level1detect", "follower_level1detect"]
+            if config.level2.blurScaleFromOtherCamera
+            else [f"{camera}_level1detect"]
+        )
+        + [f"{camera}_metaEvents"],
         "command": ("daily", "distributions.createLevel2detect"),
     },
     "level2match": {
@@ -283,6 +286,11 @@ DEFAULT_SETTINGS = {
     # days (YYYYMMDD or YYYYMMDD-YYYYMMDD) for which the dataFix
     # mosaicFrameMapping is NOT applied (None: applied to all days)
     "mosaicFrameMappingExclude": None,
+    # process a file once more without the frame mapping if the mapping variant
+    # fails (needs the dataFix mosaicFrameMapping); mosaicFallbackFixes: dataFixes
+    # the variant without frame mapping needs (e.g. makeCaptureTimeEven)
+    "mosaicFrameMappingFallback": False,
+    "mosaicFallbackFixes": None,
     "dirMode": 0o775,  # 509
     "fileMode": 0o664,  # 436
     "goodFiles": ["None", "None"],
@@ -346,6 +354,12 @@ DEFAULT_SETTINGS = {
         "maxMovingObjects": 300,  # 60 until 18.9.24
     },
     "level2": {
+        # level2detect: scale the blur threshold of the fainter camera with the ratio of
+        # the sharp-tail blur (75th percentile, 8-16 px) of both cameras' level1detect
+        # data of the same hour, so that a camera with lower image contrast is not
+        # treated as having a smaller observation volume. Tested for visss2 at Ny-Alesund
+        # only; makes level2detect depend on level1detect of both cameras.
+        "blurScaleFromOtherCamera": False,
         "correctForSmallOnes": False,
         "freq": "1min",
         "processL2detect": True,
@@ -366,6 +380,15 @@ DEFAULT_SETTINGS = {
     "quality": {
         "blowingSnowFrameThresh": 0.05,
         "blockedPixThresh": 0.1,
+        # level2 flag sunGlint: ratio of the level1detect particles (>= 2 px) of a
+        # time step whose brightest pixel is more than sunGlintMargin gray levels
+        # brighter than the image background (brightnessMean of the metaEvents),
+        # i.e. sun reflections. Seen only occasionally (typically < 1% of the time
+        # steps above 0.1, but up to ~50% of the particles at SAIL on 2023-01-08).
+        # Time steps with fewer than sunGlintMinParticles particles are not flagged.
+        "sunGlintMargin": 20,
+        "sunGlintMinParticles": 50,
+        "sunGlintRatioThresh": 0.1,
         # pixels (level1's native unit -- this residual is computed
         # directly on level1-stage pixel data, before level2's SI/meter
         # calibration is ever applied); max tolerable std of the per-pair
@@ -3512,6 +3535,7 @@ def unpackQualityFlags(quality, doubleTimestamps=False):
             "obervationsDiffer",
             "trackingIncomplete",
             "zResidualTooWide",
+            "sunGlint",
         ],
         dims=["flag"],
         name="flag",

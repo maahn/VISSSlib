@@ -645,3 +645,69 @@ class TestMosaicMappingActive:
         assert mosaicMappingActive(
             c, "/x/20230405/level1match_V1.2_sail_visss01_visss_leader_S1145792_20230412-135000.nc"
         )
+
+
+class TestMosaicFallbackWrapper:
+    @staticmethod
+    def _cfg(fallback=True, exclude=None):
+        from VISSSlib import tools
+
+        return tools.DictNoDefault(
+            {
+                "dataFixes": ["mosaicFrameMapping", "detectTimingGlitches"],
+                "mosaicFrameMappingExclude": exclude,
+                "mosaicFrameMappingFallback": fallback,
+                "mosaicFallbackFixes": ["makeCaptureTimeEven"],
+            }
+        )
+
+    @staticmethod
+    def _patch(monkeypatch, failFirst=True):
+        import functools
+
+        from VISSSlib import matching
+
+        real = matching._matchParticlesImpl
+        calls = []
+
+        @functools.wraps(real)
+        def fake(**p):
+            calls.append(p)
+            if failFirst and len(calls) == 1:
+                raise RuntimeError("Z-residual spread is 6.0 which exceeds maxZSigma 5.0")
+            return "ok"
+
+        monkeypatch.setattr(matching, "_matchParticlesImpl", fake)
+        return calls
+
+    FN = "/x/level1detect_V1.2_a_visss_leader_S1_20230325-120000.nc"
+
+    def test_retry_without_mapping(self, monkeypatch):
+        from VISSSlib import matching
+
+        calls = self._patch(monkeypatch)
+        cfg = self._cfg()
+        assert matching.matchParticles(self.FN, cfg) == "ok"
+        assert len(calls) == 2
+        assert calls[0]["_canFallback"] and not calls[0]["_fallbackMode"]
+        assert calls[1]["_fallbackMode"] and not calls[1]["_canFallback"]
+        legacy = calls[1]["config"].dataFixes
+        assert "mosaicFrameMapping" not in legacy and "makeCaptureTimeEven" in legacy
+        assert "detectTimingGlitches" in legacy
+        assert "mosaicFrameMapping" in cfg.dataFixes  # original untouched
+
+    def test_no_retry_if_disabled_or_excluded_or_rotation_only(self, monkeypatch):
+        import pytest
+
+        from VISSSlib import matching
+
+        for cfg, kw in [
+            (self._cfg(fallback=False), {}),
+            (self._cfg(exclude=["20230325"]), {}),
+            (self._cfg(), {"rotationOnly": True}),
+        ]:
+            calls = self._patch(monkeypatch)
+            with pytest.raises(RuntimeError):
+                matching.matchParticles(self.FN, cfg, **kw)
+            assert len(calls) == 1
+            assert not calls[0]["_canFallback"]

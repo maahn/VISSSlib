@@ -548,3 +548,72 @@ class TestMosaicDenseBlockLagsRotated:
         assert len(lags) >= 0.7 * len(blocks)
         assert lags[0] == lag0 and lags[-1] >= lag0 + 4
         assert all(b >= a for a, b in zip(lags[:-1], lags[1:]))
+
+
+class TestMosaicDenseBlockLagsDrift:
+    @staticmethod
+    def _drifting(nFrames=12000, K=10, lag0=3000, per=1000, dz0=43.0, seed=21):
+        rng = np.random.default_rng(seed)
+        lu, lz, fu, fz = [], [], [], []
+        for u in range(nFrames):
+            lag = lag0 + 2 * (u // per)  # 2 frames per block
+            z = rng.uniform(0, 1000, K)
+            lu += [u] * K; lz += list(z)
+            fu += [u + lag] * K; fz += list(z - dz0 + rng.normal(0, 1.5, K))
+        lu = np.array(lu); fu = np.array(fu)
+        order = np.argsort(fu, kind="stable")
+        period = 7143
+        lPart = dict(D=np.full(len(lu), 4.0), z=np.array(lz), xc=np.zeros(len(lu)), ct=lu * period)
+        fPart = dict(D=np.full(len(fu), 4.0), z=np.array(fz)[order], xc=np.zeros(len(fu)), ct=fu[order] * period)
+        return lPart, lu, fPart, fu[order]
+
+    def test_tracking_follows_drift_beyond_fixed_window(self):
+        from VISSSlib.fixes import _mosaicDenseBlockLags
+
+        lag0 = 3000
+        lPart, lu, fPart, fu = self._drifting(lag0=lag0)
+        args = (
+            lPart, np.zeros(len(lu), int), lu, 0, fPart, np.zeros(len(fu), int), fu, 0,
+            lag0 + 12, int(fPart["ct"].min()), int(fPart["ct"].max()),
+        )
+        kw = dict(dzRef=43.0, blockMinutes=1000 * 7143 / 60e6, halfRange=3)
+        fixed = _mosaicDenseBlockLags(*args, **kw)
+        tracked = _mosaicDenseBlockLags(*args, track=True, **kw)
+        nf = sum(b[2] is not None for b in fixed)
+        nt = sum(b[2] is not None for b in tracked)
+        assert nt > nf
+        assert nt >= 0.8 * len(tracked)
+        lags = [b[2] for b in tracked if b[2] is not None]
+        assert all(b >= a for a, b in zip(lags[:-1], lags[1:]))
+
+    def test_fill_extrapolates_with_slope(self):
+        from VISSSlib.fixes import _mosaicFillBlockLags
+
+        blocks = [(i, i + 1, (100 + 2 * i) if 3 <= i <= 8 else None, 0, 0.0) for i in range(12)]
+        out = _mosaicFillBlockLags(blocks)
+        assert [b[2] for b in out] == [100 + 2 * i for i in range(12)]
+
+
+class TestMosaicBlocksToRows:
+    def test_lag_steps_inside_blocks(self):
+        from VISSSlib.fixes import _mosaicBlocksToRows
+
+        min_us = 60_000_000
+        blocks = [(i * 10 * min_us, (i + 1) * 10 * min_us, 100 + 2 * i, 5, 9.0) for i in range(6)]
+        r = dict(lsegment=0, fsegment=0, fct_start=blocks[0][0], fct_end=blocks[-1][1], lag=0, lag_mod=0, n_pairs=0, resolved=False, dense=False)
+        rows = _mosaicBlocksToRows(blocks, r, 65535)
+        lags = [x["lag"] for x in rows]
+        assert lags == sorted(lags) and lags[0] == 100 and lags[-1] == 110
+        assert len(rows) >= 9  # a frame step about every 5 minutes
+        # contiguous coverage without overlap
+        assert rows[0]["fct_start"] == blocks[0][0] and rows[-1]["fct_end"] == blocks[-1][1] - 1
+        assert all(b["fct_start"] == a["fct_end"] + 1 for a, b in zip(rows[:-1], rows[1:]))
+
+    def test_large_jump_not_interpolated(self):
+        from VISSSlib.fixes import _mosaicBlocksToRows
+
+        min_us = 60_000_000
+        blocks = [(0, 10 * min_us, 100, 1, 9.0), (10 * min_us, 20 * min_us, 140, 1, 9.0)]
+        r = dict(lsegment=0, fsegment=0, fct_start=0, fct_end=20 * min_us, lag=0, lag_mod=0, n_pairs=0, resolved=False, dense=False)
+        rows = _mosaicBlocksToRows(blocks, r, 65535)
+        assert [x["lag"] for x in rows] == [100, 140]

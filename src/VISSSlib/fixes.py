@@ -1430,6 +1430,93 @@ def _mosaicDenseLagTest(
     }
 
 
+def _mosaicFillBlockLags(blocks, maxGap=18):
+    """blocks (t0, t1, lag or None, n, z): fill blocks without a decisive peak
+    (little snow). The lag drifts steadily: interpolate between neighbouring
+    blocks and extrapolate beyond the first/last one with the overall slope.
+    Blocks further than maxGap from a decided one stay None."""
+    good = [i for i, b in enumerate(blocks) if b[2] is not None]
+    if len(good) == 0:
+        return list(blocks)
+    lags = np.array([blocks[i][2] for i in good], dtype=float)
+    slope = float(np.polyfit(good, lags, 1)[0]) if len(good) >= 3 else 0.0
+    out = []
+    for i, b in enumerate(blocks):
+        if b[2] is None:
+            nearest = min(good, key=lambda j: abs(j - i))
+            if abs(nearest - i) <= maxGap:
+                if i < good[0] or i > good[-1]:
+                    lagI = lags[0 if i < good[0] else -1] + slope * (i - nearest)
+                else:
+                    lagI = np.interp(i, good, lags)
+                b = (b[0], b[1], int(np.round(lagI)), b[3], np.nan)
+        out.append(b)
+    return out
+
+
+def _mosaicBlocksToRows(blocks, r, P, fineMinutes=1.0, maxInterpStep=4):
+    """blocks (t0, t1, lag or None, n, z) -> rows (copies of dict r with
+    fct_start/fct_end/lag). The lag steps by single frames within a block, so
+    one lag per block would be off by a frame for part of it (Z-residual too
+    wide); the lag is interpolated between the block centres at fineMinutes
+    resolution (steps only where neighbouring blocks differ by at most
+    maxInterpStep frames, otherwise the step is placed at the block edge)."""
+    fine = int(fineMinutes * 60_000_000)
+    rows = []
+    run = []
+    runs = []
+    for b in list(blocks) + [None]:
+        if (b is not None) and (b[2] is not None):
+            run.append(b)
+        elif len(run) > 0:
+            runs.append(run)
+            run = []
+    for run in runs:
+        centers = np.array([(b[0] + b[1]) / 2.0 for b in run])
+        lags = np.array([b[2] for b in run], dtype=float)
+        t0, t1 = run[0][0], run[-1][1]
+        edges = np.arange(t0, t1, fine)
+        edges = np.append(edges, t1)
+        cur = None
+        for e0, e1 in zip(edges[:-1], edges[1:]):
+            tc = (e0 + e1) / 2.0
+            i = int(np.searchsorted(centers, tc))
+            if i == 0:
+                lag = lags[0]
+            elif i >= len(run):
+                lag = lags[-1]
+            else:
+                l0, l1 = lags[i - 1], lags[i]
+                if abs(l1 - l0) <= maxInterpStep:
+                    lag = np.interp(tc, centers[i - 1 : i + 1], [l0, l1])
+                else:
+                    lag = l0 if tc < run[i - 1][1] else l1
+            lag = int(np.round(lag))
+            bi = min(max(i - 1, 0), len(run) - 1) if i > 0 else 0
+            nP = max(int(run[min(i, len(run) - 1)][3]), 1)
+            if (cur is not None) and (lag == cur["lag"]):
+                cur["fct_end"] = int(e1) - 1
+                cur["n_pairs"] += nP
+                continue
+            if cur is not None:
+                rows.append(cur)
+            cur = dict(r)
+            cur.update(
+                {
+                    "fct_start": int(e0),
+                    "fct_end": int(e1) - 1,
+                    "lag": lag,
+                    "lag_mod": lag % P,
+                    "n_pairs": nP,
+                    "resolved": True,
+                    "dense": True,
+                }
+            )
+        if cur is not None:
+            rows.append(cur)
+    return rows
+
+
 def _mosaicDenseBlockLags(
     lPart,
     lSeg,
@@ -1466,13 +1553,12 @@ def _mosaicDenseBlockLags(
 
     Returns a list of (t0, t1, lag or None, n, z) like _mosaicBlockLags.
     """
-    out = []
     edges = np.arange(tStart, tEnd + 1, int(blockMinutes * 60_000_000))
     if edges[-1] < tEnd:
         edges = np.append(edges, tEnd + 1)
-    center = lagCenter
-    for t0, t1 in zip(edges[:-1], edges[1:]):
-        cands = list(range(center - halfRange, center + halfRange + 1))
+    nb = len(edges) - 1
+
+    def test(i, center, half):
         found = _mosaicDenseLagTest(
             lPart,
             lSeg,
@@ -1482,8 +1568,8 @@ def _mosaicDenseBlockLags(
             fSeg,
             fU,
             fs,
-            cands,
-            fWindow=(t0, t1),
+            list(range(int(center) - half, int(center) + half + 1)),
+            fWindow=(edges[i], edges[i + 1]),
             rotate=rotate,
             frameWidth=frameWidth,
             cache=cache,
@@ -1494,13 +1580,51 @@ def _mosaicDenseBlockLags(
             and (found["z"] >= minRatio * max(found["z2nd"], 1.0))
             and ((dzRef is None) or (abs(found["dz"] - dzRef) < maxDzDiff))
         )
-        if ok and track:
-            # the lag drifts steadily: follow it from block to block
-            center = int(found["lag"])
+        return found, ok
+
+    res = [None] * nb  # (found, ok)
+    if not track:
+        for i in range(nb):
+            res[i] = test(i, lagCenter, halfRange)
+    else:
+        # The lag drifts steadily (SAIL: 2 frames per 10 min, i.e. 12 frames/h):
+        # a fixed window around one lag only catches the blocks near the
+        # anchor. Find anchors with the window around lagCenter, start at the
+        # strongest one and follow the lag forwards and backwards, extrapolating
+        # with the drift observed so far over blocks without a decisive peak.
+        for i in range(nb):
+            res[i] = test(i, lagCenter, halfRange)
+        anchors = [i for i in range(nb) if res[i][1]]
+        if len(anchors) > 0:
+            a0 = max(anchors, key=lambda i: res[i][0]["z"])
+            idx = np.array(anchors)
+            lags = np.array([res[i][0]["lag"] for i in anchors], dtype=float)
+            slope = 0.0  # frames per block
+            if len(anchors) >= 2 and idx.max() > idx.min():
+                slope = float(np.polyfit(idx, lags, 1)[0])
+            for step in (1, -1):
+                lastI, lastLag, lastSlope = a0, int(res[a0][0]["lag"]), slope
+                i = a0 + step
+                while 0 <= i < nb:
+                    if res[i][1] and i not in anchors:
+                        pass
+                    gap = abs(i - lastI)
+                    expect = lastLag + lastSlope * (i - lastI)
+                    found, ok = test(i, int(round(expect)), halfRange + min(gap, 6))
+                    res[i] = (found, ok)
+                    if ok:
+                        newLag = int(found["lag"])
+                        if gap > 0:
+                            lastSlope = (newLag - lastLag) / (i - lastI)
+                        lastI, lastLag = i, newLag
+                    i += step
+    out = []
+    for i in range(nb):
+        found, ok = res[i]
         out.append(
             (
-                int(t0),
-                int(t1),
+                int(edges[i]),
+                int(edges[i + 1]),
                 int(found["lag"]) if ok else None,
                 int(found["n"]) if found is not None else 0,
                 float(found["z"]) if found is not None else np.nan,
@@ -2163,6 +2287,11 @@ def createMosaicFrameMapping(
                             "dense": True,
                         }
                     )
+                    # a single lag for a long run is only right if the lag
+                    # does not drift (SAIL 20230104: 11 h run, drift of
+                    # 2 frames per 10 min): verify block by block
+                    if denseBlockLags and (r["fct_end"] - r["fct_start"]) >= 30 * 60e6:
+                        denseDrift[id(r)] = (ls, fs, found["lag"])
                 elif (
                     denseBlockLags
                     and (found is not None)
@@ -2195,6 +2324,8 @@ def createMosaicFrameMapping(
                     int(r["fct_end"]),
                     dzRef=dzDay,
                     cache=cache,
+                    track=True,
+                    halfRange=6,
                 )
                 goodIdx = [i for i, b in enumerate(blocks) if b[2] is not None]
                 log.info(
@@ -2208,41 +2339,8 @@ def createMosaicFrameMapping(
                 # blocks without a decisive peak (little snow): the lag
                 # drifts steadily, so interpolate between the neighbouring
                 # blocks (flat before the first / after the last one)
-                goodLag = np.array([blocks[i][2] for i in goodIdx], dtype=float)
-                filled = []
-                for i, b in enumerate(blocks):
-                    if b[2] is None:
-                        nearest = min(goodIdx, key=lambda j: abs(j - i))
-                        if abs(nearest - i) <= 18:
-                            lagI = int(np.round(np.interp(i, goodIdx, goodLag)))
-                            b = (b[0], b[1], lagI, b[3], np.nan)
-                    filled.append(b)
-                cur = None
-                for b in filled:
-                    if (b[2] is None) and (cur is None):
-                        continue
-                    if (cur is not None) and (b[2] == cur["lag"]):
-                        cur["fct_end"] = b[1] - 1
-                        cur["n_pairs"] += b[3]
-                        continue
-                    if cur is not None:
-                        newRows.append(cur)
-                        cur = None
-                    if b[2] is not None:
-                        cur = dict(r)
-                        cur.update(
-                            {
-                                "fct_start": b[0],
-                                "fct_end": b[1] - 1,
-                                "lag": b[2],
-                                "lag_mod": b[2] % P,
-                                "n_pairs": max(b[3], 1),
-                                "resolved": True,
-                                "dense": True,
-                            }
-                        )
-                if cur is not None:
-                    newRows.append(cur)
+                filled = _mosaicFillBlockLags(blocks)
+                newRows.extend(_mosaicBlocksToRows(filled, r, P))
             rows[:] = newRows
 
         if useRotation and (lPart is not None) and (fPart is not None):
@@ -2397,34 +2495,8 @@ def createMosaicFrameMapping(
                 if len(goodIdx) < max(3, len(blocks) // 4):
                     newRows.append(r)
                     continue
-                goodLag = np.array([blocks[i][2] for i in goodIdx], dtype=float)
-                filled = []
-                for i, b in enumerate(blocks):
-                    if b[2] is None:
-                        lagI = int(np.round(np.interp(i, goodIdx, goodLag)))
-                        b = (b[0], b[1], lagI, b[3], np.nan)
-                    filled.append(b)
-                cur = None
-                for b in filled:
-                    if (cur is not None) and (b[2] == cur["lag"]):
-                        cur["fct_end"] = b[1] - 1
-                        cur["n_pairs"] += b[3]
-                        continue
-                    if cur is not None:
-                        newRows.append(cur)
-                    cur = dict(r)
-                    cur.update(
-                        {
-                            "fct_start": b[0],
-                            "fct_end": b[1] - 1,
-                            "lag": b[2],
-                            "lag_mod": b[2] % P,
-                            "n_pairs": max(b[3], 1),
-                            "dense": True,
-                        }
-                    )
-                if cur is not None:
-                    newRows.append(cur)
+                filled = _mosaicFillBlockLags(blocks, maxGap=10**6)
+                newRows.extend(_mosaicBlocksToRows(filled, r, P))
             rows[:] = newRows
 
         if blockLags and (lPart is not None) and (fPart is not None):
@@ -2692,11 +2764,17 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
                 newId[m] = ((raw[m] - nBefore - int(seg.lag_mod) - 1) % P) + 1
 
             # follower capture_time -> leader clock
-            kk = (
-                (mapping.knot_segment.values == ss)
-                if "knot_time" in mapping
-                else np.zeros(0, dtype=bool)
-            )
+            # The clock offset is a property of the whole follower run, not of
+            # one lag row: use the knots of all rows of this follower segment
+            # (rows with sparse frames can have no knots of their own, e.g.
+            # SAIL 20230420 13:50, where the particles were dropped).
+            if "knot_time" in mapping:
+                sameRun = np.flatnonzero(
+                    mapping.fsegment.values == int(seg.fsegment)
+                )
+                kk = np.isin(mapping.knot_segment.values, sameRun)
+            else:
+                kk = np.zeros(0, dtype=bool)
             if kk.any():
                 kt = (
                     mapping.knot_time.values[kk]
@@ -2704,7 +2782,8 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
                     .astype(np.int64)
                 )
                 ko = mapping.knot_offset.values[kk] * 1e9
-                shiftNs[m] = np.interp(ctNs[m], kt, ko)
+                order = np.argsort(kt, kind="stable")
+                shiftNs[m] = np.interp(ctNs[m], kt[order], ko[order])
             else:
                 noClock[m] = True
 

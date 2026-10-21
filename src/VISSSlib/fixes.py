@@ -2642,6 +2642,10 @@ def createMosaicFrameMapping(
             )
             fUs = fu[fm]
             fct = F["ct"][fm]
+            if len(fUs) == 0:
+                # short row without any follower frame (extrapolated across a
+                # recording gap): no clock knots of its own
+                continue
             target = lu[lm] + r["lag"]
             jj = np.clip(np.searchsorted(fUs, target), 0, len(fUs) - 1)
             ok = fUs[jj] == target

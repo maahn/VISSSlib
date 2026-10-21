@@ -617,3 +617,31 @@ class TestMosaicBlocksToRows:
         r = dict(lsegment=0, fsegment=0, fct_start=0, fct_end=20 * min_us, lag=0, lag_mod=0, n_pairs=0, resolved=False, dense=False)
         rows = _mosaicBlocksToRows(blocks, r, 65535)
         assert [x["lag"] for x in rows] == [100, 140]
+
+
+class TestMosaicMappingActive:
+    @staticmethod
+    def _cfg(fixes_, exclude=None):
+        from VISSSlib import tools
+
+        c = tools.DictNoDefault({"dataFixes": fixes_, "mosaicFrameMappingExclude": exclude})
+        return c
+
+    def test_switch_and_exclusion(self):
+        from VISSSlib.fixes import mosaicMappingActive
+
+        assert not mosaicMappingActive(self._cfg(["x"]), "20230325")
+        c = self._cfg(["mosaicFrameMapping"])
+        assert mosaicMappingActive(c, "20230325")
+        c = self._cfg(["mosaicFrameMapping"], ["20230325", "20230401-20230410"])
+        assert not mosaicMappingActive(c, "20230325")
+        assert not mosaicMappingActive(c, "20230325-120000")
+        assert not mosaicMappingActive(c, "20230405")
+        assert mosaicMappingActive(c, "20230411")
+        # file names: the last date counts
+        assert not mosaicMappingActive(
+            c, "/x/20230101/level1match_V1.2_sail_visss01_visss_leader_S1145792_20230405-135000.nc"
+        )
+        assert mosaicMappingActive(
+            c, "/x/20230405/level1match_V1.2_sail_visss01_visss_leader_S1145792_20230412-135000.nc"
+        )

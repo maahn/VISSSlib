@@ -280,6 +280,9 @@ DEFAULT_SETTINGS = {
     # lists -- see the merge in readSettings(), which unions this with the
     # yaml's value instead of letting it be overridden like other settings
     "dataFixes": ["removeFlippedCaptureTimeFrames", "dropUnrecordedTrailingFrames"],
+    # days (YYYYMMDD or YYYYMMDD-YYYYMMDD) for which the dataFix
+    # mosaicFrameMapping is NOT applied (None: applied to all days)
+    "mosaicFrameMappingExclude": None,
     "dirMode": 0o775,  # 509
     "fileMode": 0o664,  # 436
     "goodFiles": ["None", "None"],

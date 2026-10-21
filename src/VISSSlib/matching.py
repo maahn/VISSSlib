@@ -1738,7 +1738,7 @@ def _resolveMatchingOffset(
     if maxDiffMs == "config":
         maxDiffMs = 1000 / config.fps / 2
 
-    if "mosaicFrameMapping" in config.dataFixes:
+    if fixes.mosaicMappingActive(config, fname1Match):
         # follower capture_id has been mapped to leader capture_id already,
         # only the unwrapping of the 16 bit counter can differ
         captureIdOffset = fixes.mosaicCaptureIdOffset(leader1D, follower1D)
@@ -2533,7 +2533,7 @@ def matchParticles(
     fname1Match = ffl1.fname["level1match"]
     fnames1F = ffl1.filenamesOtherCamera(graceInterval=-1, level="level1detect")
     fnames1FRAW = ffl1.filenamesOtherCamera(graceInterval=-1, level="level0txt")
-    if ("mosaicFrameMapping" in config.dataFixes) and (len(fnames1F) == 0):
+    if fixes.mosaicMappingActive(config, fname1Match) and (len(fnames1F) == 0):
         # MOSAiC follower files are not always newFileInt long: if a new-file
         # event is skipped, one file covers 10 minutes and no follower file
         # starts inside the window of the leader file that lies in its
@@ -2663,7 +2663,7 @@ def matchParticles(
     file_starttime = leader1D.file_starttime[0].values
 
     mosaicClockOffset = 0.0
-    if "mosaicFrameMapping" in config.dataFixes:
+    if fixes.mosaicMappingActive(config, fname1Match):
         # follower clock minus leader clock (s), normally seconds, ~30 min in
         # gochang_v1 when the camera time synchronisation failed
         mosaicClockOffset = fixes.mosaicClockOffsetSeconds(
@@ -2728,7 +2728,7 @@ def matchParticles(
     start = leader1D.capture_time[0].values - np.timedelta64(2, "s")
     end = leader1D.capture_time[-1].values + np.timedelta64(2, "s")
     log.info(tools.concat(f"opening {fnames1F}"))
-    mosaicFrameMapping = "mosaicFrameMapping" in config.dataFixes
+    mosaicFrameMapping = fixes.mosaicMappingActive(config, fname1Match)
     # MOSAiC: follower capture_time is on its own clock, up to some seconds
     # away from the leader's, and is only converted to the leader clock below
     offsetF = np.timedelta64(int(round(mosaicClockOffset * 1e3)), "ms")
@@ -3506,7 +3506,7 @@ def createMetaRotation(
 
     log.info("running %s" % fnameMetaRotation)
 
-    if "mosaicFrameMapping" in config.dataFixes:
+    if fixes.mosaicMappingActive(config, case):
         # daily follower->leader frame mapping, used by matchParticles
         # searchRotation: last resort for segments in dense snow or after the
         # cameras were moved, see fixes._mosaicRotationSearch

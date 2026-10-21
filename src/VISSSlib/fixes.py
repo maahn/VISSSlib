@@ -1881,6 +1881,45 @@ def _mosaicDayRotation(case, config):
     return get
 
 
+def mosaicMappingActive(config, case):
+    """
+    True if the dataFix mosaicFrameMapping applies to this case.
+
+    The fix is switched on deployment-wide by "mosaicFrameMapping" in
+    dataFixes; the setting mosaicFrameMappingExclude (list of YYYYMMDD or
+    "YYYYMMDD-YYYYMMDD" ranges, inclusive) takes days out again, e.g. days
+    that were processed well before the fix existed and get worse with it
+    (sail_v1: light-snow days).
+
+    Parameters
+    ----------
+    config : dict
+        Settings
+    case : str
+        Day or timestamp (YYYYMMDD, YYYYMMDD-HHMMSS) or a file name/path
+        containing the date of the file (the last date in the base name)
+    """
+    import os
+    import re
+
+    if "mosaicFrameMapping" not in config.dataFixes:
+        return False
+    exclude = config.mosaicFrameMappingExclude
+    if not exclude:
+        return True
+    dates = re.findall(r"(?<!\d)(\d{8})(?!\d)", os.path.basename(str(case)))
+    if len(dates) == 0:
+        return True
+    day = dates[-1]
+    for item in exclude:
+        item = str(item).replace("_", "-")
+        a, _, b = item.partition("-")
+        b = b or a
+        if a <= day <= b:
+            return False
+    return True
+
+
 def mosaicFrameMappingFname(case, config):
     """daily cache file next to metaRotation"""
     from . import files

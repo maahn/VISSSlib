@@ -1102,8 +1102,14 @@ def _mosaicParticleFrames(part, dat, seg, u, drop, period):
     """assign each particle the (seg, u) of its frame; -1 if unknown/dropped"""
     pSeg = np.full(len(part["ct"]), -1, dtype=np.int64)
     pU = np.full(len(part["ct"]), -1, dtype=np.int64)
-    order = np.argsort(dat["ct"], kind="stable")
-    ctSorted = dat["ct"][order]
+    ctAll = dat["ct"]
+    if np.all(ctAll[1:] >= ctAll[:-1]):
+        # already sorted: a stable argsort would return the identity
+        order = np.arange(len(ctAll))
+        ctSorted = ctAll
+    else:
+        order = np.argsort(ctAll, kind="stable")
+        ctSorted = ctAll[order]
     ii = np.searchsorted(ctSorted, part["ct"])
     ii = np.clip(ii, 1, len(ctSorted) - 1)
     left = np.abs(part["ct"] - ctSorted[ii - 1]) < np.abs(part["ct"] - ctSorted[ii])
@@ -1116,14 +1122,41 @@ def _mosaicParticleFrames(part, dat, seg, u, drop, period):
     return pSeg, pU
 
 
-def _mosaicSingleParticles(part, pSeg, pU, segId, Dmin):
-    """particles which are the only particle in their frame"""
+def _countPerFrame(u):
+    """number of particles in the frame of each particle (frame = value of u).
+    Same as np.unique(u, return_inverse=True, return_counts=True) followed by
+    cnt[inv], but O(n) (bincount) instead of a sort."""
+    if len(u) == 0:
+        return np.zeros(0, dtype=np.int64)
+    u0 = u.min()
+    span = int(u.max() - u0) + 1
+    if span <= 10 * len(u) + 10_000_000:
+        k = (u - u0).astype(np.intp)
+        return np.bincount(k, minlength=span)[k]
+    uu, inv, cnt = np.unique(u, return_inverse=True, return_counts=True)
+    return cnt[inv]
+
+
+def _mosaicSingleParticles(part, pSeg, pU, segId, Dmin, cache=None):
+    """particles which are the only particle in their frame
+
+    cache : dict, optional
+        results are memoized per (particle set, segment, Dmin): the leader
+        segment (often the whole day, millions of particles) is otherwise
+        sorted/uniqued again for every follower segment and every Dmin
+    """
+    key = ("single", id(part), segId, Dmin)
+    if (cache is not None) and (key in cache):
+        return cache[key]
     m = pSeg == segId
-    uu, inv, cnt = np.unique(pU[m], return_inverse=True, return_counts=True)
-    single = (cnt[inv] == 1) & (part["D"][m] >= Dmin)
+    cntPerParticle = _countPerFrame(pU[m])
+    single = (cntPerParticle == 1) & (part["D"][m] >= Dmin)
     idx = np.flatnonzero(m)[single]
     order = np.argsort(pU[idx])
-    return idx[order]
+    res = idx[order]
+    if cache is not None:
+        cache[key] = res
+    return res
 
 
 def _mosaicParticleLagTest(
@@ -1140,6 +1173,7 @@ def _mosaicParticleLagTest(
     minPairs=20,
     rotate=None,
     frameWidth=None,
+    cache=None,
 ):
     """
     For each candidate lag, pair single-particle frames of both cameras and
@@ -1148,8 +1182,8 @@ def _mosaicParticleLagTest(
 
     Returns dict(lag, iqr, iqr2nd, n, dz) of the best candidate or None.
     """
-    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin)
-    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin)
+    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin, cache)
+    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin, cache)
     if (len(li) < minPairs) or (len(fi) < minPairs):
         return None
     fUs = fU[fi]
@@ -1213,12 +1247,44 @@ def _mosaicParticleLagTest(
     }
 
 
-def _mosaicFramePairs(idxA, uA, idxB, uB, lag, maxFrames, maxPairs, rng):
+def _mosaicFrameIndex(idx, U):
+    """(frame numbers, start in idx, particle count) of idx sorted by U"""
+    u = U[idx]
+    if len(u) == 0:
+        return u, np.zeros(0, dtype=np.intp), np.zeros(0, dtype=np.intp)
+    # idx is sorted by U: run-length encoding == np.unique(return_index,
+    # return_counts) without sorting again
+    if np.any(u[1:] < u[:-1]):
+        f, s, c = np.unique(u, return_index=True, return_counts=True)
+        return f, s, c
+    s = np.flatnonzero(np.concatenate(([True], u[1:] != u[:-1])))
+    c = np.diff(np.concatenate((s, [len(u)])))
+    return u[s], s, c
+
+
+def _mosaicFramePairs(
+    idxA, uA, idxB, uB, lag, maxFrames, maxPairs, rng, frameA=None, frameB=None
+):
     """all (A, B) particle index pairs of frames which are `lag` frames apart
     (frame of B = frame of A + lag); idxA/idxB sorted by frame number uA/uB,
-    only frames with at most Kmax particles are expected here"""
-    fa, sa, ca = np.unique(uA[idxA], return_index=True, return_counts=True)
-    fb, sb, cb = np.unique(uB[idxB], return_index=True, return_counts=True)
+    only frames with at most Kmax particles are expected here
+
+    frameA/frameB: precomputed _mosaicFrameIndex of idxA/idxB (independent of
+    the lag, i.e. needs to be done once, not once per candidate lag)"""
+    if frameA is None:
+        frameA = _mosaicFrameIndex(idxA, uA)
+    if frameB is None:
+        frameB = _mosaicFrameIndex(idxB, uB)
+    fa, sa, ca = frameA
+    fb, sb, cb = frameB
+    if (len(fa) == 0) or (len(fb) == 0):
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
+    # only A frames whose partner frame (fa + lag) can lie within the range of
+    # B frames can hit: with a 10 min block of B and a day long A this
+    # shrinks the searchsorted below by ~100x (identical result)
+    lo = np.searchsorted(fa, fb[0] - lag, side="left")
+    hi = np.searchsorted(fa, fb[-1] - lag, side="right")
+    fa, sa, ca = fa[lo:hi], sa[lo:hi], ca[lo:hi]
     jj = np.clip(np.searchsorted(fb, fa + lag), 0, len(fb) - 1)
     hit = fb[jj] == fa + lag
     fa, sa, ca, jj = fa[hit], sa[hit], ca[hit], jj[hit]
@@ -1234,7 +1300,7 @@ def _mosaicFramePairs(idxA, uA, idxB, uB, lag, maxFrames, maxPairs, rng):
         return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
     # every particle of A frame x every particle of the matching B frame
     pA = np.repeat(np.arange(len(fa)), ca)
-    posA = np.concatenate([sa[i] + np.arange(ca[i]) for i in range(len(fa))])
+    posA = np.repeat(sa, ca) + (np.arange(ca.sum()) - np.repeat(np.cumsum(ca) - ca, ca))
     nB = cb[jj][pA]
     A = np.repeat(idxA[posA], nB)
     startB = np.repeat(sb[jj][pA], nB)
@@ -1263,6 +1329,8 @@ def _mosaicDenseLagTest(
     frameWidth=None,
     seed=0,
     fMask=None,
+    cache=None,
+    fWindow=None,
 ):
     """
     Lag test for dense snowfall, when (almost) no frame contains a single
@@ -1284,22 +1352,43 @@ def _mosaicDenseLagTest(
     rng = np.random.default_rng(seed)
 
     def frames(part, seg, U, s):
+        key = ("frames", id(part), s, Dmin, Kmax)
+        if (cache is not None) and (key in cache):
+            return cache[key]
         m = np.flatnonzero((seg == s) & (part["D"] >= Dmin))
-        if len(m) == 0:
-            return m
-        m = m[np.argsort(U[m], kind="stable")]
-        _, inv, cnt = np.unique(U[m], return_inverse=True, return_counts=True)
-        return m[cnt[inv] <= Kmax]
+        if len(m) > 0:
+            m = m[np.argsort(U[m], kind="stable")]
+            m = m[_countPerFrame(U[m]) <= Kmax]
+        if cache is not None:
+            cache[key] = m
+        return m
 
     li = frames(lPart, lSeg, lU, ls)
     fi = frames(fPart, fSeg, fU, fs)
     if fMask is not None:
         fi = fi[fMask[fi]]
+    if fWindow is not None:
+        # same as fMask = (ct >= t0) & (ct < t1) but evaluated only for the
+        # particles of this segment instead of for all particles of the day
+        ctf = fPart["ct"][fi]
+        fi = fi[(ctf >= fWindow[0]) & (ctf < fWindow[1])]
     if (len(li) < 200) or (len(fi) < 200):
         return None
+    # frame decomposition does not depend on the lag (and the leader's does
+    # not depend on the follower segment/block): do it once, not per lag
+    keyL = ("frameindex", id(lPart), ls, Dmin, Kmax)
+    if (cache is not None) and (keyL in cache):
+        frameL = cache[keyL]
+    else:
+        frameL = _mosaicFrameIndex(li, lU)
+        if cache is not None:
+            cache[keyL] = frameL
+    frameF = _mosaicFrameIndex(fi, fU)
     res = []
     for lag in candidates:
-        A, B = _mosaicFramePairs(li, lU, fi, fU, lag, maxFrames, maxPairs, rng)
+        A, B = _mosaicFramePairs(
+            li, lU, fi, fU, lag, maxFrames, maxPairs, rng, frameL, frameF
+        )
         if len(A) < 500:
             continue
         if rotate is None:
@@ -1362,6 +1451,7 @@ def _mosaicDenseBlockLags(
     rotate=None,
     frameWidth=None,
     track=False,
+    cache=None,
 ):
     """
     Lag per time block for long segments in which the lag changes (frames
@@ -1383,7 +1473,6 @@ def _mosaicDenseBlockLags(
     center = lagCenter
     for t0, t1 in zip(edges[:-1], edges[1:]):
         cands = list(range(center - halfRange, center + halfRange + 1))
-        mask = (fPart["ct"] >= t0) & (fPart["ct"] < t1)
         found = _mosaicDenseLagTest(
             lPart,
             lSeg,
@@ -1394,9 +1483,10 @@ def _mosaicDenseBlockLags(
             fU,
             fs,
             cands,
-            fMask=mask,
+            fWindow=(t0, t1),
             rotate=rotate,
             frameWidth=frameWidth,
+            cache=cache,
         )
         ok = (
             (found is not None)
@@ -1464,6 +1554,7 @@ def _mosaicRotationSearch(
     thetaRange=(-4.0, 3.0),
     step=0.25,
     minRatio=3.0,
+    cache=None,
 ):
     """
     Frame lag AND camera rotation of a segment from single particle frames,
@@ -1479,8 +1570,8 @@ def _mosaicRotationSearch(
     """
     from . import matching
 
-    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin)
-    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin)
+    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin, cache)
+    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin, cache)
     if (len(li) < minPairs) or (len(fi) < minPairs):
         return None
     fUs = fU[fi]
@@ -1563,6 +1654,7 @@ def _mosaicBlockLags(
     minFrac=0.25,
     minRatio=2.0,
     Dmin=8,
+    cache=None,
 ):
     """
     Frame lag in consecutive time blocks of one leader/follower run, for runs
@@ -1579,8 +1671,8 @@ def _mosaicBlockLags(
     """
     from . import matching
 
-    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin)
-    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin)
+    li = _mosaicSingleParticles(lPart, lSeg, lU, ls, Dmin, cache)
+    fi = _mosaicSingleParticles(fPart, fSeg, fU, fs, Dmin, cache)
     if (len(li) < minPairs) or (len(fi) < minPairs):
         return []
     lUs = lU[li]
@@ -1850,6 +1942,7 @@ def createMosaicFrameMapping(
 
         lPart = _mosaicLoadParticles(case, config.leader, config)
         fPart = _mosaicLoadParticles(case, config.follower, config)
+        cache = {}  # memoized per-segment particle selections, see _mosaicSingleParticles
         if (lPart is not None) and (fPart is not None):
             lPSeg, lPU = _mosaicParticleFrames(lPart, L, lSegF, lu, lDrop, lPeriod)
             fPSeg, fPU = _mosaicParticleFrames(fPart, F, fSegF, fu, fDrop, fPeriod)
@@ -1967,6 +2060,7 @@ def createMosaicFrameMapping(
                         fs,
                         sorted(candidates),
                         Dmin,
+                        cache=cache,
                     )
                     if res is None:
                         continue
@@ -2041,7 +2135,7 @@ def createMosaicFrameMapping(
                     continue
                 ls, fs, cc = candidateSets[id(r)]
                 found = _mosaicDenseLagTest(
-                    lPart, lPSeg, lPU, ls, fPart, fPSeg, fPU, fs, cc
+                    lPart, lPSeg, lPU, ls, fPart, fPSeg, fPU, fs, cc, cache=cache
                 )
                 log.info(
                     f"dense lag test segment {r['lsegment']}/{r['fsegment']}: "
@@ -2100,6 +2194,7 @@ def createMosaicFrameMapping(
                     int(r["fct_start"]),
                     int(r["fct_end"]),
                     dzRef=dzDay,
+                    cache=cache,
                 )
                 goodIdx = [i for i, b in enumerate(blocks) if b[2] is not None]
                 log.info(
@@ -2175,6 +2270,7 @@ def createMosaicFrameMapping(
                         Dmin,
                         rotate=rotate,
                         frameWidth=config.frame_width,
+                        cache=cache,
                     )
                     if res is None:
                         continue
@@ -2237,6 +2333,7 @@ def createMosaicFrameMapping(
                     fs,
                     cc,
                     config.frame_width,
+                    cache=cache,
                 )
                 log.info(
                     f"rotation search segment {r['lsegment']}/{r['fsegment']}: "
@@ -2289,6 +2386,7 @@ def createMosaicFrameMapping(
                     frameWidth=config.frame_width,
                     track=True,
                     halfRange=6,
+                    cache=cache,
                 )
                 goodIdx = [i for i, b in enumerate(blocks) if b[2] is not None]
                 log.info(
@@ -2361,6 +2459,7 @@ def createMosaicFrameMapping(
                     config.frame_width,
                     int(r["fct_start"]),
                     int(r["fct_end"]),
+                    cache=cache,
                 )
                 good = [b for b in blocks if b[2] is not None]
                 # blocks without enough single-particle frames take the lag of
@@ -2544,14 +2643,17 @@ def mosaicFollowerCaptureIdToLeader(follower1D, config, dim="fpid"):
     P = MOSAIC_CAPTURE_ID_PERIOD
     ct = follower1D.capture_time.values.astype("datetime64[ns]")
     raw = follower1D.capture_id.values.astype(np.int64)
+    # unique days first (cheap integer op), strftime only for the 1-2 unique days:
+    # strftime on every particle (~1e6 per file) took ~12 s
     days = np.unique(
         np.concatenate(
             [
-                pd.to_datetime(ct - np.timedelta64(10, "s")).strftime("%Y%m%d"),
-                pd.to_datetime(ct + np.timedelta64(10, "s")).strftime("%Y%m%d"),
+                np.unique((ct - np.timedelta64(10, "s")).astype("datetime64[D]")),
+                np.unique((ct + np.timedelta64(10, "s")).astype("datetime64[D]")),
             ]
         )
     )
+    days = np.array([str(d).replace("-", "") for d in days if not np.isnat(d)])
     linearIds = bool(raw.max() > P)
     newId = np.full(len(raw), -1, dtype=np.int64)
     ghostDrop = np.zeros(len(raw), dtype=bool)

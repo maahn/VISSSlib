@@ -372,6 +372,21 @@ def _circularStdDeg(sinMean, cosMean):
     return np.degrees(np.sqrt(-2 * np.log(R)))
 
 
+def _binCodes(da, bins, name):
+    """integer bin index (0..len(bins)-1, -1 if outside/NaN) of every value of
+    da for a left-closed pandas.IntervalIndex, as DataArray called `name`.
+    Equivalent to what flox/np.digitize does internally for isbin=True."""
+    edges = np.append(bins.left.values, bins.right.values[-1])
+    vals = da.values
+    if np.issubdtype(vals.dtype, np.datetime64):
+        vals = vals.astype("datetime64[ns]").astype(np.int64)
+        edges = edges.astype("datetime64[ns]").astype(np.int64)
+    codes = np.searchsorted(edges, vals, side="right") - 1
+    # NaN sorts to the end (code == len(bins)), NaT to the start (code -1)
+    codes[(codes < 0) | (codes >= len(bins))] = -1
+    return xr.DataArray(codes, dims=da.dims, name=name)
+
+
 def _binTimeAndSize(
     level1dat_4timeAve,
     reduceDim,
@@ -413,15 +428,32 @@ def _binTimeAndSize(
         selKw = {}
     binningVar = binningVar.rename(sizeDefinition)
 
-    N = flox.xarray.xarray_reduce(
-        ownVar.rename("N"),
-        level1dat_4timeAve["time"],
-        ownVar,
-        func="count",
-        expected_groups=(timeBins, sizeBins),
-        isbin=[True, True],
-        dim=reduceDim,
-        fill_value=0,
+    # Digitize time and size ONCE into integer bin codes. flox otherwise
+    # re-runs np.digitize (searchsorted over all ~1e6 particles) for every
+    # variable of every reduction (~300x per hourly chunk, = 60 % of the
+    # run time of _createLevel2part). Integer codes with
+    # expected_groups=arange(n) are a much cheaper factorization and give
+    # identical results; the interval labels are re-attached below.
+    tName, sName = "time_bins", f"{sizeDefinition}_bins"
+    timeCodes = _binCodes(level1dat_4timeAve["time"], timeBins, tName)
+    sizeCodesOwn = _binCodes(ownVar, sizeBins, sName)
+    sizeCodesBinning = _binCodes(binningVar, sizeBins, sName)
+    expected = (np.arange(len(timeBins)), np.arange(len(sizeBins)))
+
+    def _relabel(res):
+        return res.assign_coords({tName: timeBins, sName: sizeBins})
+
+    N = _relabel(
+        flox.xarray.xarray_reduce(
+            ownVar.rename("N"),
+            timeCodes,
+            sizeCodesOwn,
+            func="count",
+            expected_groups=expected,
+            isbin=[False, False],
+            dim=reduceDim,
+            fill_value=0,
+        )
     )
     N = N.rename({f"{sizeDefinition}_bins": "D_bins", "time_bins": "time"})
 
@@ -440,15 +472,17 @@ def _binTimeAndSize(
     angleRad = np.deg2rad(angleSel)
     meanDs = meanDs.assign(_sinAngle=np.sin(angleRad), _cosAngle=np.cos(angleRad))
 
-    meanRes = flox.xarray.xarray_reduce(
-        meanDs,
-        level1dat_4timeAve["time"],
-        binningVar,
-        func="mean",
-        expected_groups=(timeBins, sizeBins),
-        isbin=[True, True],
-        dim=reduceDim,
-        fill_value=np.nan,
+    meanRes = _relabel(
+        flox.xarray.xarray_reduce(
+            meanDs,
+            timeCodes,
+            sizeCodesBinning,
+            func="mean",
+            expected_groups=expected,
+            isbin=[False, False],
+            dim=reduceDim,
+            fill_value=np.nan,
+        )
     )
     meanRes["angle"] = _circularMeanDeg(meanRes["_sinAngle"], meanRes["_cosAngle"])
     meanRes = meanRes.drop_vars(["_sinAngle", "_cosAngle"])

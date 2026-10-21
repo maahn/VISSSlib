@@ -2597,6 +2597,25 @@ def matchParticles(
             ffl1.datetime64, config
         )
 
+    # metaRotation only needs positions/times/sizes of the particles, not the
+    # ~25 shape variables (contourFFT, pixPercentiles, Dfit, ... = ~50% of the
+    # bytes of a level1detect file) that only level1match output needs
+    datVars4load = (
+        [
+            "capture_time",
+            "capture_id",
+            "record_time",
+            "Dmax",
+            "blur",
+            "position_upperLeft",
+            "Droi",
+            "nThread",
+            "file_starttime",
+        ]
+        if rotationOnly
+        else "all"
+    )
+
     # in case everything else below fails
     rotate_final = rotate
     rotate_err_final = rotate_err
@@ -2605,7 +2624,9 @@ def matchParticles(
         f"opening {fnameLv1Detect} with rotation first guess {rotate} from {rotate_time}"
     )
     try:
-        leader1D = tools.open_mflevel1detect(fnameLv1Detect, config)  # with fixes
+        leader1D = tools.open_mflevel1detect(
+            fnameLv1Detect, config, datVars=datVars4load
+        )  # with fixes
     except AssertionError as e:
         log.error(tools.concat("tools.open_mflevel1detect leader FAILED"))
         error = str(e)
@@ -2720,6 +2741,7 @@ def matchParticles(
             start=startF,
             end=endF,
             skipFixes=["captureIdOverflows"] if mosaicFrameMapping else [],
+            datVars=datVars4load,
         )  # with foxes
         if mosaicFrameMapping and (follower1DAll is not None):
             # follower capture_id -> leader capture_id of the same frame,
@@ -3496,6 +3518,33 @@ def createMetaRotation(
             blockLags=True,
             denseLags=True,
         )
+        # The last file(s) of the day also need the NEXT day's mapping
+        # (fixes.mosaicFollowerCaptureIdToLeader looks up capture_time +- 10 s,
+        # i.e. also the day after midnight). If it is not cached yet it is
+        # recomputed, uncached, inside the matchParticles call of the last
+        # file -- 30-85 min on a dense day -- and once more for every
+        # from-scratch retry of that file and again when metaRotation of the
+        # next day creates it for real. Creating it here (the same call with
+        # the same inputs the next day's metaRotation makes first thing) just
+        # moves that work, once, into the cache.
+        try:
+            flNext = fl.tomorrowObject
+            if (
+                flNext.isComplete("level1detect", requireL0Files=True)
+                and files.FindFiles(flNext.case, config.follower, config).isComplete(
+                    "level1detect", requireL0Files=True
+                )
+            ):
+                fixes.createMosaicFrameMapping(
+                    flNext.case.split("-")[0],
+                    config,
+                    skipExisting=True,
+                    searchRotation=True,
+                    blockLags=True,
+                    denseLags=True,
+                )
+        except Exception as e:
+            log.warning(f"could not precompute next day's frame mapping: {e}")
 
     # collect results here later
     metaRotation = []

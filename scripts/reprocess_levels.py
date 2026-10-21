@@ -59,6 +59,7 @@ deployment range (config.start .. config.end), same as
 tools.getCaseRange's special-cased 0. See --case.
 """
 import argparse
+from functools import partial
 import glob
 import os
 import re
@@ -161,12 +162,27 @@ def ensureWorkers(target, queue, condaEnv):
         subprocess.run(cmd, check=True)
 
 
-def waitForDrain(label, queue, workers, condaEnv, pollSeconds):
+def waitForDrain(label, queue, workers, condaEnv, pollSeconds,
+                 workerCheckSeconds=300, logSeconds=300):
+    """Wait until the queue is empty and nothing is processing.
+
+    The queue is polled every `pollSeconds` (cheap: one directory listing),
+    but SLURM (squeue/scontrol) is only asked every `workerCheckSeconds` and
+    progress is only logged every `logSeconds`. With pollSeconds=300 (the old
+    single interval) the orchestrator noticed the drain up to 2 x 5 min late
+    (two consecutive empty polls are required) before it even started to
+    compute the next level's work list = idle cluster at every level change.
+    """
     log(f"waiting for {label} to drain...")
     stableEmpty = 0
+    lastWorkerCheck = 0.0
+    lastLog = 0.0
     while True:
         qd, pc = queueDepth(queue), processingCount(queue)
-        log(f"{label}: queue_depth={qd} processing={pc}")
+        now = time.time()
+        if now - lastLog >= logSeconds or (qd == 0 and pc == 0):
+            log(f"{label}: queue_depth={qd} processing={pc}")
+            lastLog = now
         if qd == 0 and pc == 0:
             stableEmpty += 1
             # two consecutive empty polls, to dodge the race right as the
@@ -175,7 +191,9 @@ def waitForDrain(label, queue, workers, condaEnv, pollSeconds):
                 break
         else:
             stableEmpty = 0
-            ensureWorkers(workers, queue, condaEnv)
+            if now - lastWorkerCheck >= workerCheckSeconds:
+                ensureWorkers(workers, queue, condaEnv)
+                lastWorkerCheck = now
         time.sleep(pollSeconds)
     log(f"{label} drained.")
 
@@ -199,7 +217,10 @@ def processLevel(level, settings, case, queue, camera, skipExisting, workers,
             continue
         if len(cmds) == 0:
             continue
-        p.submitCommands(skipExisting=skipExisting, withParents=withParents)
+        # submit what was just generated; p.submitCommands() would run
+        # generateAllCommands() for every day a second time
+        p.tq.insert([partial(tools.runCommandInQueue, c) for c in cmds])
+        log(f"{level} ({cam}): sent {len(cmds)} commands to {queue}")
         anySubmitted = True
 
     if dryRun:
@@ -263,8 +284,9 @@ def main():
         help="Conda env slurm_launch_workers.sh should activate (default: py313).",
     )
     parser.add_argument(
-        "--poll-seconds", type=int, default=300,
-        help="How often to check drain progress / worker health (default: 300).",
+        "--poll-seconds", type=int, default=30,
+        help="How often to look at the queue to detect a drain (default: 30). "
+        "Worker health (SLURM) is checked every 300 s regardless.",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

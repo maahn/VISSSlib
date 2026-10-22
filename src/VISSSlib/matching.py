@@ -2749,6 +2749,7 @@ def _matchParticlesImpl(
             skipFixes=["captureIdOverflows"] if mosaicFrameMapping else [],
             datVars=datVars4load,
         )  # with foxes
+        nFollowerRaw = 0 if follower1DAll is None else len(follower1DAll.fpid)
         if mosaicFrameMapping and (follower1DAll is not None):
             # follower capture_id -> leader capture_id of the same frame,
             # see fixes.createMosaicFrameMapping
@@ -3110,6 +3111,21 @@ def _matchParticlesImpl(
         matchedDats["pair_id"] = range(len(matchedDats["pair_id"]))
 
     nPairs = len(matchedDats["pair_id"])
+    if (
+        _canFallback
+        and mosaicFrameMapping
+        and (not rotationOnly)
+        and (min(nLeader, nFollowerRaw) >= 1000)
+        and (nPairs < 0.02 * min(nLeader, nFollowerRaw))
+    ):
+        # a few chance matches are no match: with the frame mapping (almost)
+        # nothing of the particles of the file was paired (mapping row
+        # unresolved or wrong, follower particles dropped), treat like
+        # "no matched particles"; counts are before the mapping removed
+        # follower particles
+        raise _MosaicFallback(
+            f"only {nPairs} pairs of {nLeader}/{nFollowerRaw} particles {fname1Match}"
+        )
     if nPairs > config.newFileInt:  # i.e at least one match per second
         matchScoreMedian = matchedDats.matchScore.median().values
         if matchScoreMedian < config.quality.minMatchScore:
@@ -3605,6 +3621,7 @@ def createMetaRotation(
             searchRotation=True,
             blockLags=True,
             denseLags=True,
+            fineLags=True,
         )
         # The last file(s) of the day also need the NEXT day's mapping
         # (fixes.mosaicFollowerCaptureIdToLeader looks up capture_time +- 10 s,
@@ -3630,6 +3647,7 @@ def createMetaRotation(
                     searchRotation=True,
                     blockLags=True,
                     denseLags=True,
+                    fineLags=True,
                 )
         except Exception as e:
             log.warning(f"could not precompute next day's frame mapping: {e}")

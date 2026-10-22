@@ -71,7 +71,12 @@ other, and a joint search of lag and rotation as last resort. Long runs are
 checked **block by block** (10 min): the lag drifts steadily when the cameras
 do not record exactly the same frame rate (SAIL: 2 frames per 10 min); it is
 tracked from the strongest block in both directions, interpolated at 1 minute
-resolution and extrapolated through quiet blocks. Ghost frames of the follower
+resolution and extrapolated through quiet blocks. Because the single-frame
+steps of the interpolated lag can sit a few minutes away from the real ones
+(the minutes in between then match almost nothing), every minute is finally
+re-tested against the neighbouring lags (``fineLags``,
+:func:`VISSSlib.fixes._mosaicRefineRowLags`) and the lag is changed by at most
+one frame where the particles show it decisively. Ghost frames of the follower
 and the clock offset between the cameras (knots per minute) are stored too.
 The follower ``capture_id``/``capture_time`` are converted to the leader's in
 :func:`VISSSlib.fixes.mosaicFollowerCaptureIdToLeader`; follower particles
@@ -92,6 +97,9 @@ without a reliable mapping are dropped, and level2 flags such times
   ``makeCaptureTimeEven``). The result carries the attribute
   ``mosaicFrameMapping = "fallback"`` and level2 does not flag its time as
   unmapped. Rotation estimation is never done with the fallback.
+  The fallback is also used if the mapping variant pairs less than 2% of the
+  particles of the smaller camera (at least 1000 particles), i.e. if almost
+  everything was dropped or mismatched.
 - Related opt-in fixes: ``rejectRotationJumps`` (a per-file rotation retrieval
   far from the recent ones is not adopted), ``rotationNoRetry``.
 
@@ -102,6 +110,10 @@ particles, so the weakest files rely on the fallback and have lower match
 scores. Measured on the days that had problems without the mapping (October
 2026): hyytiala_v1 2.0x the matched pairs and 27x fewer broken level1match files
 (1081 to 40); sail_v1 1.16x the pairs and 6x fewer broken files (560 to 91).
+The minute-wise lag refinement raised the pairs of two test days further
+(sail 20230104: 1.05x, hyytiala 20211203: 1.36x, no file lost pairs) and reduced the
+share of minutes in which less than 0.3x the usual fraction of the particles
+is matched from 26% to 5% (sail) and from 33% to 13% (hyytiala).
 
 ``VISSSlib.fixes`` API
 --------------------------

@@ -83,6 +83,17 @@ focus, and varies between approximately 10% and 90%. [*]_
 
 
 
+Frame mapping and fallback
+--------------------------
+
+If the dataFix ``mosaicFrameMapping`` is active, the follower frames are mapped
+to the leader frames per day before matching (lag, drift of the lag, ghost
+frames and clock offset, see :doc:`fixes`), instead of estimating the capture id
+offset from the record time of each file. A file that cannot be matched this way
+is processed once more with the offset estimation described above if
+``mosaicFrameMappingFallback`` is set; the resulting level1match file carries
+the attribute ``mosaicFrameMapping = "fallback"``.
+
 ``VISSSlib.matching`` API
 -------------------------
 

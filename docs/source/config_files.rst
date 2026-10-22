@@ -97,6 +97,17 @@ given deployment actually needs to change.
      - List of named workarounds to enable for this deployment's known raw
        data issues (e.g. ``captureIdOverflows``, ``makeCaptureTimeEven``) —
        see :doc:`fixes` for which names actually do something.
+   * - mosaicFrameMappingExclude
+     - Days (``YYYYMMDD`` or ``YYYYMMDD-YYYYMMDD``) for which the dataFix
+       ``mosaicFrameMapping`` is not applied. Default: none.
+   * - mosaicFrameMappingFallback
+     - ``true``: a file for which level1match fails with the frame mapping is
+       processed once more without it (output attribute
+       ``mosaicFrameMapping = "fallback"``). Default: ``false``. See
+       :doc:`fixes`.
+   * - mosaicFallbackFixes
+     - dataFixes to use for that second attempt, e.g.
+       ``makeCaptureTimeEven``. Default: none.
    * - quality
      - Thresholds used across Level 1/2 processing to flag/exclude data:
        blocked-camera and blowing-snow pixel ratios, the minimum

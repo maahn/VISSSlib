@@ -820,6 +820,16 @@ def _createLevel2(
             units="-", long_name="ratio of frames rejected due to blocked image filter"
         )
     )
+    lv2Dat.sunGlintRatio.attrs.update(
+        dict(
+            units="1",
+            long_name="ratio of sun glints among the detected particles",
+            comment="Fraction of the level1detect particles (>= 2 px) whose brightest "
+            "pixel is brighter than the image background plus config.quality.sunGlintMargin. "
+            "For match and track the larger value of both cameras. Time steps with fewer "
+            "than config.quality.sunGlintMinParticles particles are set to 0.",
+        )
+    )
     lv2Dat.blowingSnowRatio.attrs.update(
         dict(units="-", long_name="ratio of frames rejected due to blowing snow filter")
     )
@@ -910,7 +920,9 @@ def _createLevel2(
             "config.quality.minTrackCompleteness; in files created before "
             "2026-10-01 this bit was tracksTooShort), and zResidualTooWide (matched leader/follower "
             "pairs disagree with each other more than a rotation refit "
-            "could fix, see config.quality.maxZSigma). "
+            "could fix, see config.quality.maxZSigma), and sunGlint (sun "
+            "reflections among the particles of at least one camera, see sunGlintRatio; "
+            "bit missing in files created before 2026-10-21). "
             "Use VISSSlib.tools.unpackQualityFlags to unpack",
         )
     )
@@ -1324,7 +1336,164 @@ def _blurThreshold(visssGen):
     return blurThresh
 
 
-def _applyBlurThreshold(level1dat, config, lv2File):
+def _sharpTailBlur(Dmax, blur, minN=300, exclude=None):
+    """
+    Sharp tail of the blur distribution of a camera: 75th percentile of the
+    blur of 8-16 pixel particles. Both cameras look at the same particles in
+    the same observation volume, so this tracks the camera's sharpness
+    (contrast), unlike the median or lower percentiles which are dominated by
+    out-of-focus particles. Returns (value, number of particles used);
+    the value is nan if fewer than minN particles are available.
+
+    exclude is an optional boolean mask of particles to ignore (sun glints).
+    """
+    Dmax = np.asarray(Dmax)
+    blur = np.asarray(blur)
+    sel = (Dmax >= 8) & (Dmax < 16) & (blur > 0)
+    if exclude is not None:
+        sel &= ~np.asarray(exclude)
+    n = int(sel.sum())
+    if n < minN:
+        return np.nan, n
+    return float(np.percentile(blur[sel], 75)), n
+
+
+def _readBlurStats(case, camera, config, endTime):
+    """
+    Dmax, blur and a glint flag of the level1detect data of one camera for a
+    time chunk, read directly from the files (neighbors included).
+
+    A particle is flagged as sun glint if its brightest pixel is more than 20
+    gray levels brighter than the image background (brightnessMean of the
+    metaEvents of the 10 min file). Glints are small, saturated and not
+    representative for the sharpness of the camera. The flag is None if
+    no brightness is available.
+
+    Returns
+    -------
+    tuple
+        (Dmax, blur, glint) numpy arrays, or None if there are no data.
+    """
+    fL = files.FindFiles(case, camera, config)
+    start = fL.datetime64
+    end = fL.datetime64 + endTime
+
+    brightness = None
+    try:
+        with xr.open_dataset(fL.fnamesDaily.metaEvents) as ev:
+            order = np.argsort(ev.file_starttime.values)
+            evTime = ev.file_starttime.values[order]
+            evBright = ev.brightnessMean.values[order]
+        brightness = True
+    except (OSError, ValueError, KeyError, AttributeError) as e:
+        log.warning(f"blur scale: no brightness from {fL.fnamesDaily.metaEvents}: {e}")
+
+    Dmax = []
+    blur = []
+    glint = []
+    for fname in fL.listFilesWithNeighbors("level1detect"):
+        if not fname.endswith(".nc"):
+            continue
+        try:
+            with xr.open_dataset(fname) as dat:
+                tt = dat.capture_time.values
+                inPeriod = (tt >= start) & (tt < end)
+                Dmax.append(dat.Dmax.values[inPeriod])
+                blur.append(dat.blur.values[inPeriod])
+                if brightness is not None:
+                    idx = np.clip(
+                        np.searchsorted(evTime, tt[inPeriod], side="right") - 1,
+                        0,
+                        len(evTime) - 1,
+                    )
+                    glint.append(
+                        dat.pixMax.values[inPeriod].astype(float)
+                        > evBright[idx] + 20
+                    )
+        except (OSError, ValueError, KeyError) as e:
+            log.warning(f"blur scale: cannot read {fname}: {e}")
+    if len(Dmax) == 0:
+        return None
+    return (
+        np.concatenate(Dmax),
+        np.concatenate(blur),
+        np.concatenate(glint) if brightness is not None else None,
+    )
+
+
+def _estimateBlurScale(case, camera, config, endTime, minN=300, minScale=0.2):
+    """
+    Blur scale for the single-camera (detect) blur threshold of one camera and
+    time chunk.
+
+    The blur threshold table (_blurThreshold) was derived when both cameras
+    had a similar contrast. The Laplacian-variance blur scales with contrast
+    (roughly squared), so a camera with lower contrast has systematically
+    lower blur values for the very same particles and is treated as having
+    a smaller observation volume. The cameras share the observation volume
+    and see the same particle population, so the ratio of their sharp-tail blur
+    (see _sharpTailBlur) is used to bring the fainter camera to the level
+    of the sharper one, which is left untouched.
+
+    Sun glints (see _readBlurStats) are excluded: they are blurrier than real
+    particles, so a camera with glints would otherwise look fainter, get a
+    lower threshold, and let even more glints pass. Without brightness
+    information from the metaEvents no scaling is applied.
+
+    Parameters
+    ----------
+    case : str
+        Case of the chunk, e.g. "20250425-12".
+    camera : str
+        Camera the scale is estimated for.
+    config : dict
+        Configuration settings.
+    endTime : numpy.timedelta64
+        Length of the chunk.
+    minN : int, optional
+        Minimum number of 8-16 pixel particles (without glints) per camera,
+        otherwise no scaling is applied (1.0).
+    minScale : float, optional
+        Lower limit of the scale.
+
+    Returns
+    -------
+    float
+        Factor the blur threshold of `camera` is multiplied with, in
+        [minScale, 1].
+    """
+    # FindFiles also accepts "leader"/"follower", otherCamera needs the real name
+    cameraName = files.FindFiles(case, camera, config).camera
+    other = tools.otherCamera(cameraName, config)
+
+    stats = {}
+    for name, cam in (("own", cameraName), ("other", other)):
+        res = _readBlurStats(case, cam, config, endTime)
+        if res is None or res[2] is None:
+            log.info(f"blur scale {case} {camera}: no usable data of {name} camera, 1.0")
+            return 1.0
+        stats[name] = _sharpTailBlur(res[0], res[1], minN, exclude=res[2])
+
+    (qOwn, nOwn), (qOther, nOther) = stats["own"], stats["other"]
+    if not (np.isfinite(qOwn) and np.isfinite(qOther)):
+        log.info(
+            f"blur scale {case} {camera}: too few 8-16 px particles without glints "
+            f"({nOwn}, {nOther} < {minN}), 1.0"
+        )
+        return 1.0
+
+    scale = min(qOwn / qOther, 1.0)
+    if scale < minScale:
+        log.warning(f"blur scale {case} {camera}: {scale:.2f} limited to {minScale}")
+        scale = minScale
+    log.info(
+        f"blur scale {case} {camera}: {scale:.2f} "
+        f"(sharp tail blur {qOwn:.0f} vs {qOther:.0f} of other camera)"
+    )
+    return scale
+
+
+def _applyBlurThreshold(level1dat, config, lv2File, blurScale=1.0):
     """
     Apply the empirical blur-vs-size threshold filter used for level1detect
     data (see _blurThreshold), and drop particles above Dmax=350px for
@@ -1343,6 +1512,9 @@ def _applyBlurThreshold(level1dat, config, lv2File):
     lv2File : str
         Output filename, used only for the diagnostic log message when no
         data remains.
+    blurScale : float, optional
+        Factor the blur threshold is multiplied with (<= 1 lowers the
+        threshold), see _estimateBlurScale. Default 1.0 (table as is).
 
     Returns
     -------
@@ -1358,7 +1530,9 @@ def _applyBlurThreshold(level1dat, config, lv2File):
 
     # this works liek a lookup table. We use the Dmax rounded to next
     # integer as an index for blurThresh
-    appliedblurThresh = blurThresh[np.around(level1dat.Dmax.values).astype(int)]
+    appliedblurThresh = (
+        blurThresh[np.around(level1dat.Dmax.values).astype(int)] * blurScale
+    )
 
     blurCond = (level1dat.blur >= appliedblurThresh).values
     log.info(
@@ -1452,8 +1626,11 @@ def _createLevel2part(
     # make chunks more regular
     # level1dat = level1dat.chunk(pair_id=10000)
 
+    blurScale = 1.0
     if sublevel == "detect":
-        level1dat = _applyBlurThreshold(level1dat, config, lv2File)
+        if config.level2.blurScaleFromOtherCamera:
+            blurScale = _estimateBlurScale(case, camera, config, endTime)
+        level1dat = _applyBlurThreshold(level1dat, config, lv2File, blurScale=blurScale)
         if level1dat is None:
             return None
 
@@ -1939,6 +2116,18 @@ def _createLevel2part(
     log.info("calibrate data")
     calibDat = calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1)
 
+    if sublevel == "detect" and config.level2.blurScaleFromOtherCamera:
+        calibDat["blurScale"] = xr.DataArray(
+            np.full(len(calibDat.time), blurScale, dtype="float32"),
+            dims="time",
+            coords={"time": calibDat.time},
+            attrs={
+                "long_name": "factor the blur threshold was multiplied with",
+                "comment": "<1 for the camera with lower contrast, see _estimateBlurScale",
+                "units": "1",
+            },
+        )
+
     # clean up!
     del level1dat_4timeAve, level1datG, level1dat_time
     return calibDat
@@ -2111,6 +2300,22 @@ def addVariables(
         case, config, timeIndex, timeIndex1, sublevel, camera=config.leader
     )
 
+    # sunGlint: like zResidualTooWide a flag, not a filter. The glint ratio is
+    # taken from level1detect, i.e. it is the same for match and track, where
+    # the worse camera counts.
+    if sublevel == "detect":
+        sunGlintRatio = getSunGlintRatio(case, config, timeIndex1, camera)
+    else:
+        sunGlintRatio = xr.concat(
+            [
+                getSunGlintRatio(case, config, timeIndex1, cam)
+                for cam in ("leader", "follower")
+            ],
+            dim="camera",
+        ).max("camera")
+    assert np.all(sunGlintRatio.time.values == calibDat.time.values)
+    sunGlint = sunGlintRatio > config.quality.sunGlintRatioThresh
+
     if sublevel == "detect":
         processingFailed.values[:] = False  # not relevant becuase it is about matching
         cameraBlocked = blockedPixels > config.quality.blockedPixThresh
@@ -2198,6 +2403,13 @@ def addVariables(
                 "% of data",
             )
         )
+    log.info(
+        tools.concat(
+            "sunGlint flagged",
+            sunGlint.values.sum() / len(sunGlint) * 100,
+            "% of data",
+        )
+    )
     allFilter = (
         recordingFailed
         | processingFailed
@@ -2224,6 +2436,7 @@ def addVariables(
             obervationsDiffer,
             trackingIncomplete,
             zResidualTooWide,
+            sunGlint,
         ],
         axis=-1,
     )
@@ -2235,6 +2448,7 @@ def addVariables(
     # calibDat["recordingFailed"] = recordingFailed
     # calibDat["processingFailed"] = processingFailed
     calibDat["blowingSnowRatio"] = blowingSnowRatio
+    calibDat["sunGlintRatio"] = sunGlintRatio
     if sublevel == "match":
         blockedVars = (
             blockedPixels.max("camera"),
@@ -3066,6 +3280,84 @@ def getZResidualQuality(case, config, timeIndex, timeIndex1, sublevel, camera="l
     tooWide[validBins] = enoughPairs & (sigmaPerBin.values > config.quality.maxZSigma)
 
     return xr.DataArray(tooWide, dims=["time"], coords=[timeIndex])
+
+
+def getSunGlintRatio(case, config, timeIndex1, camera):
+    """
+    Ratio of sun glints among the level1detect particles per time step.
+
+    A particle counts as sun glint if its brightest pixel is more than
+    config.quality.sunGlintMargin gray levels brighter than the image
+    background (brightnessMean of the metaEvents of the file the particle was
+    recorded in). Sun reflections are rare, but if they are frequent the
+    particle statistics of the camera, especially of small particles, are
+    affected. Time steps with fewer than config.quality.sunGlintMinParticles
+    particles (>= 2 px) get a ratio of 0.
+
+    Parameters
+    ----------
+    case : str
+        Day to process (YYYYMMDD).
+    config : dict
+        Configuration settings.
+    timeIndex1 : pandas.DatetimeIndex
+        Edges of the time steps ("both" inclusive, as used for the level2 data).
+    camera : str
+        Camera to process, "leader" or "follower".
+
+    Returns
+    -------
+    xarray.DataArray
+        Glint ratio for every time step (timeIndex1[:-1]).
+    """
+    import pandas as pd
+
+    nBins = len(timeIndex1) - 1
+    ratio = np.zeros(nBins)
+    result = xr.DataArray(ratio, dims=["time"], coords=[timeIndex1[:-1]])
+
+    fL = files.FindFiles(case, camera, config)
+    try:
+        with xr.open_dataset(fL.fnamesDaily.metaEvents) as ev:
+            order = np.argsort(ev.file_starttime.values)
+            evTime = ev.file_starttime.values[order]
+            evBright = ev.brightnessMean.values[order]
+    except (OSError, ValueError, KeyError, AttributeError) as e:
+        log.warning(f"sun glint: no brightness for {case} {camera}, not flagged ({e})")
+        return result
+
+    edges = np.asarray(timeIndex1, dtype="datetime64[ns]")
+    nParticles = np.zeros(nBins)
+    nGlints = np.zeros(nBins)
+    for fname in fL.listFilesWithNeighbors("level1detect"):
+        if not fname.endswith(".nc"):
+            continue
+        try:
+            with xr.open_dataset(fname) as dat:
+                if dat.sizes["pid"] == 0:
+                    continue
+                tt = dat.capture_time.values
+                sel = dat.Dmax.values >= 2
+                idx = np.clip(
+                    np.searchsorted(evTime, tt, side="right") - 1, 0, len(evTime) - 1
+                )
+                glint = (
+                    dat.pixMax.values.astype(float)
+                    > evBright[idx] + config.quality.sunGlintMargin
+                )
+                tt, glint = tt[sel], glint[sel]
+        except (OSError, ValueError, KeyError) as e:
+            log.warning(f"sun glint: cannot read {fname}: {e}")
+            continue
+        bins = np.searchsorted(edges, tt, side="right") - 1
+        inRange = (bins >= 0) & (bins < nBins)
+        nParticles += np.bincount(bins[inRange], minlength=nBins)
+        nGlints += np.bincount(bins[inRange], weights=glint[inRange], minlength=nBins)
+
+    enough = nParticles >= config.quality.sunGlintMinParticles
+    ratio[enough] = nGlints[enough] / nParticles[enough]
+    result.values[:] = ratio
+    return result
 
 
 def getDataQuality(case, config, timeIndex, timeIndex1, sublevel, camera=None):

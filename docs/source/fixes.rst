@@ -99,9 +99,9 @@ without a reliable mapping are dropped, and level2 flags such times
 ``capture_id`` (``gochang_v1``, ``sail_v1``); a day without frame mapping loses
 its follower data, which is why the fallback exists; the mapping tests need
 particles, so the weakest files rely on the fallback and have lower match
-scores. Typical results (sail_v1, hyytiala_v1 days with problems before):
-2x more matched pairs and 25x fewer broken files compared to the processing
-without the mapping.
+scores. Measured on the days that had problems without the mapping (October
+2026): hyytiala_v1 2.0x the matched pairs and 27x fewer broken level1match files
+(1081 to 40); sail_v1 1.16x the pairs and 6x fewer broken files (560 to 91).
 
 ``VISSSlib.fixes`` API
 --------------------------

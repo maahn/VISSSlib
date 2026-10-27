@@ -4013,3 +4013,942 @@ def createLevel3RimingQuicklook(
         dat3.close()
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level3combinedRiming"))
     return fig
+
+################################################################################################################################
+# Jakob's HiWi Projekt: Make Gifs of Beautiful snowflakes:)
+# ->animated GIFs of the best-scored particle tracks of a day, laid out in an HTML grid.
+
+
+# fallback values (used when neither the yaml nor tools.DEFAULT_SETTINGS has a "level1BeautifulSnowflakesQuicklook" section (keep in sync with DEFAULT_SETTINGS)
+_BEAUTIFUL_SNOWFLAKES_DEFAULTS = {
+    "minBlur": 15,
+    "minSize": 30,
+    "minTrackLength": 5,
+    "minRenderedFrames": 3,
+    "targetGifs": 10,
+}
+
+
+def _beautifulSnowflakesSetting(config, key, value):
+    """Resolve a "config" parameter value for the beautiful snowflakes quicklook."""
+    if not (isinstance(value, str) and value == "config"):
+        return value
+    try:
+        return config["level1BeautifulSnowflakesQuicklook"][key]
+    except KeyError:
+        return _BEAUTIFUL_SNOWFLAKES_DEFAULTS[key]
+
+
+def _beautifulSnowflakesPath(ff):
+    """
+    Output path of the beautiful snowflakes quicklook. Uses the files.py entry
+    "level1BeautifulSnowflakes" if it exists, otherwise puts the html next to
+    the level1matchParticles quicklook.
+    """
+    try:
+        fOut = ff.quicklook["level1BeautifulSnowflakes"]
+        if isinstance(fOut, str) and len(fOut) > 0:
+            return fOut
+    except (KeyError, AttributeError, TypeError):
+        pass
+    base = os.path.splitext(ff.quicklook.level1matchParticles)[0]
+    return f"{base}_beautifulSnowflakes.html"
+
+
+class _RoutedZip:
+    """Routes every pid to its own block's archive."""
+
+    def __init__(self):
+        self.map = {}
+
+    def add(self, pidStr, handle):
+        self.map[pidStr] = handle
+
+    def extractnpy(self, pidStr):
+        handle = self.map.get(pidStr)
+        if handle is None:
+            raise KeyError(pidStr)
+        return handle.extractnpy(pidStr)
+
+
+def _archiveFor(st, camera, config, cache, version=__version__):
+    """Single image archive whose block start == st for `camera`, cached."""
+    import pandas as pd
+
+    key = (camera, np.datetime64(st, "ns"))
+    if key in cache:
+        return cache[key]
+    caseB = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
+    ff1 = files.FindFiles(caseB, camera, config, version=version)
+    znames = ff1.listFiles("imagesL1detect")  # EXACT block, single archive
+    if len(znames) == 0:
+        cache[key] = None
+    else:
+        try:
+            cache[key] = tools.imageZipFile(znames[0], mode="r")
+        except (FileNotFoundError, tools.zipfile.BadZipFile):
+            log.warning(f"cannot open {znames[0]}")
+            cache[key] = None
+    return cache[key]
+
+
+def _routedZips(trackDat, config, cache, version=__version__):
+    """Leader & follower _RoutedZip: every pid -> its own block's archive."""
+    zLeader, zFollower = _RoutedZip(), _RoutedZip()
+    for ii in range(trackDat.sizes["fpair_id"]):
+        d = trackDat.isel(fpair_id=ii)
+        lst = np.datetime64(d.file_starttime.isel(camera=0).values, "ns")
+        fst = np.datetime64(d.file_starttime.isel(camera=1).values, "ns")
+        zLeader.add(
+            "%07i" % int(d.pid.isel(camera=0).values),
+            _archiveFor(lst, config.leader, config, cache, version),
+        )
+        zFollower.add(
+            "%07i" % int(d.pid.isel(camera=1).values),
+            _archiveFor(fst, config.follower, config, cache, version),
+        )
+    return zLeader, zFollower
+
+
+def _getPerTrackStatisticsTrimmed(level1dat):
+    """Reshape a level1track file to (track_id, track_step) and keep only pair_id."""
+    import pandas as pd
+
+    track_mi = pd.MultiIndex.from_arrays(
+        (level1dat.track_id.values, level1dat.track_step.values),
+        names=["track_id", "track_step"],
+    )
+    level1dat["track_mi"] = xr.DataArray(track_mi, coords=[level1dat.pair_id])
+    level1dat = level1dat.swap_dims(pair_id="track_mi")
+
+    # very rarely there are duplicate index values
+    _, uniqueII = np.unique(level1dat.track_mi, return_index=True)
+    level1dat = level1dat.isel(track_mi=uniqueII)
+
+    level1dat = level1dat.unstack("track_mi")
+    # cut very long tracks to save memory
+    if len(level1dat.track_step) > 40:
+        level1dat = level1dat.isel(track_step=slice(40))
+    return level1dat[["track_id", "pair_id"]]
+
+
+def _buildTrackLookup(matchDat, config, version=__version__):
+    """(leader block start, pair_id) -> track_id, read from the level1track files."""
+    import pandas as pd
+
+    lookup = {}
+    starttimes = np.unique(matchDat.file_starttime.sel(camera=config.leader).values)
+    starttimes = starttimes[~pd.isnull(starttimes)]
+    for st in starttimes:
+        caseB = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
+        ff1 = files.FindFiles(caseB, config.leader, config, version=version)
+        trackFiles = ff1.listFiles("level1track")
+        if len(trackFiles) == 0:
+            log.warning(f"no level1track for {caseB} (deleted?)")
+            continue
+        with xr.open_dataset(trackFiles[0]) as ds:
+            t2 = _getPerTrackStatisticsTrimmed(ds.load())
+        pi = t2["pair_id"]
+        if "camera" in pi.dims:
+            pi = pi.isel(camera=0, drop=True)
+        tid_b, pi_b = xr.broadcast(t2["track_id"], pi)
+        pf, tf = pi_b.values.ravel(), tid_b.values.ravel()
+        good = ~np.isnan(pf)
+        for p, t in zip(pf[good].astype("int64"), tf[good].astype("int64")):
+            lookup[(np.datetime64(st, "ns"), int(p))] = int(t)
+    return lookup
+
+
+def _padToCommonShape(images, padding_value=150):
+    """Center-pad all 2D images to the largest height/width among them."""
+    pad_to_length = max(img.shape[0] for img in images)
+    pad_to_width = max(img.shape[1] for img in images)
+    padded = []
+    for img in images:
+        len_diff = pad_to_length - img.shape[0]
+        width_diff = pad_to_width - img.shape[1]
+        pad_width_2d = (
+            (len_diff // 2, len_diff - len_diff // 2),
+            (width_diff // 2, width_diff - width_diff // 2),
+        )
+        padded.append(
+            np.pad(img, pad_width=pad_width_2d, mode="constant",
+                   constant_values=padding_value)
+        )
+    return padded
+
+
+def _renderTrackGif(trackDat, zLeader, zFollower, title, fOut, config,
+                    fps=4, minRenderedFrames=3, ScaleBar=None):
+    """
+    Animate one track (leader | follower side by side) and save it as GIF.
+
+    Returns the number of rendered frames; 0 if nothing was saved (missing
+    crops, or fewer than minRenderedFrames frames).
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation, PillowWriter
+
+    img1_list, img2_list = [], []
+    for ii in range(trackDat.sizes["fpair_id"]):
+        pid = trackDat.pid.isel(fpair_id=ii).values
+        try:
+            img1 = zLeader.extractnpy("%07i" % pid[0])
+            img2 = zFollower.extractnpy("%07i" % pid[1])
+        except KeyError:
+            continue
+        img1_list.append(img1[:, :, 0])
+        img2_list.append(img2[:, :, 0])
+
+    nFrames = len(img1_list)
+    if nFrames < max(minRenderedFrames, 1):
+        return 0
+
+    padded = _padToCommonShape(img1_list + img2_list)
+    img1_list, img2_list = padded[:nFrames], padded[nFrames:]
+
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(10, 5))
+    try:
+        plt.subplots_adjust(left=0, right=1, top=0.86, bottom=0, wspace=0.02)
+        im1 = ax1.imshow(img1_list[0], vmin=0, vmax=255, cmap="Greys_r")
+        im2 = ax2.imshow(img2_list[0], vmin=0, vmax=255, cmap="Greys_r")
+        ax1.axis("off")
+        ax2.axis("off")
+        ax1.set_title("Leader", fontsize=15, pad=2)
+        ax2.set_title("Follower", fontsize=15, pad=2)
+        fig.text(0.5, 0.98, title, ha="center", va="top", fontsize=15)
+
+        if ScaleBar is not None:
+            # pixel size in um, same calibration as the quicklook title
+            ax1.add_artist(
+                ScaleBar(1 / config.calibration.slope, "um",
+                         length_fraction=0.25, box_color="grey")
+            )
+
+        def animate(i):
+            im1.set_data(img1_list[i])
+            im2.set_data(img2_list[i])
+            return im1, im2
+
+        ani = FuncAnimation(fig, animate, frames=nFrames, interval=200, blit=False)
+        ani.save(fOut, writer=PillowWriter(fps=fps))
+    finally:
+        plt.close(fig)
+    return nFrames
+
+
+def _makeTrackGifs(limDat, ranked, config, outFolder, version=__version__,
+                   maxGifs=None, minRenderedFrames=3):
+    """
+    Write one GIF per track into outFolder, walking `ranked` (per-track table,
+    best score first) and stopping once maxGifs GIFs rendered successfully.
+    Tracks with missing crops / too few frames are skipped and don't count.
+
+    Returns the list of written GIF paths, best first.
+    """
+    import pandas as pd
+
+    try:
+        from matplotlib_scalebar.scalebar import ScaleBar
+    except ImportError:
+        log.warning("matplotlib_scalebar not installed, GIFs without scale bar")
+        ScaleBar = None
+
+    dat = limDat.isel(fpair_id=np.isfinite(limDat.track_id.values))
+    if dat.sizes.get("fpair_id", 0) == 0:
+        log.info("no track-tagged particles to animate")
+        return []
+
+    files_arr = dat["file"].values
+    tid_arr = dat.track_id.values
+    order = list(ranked[["file", "track_id"]].itertuples(index=False, name=None))
+
+    cache = {}
+    gifs = []
+    try:
+        for fkey, tid in order:
+            trackDat = dat.isel(fpair_id=(files_arr == fkey) & (tid_arr == tid))
+            if trackDat.sizes.get("fpair_id", 0) == 0:
+                continue
+
+            st = trackDat.file_starttime.sel(camera=config.leader).values[0]
+            caseB = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
+            title = f"site: {config.site} | case: {caseB} | track_id: {int(tid)}"
+            fpath = os.path.join(outFolder, f"{caseB}_track{int(tid)}.gif")
+
+            zLeader, zFollower = _routedZips(trackDat, config, cache, version)
+            nFrames = _renderTrackGif(trackDat, zLeader, zFollower, title, fpath,
+                                      config, minRenderedFrames=minRenderedFrames,
+                                      ScaleBar=ScaleBar)
+            if nFrames == 0:
+                log.info(f"skip track {int(tid)} ({caseB}): too few frames rendered")
+                continue
+
+            gifs.append(fpath)
+            log.info(f"saved {fpath} ({nFrames} frames)")
+            if maxGifs is not None and len(gifs) >= maxGifs:
+                break
+    finally:
+        for h in cache.values():
+            if h is not None:
+                try:
+                    h.close()
+                except Exception:
+                    pass
+    return gifs
+
+
+def _writeHtml(fOut, body, config, title):
+    """Small standalone html page with VISSSlib file permissions."""
+    import html as _html
+
+    doc = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>{_html.escape(title)}</title>
+<style>
+  body {{ margin: 0; padding: 16px; background: #ffffff;
+         font-family: system-ui, -apple-system, sans-serif; }}
+  h1 {{ font-size: 15px; font-weight: 600; margin: 0 0 12px; }}
+  .grid {{ display: grid; gap: 6px; }}
+  .cell {{ margin: 0; text-align: center; }}
+  .cell img {{ width: 100%; height: auto; background: #fff; border: 1px solid #eee; }}
+</style></head>
+<body>
+<h1>{_html.escape(title)}</h1>
+{body}
+</body></html>"""
+
+    tools.createParentDir(fOut, mode=config.dirMode)
+    try:
+        os.remove(fOut)
+    except FileNotFoundError:
+        pass
+    with open(fOut, "w", encoding="utf-8") as f:
+        f.write(doc)
+    try:
+        os.chmod(fOut, config.fileMode)
+    except PermissionError:
+        log.warning(f"chmod {config.fileMode} {fOut} failed")
+    return fOut
+
+
+def _writeGifHtml(gifs, fOut, config, title, ncols=5):
+    """HTML grid of GIFs, base64-embedded so the page is self-contained."""
+    import base64
+    import html as _html
+
+    cells = []
+    for p in gifs:
+        with open(p, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+        label = _html.escape(os.path.splitext(os.path.basename(p))[0])
+        cells.append(
+            f'<figure class="cell"><img loading="lazy" '
+            f'src="data:image/gif;base64,{b64}" alt="{label}"></figure>'
+        )
+    body = (
+        f'<div class="grid" style="grid-template-columns: repeat({ncols}, 1fr);">\n'
+        + "\n".join(cells)
+        + "\n</div>"
+    )
+    return _writeHtml(fOut, body, config, title)
+
+
+@tools.loopify
+def createLevel1QuicklookBeautifulSnowflakes(
+    case,
+    config,
+    version=__version__,
+    skipExisting=True,
+    minBlur="config",
+    minSize="config",
+    min_track_length="config",  # drop tracks shorter than this (detections)
+    min_rendered_frames="config",  # drop GIFs that render fewer frames than this
+    target_gifs="config",  # how many GIFs end up in the html
+    candidate_multiplier=20,  # try up to target_gifs * candidate_multiplier tracks
+    weight_track_length=2,
+    weight_blur=0.01,
+    weight_dmax=3,
+    ncols=5,  # columns of the html grid
+    particleLimitPerFile=30000,
+    timedelta=np.timedelta64(1, "D"),
+    fOut="default",
+):
+    """
+    Create the beautiful snowflakes quicklook for a given case: every
+    matched particle track of the day is scored (track length, blur, Dmax),
+    the best tracks are animated as GIFs (leader | follower) and written into
+    a HTML grid.
+
+    Parameters
+    ----------
+    case : str
+        Case identifier, e.g. "YYYYMMDD", or a range "YYYYMMDD-YYYYMMDD"
+        (see tools.getCaseRange).
+    config : dict or str
+        Configuration dictionary or settings file.
+    version : str, optional
+        Version identifier, by default __version__
+    skipExisting : bool, optional
+        Whether to skip if output exists and is newer than its parents,
+        by default True
+    minBlur, minSize : float or str, optional
+        Particle filters applied to both cameras. "config" reads
+        config["level1BeautifulSnowflakesQuicklook"].
+    min_track_length : int or str, optional
+        Minimum number of detections per track. "config" as above.
+    min_rendered_frames : int or str, optional
+        Minimum number of frames that actually load per GIF. "config" as above.
+    target_gifs : int or str, optional
+        Number of GIFs in the final html. "config" as above.
+    candidate_multiplier : int, optional
+        Size of the candidate pool relative to target_gifs, so tracks with
+        missing crops can be replaced by the next best ones.
+    weight_track_length, weight_blur, weight_dmax : float, optional
+        Weights of the normalized per-track score.
+    ncols : int, optional
+        Number of columns in the html grid.
+    particleLimitPerFile : int or None, optional
+        Only look at the first n particles per level1match file.
+    timedelta : numpy.timedelta64, optional
+        Time window for data selection, by default np.timedelta64(1, "D")
+    fOut : str, optional
+        Output html path, by default "default" (the quicklook folder). May
+        contain "{case}", e.g. "/tmp/test/{case}.html", so day ranges don't
+        overwrite each other.
+
+    Returns
+    -------
+    tuple
+        (output_file_path, number_of_gifs), or (None, None) if skipped or
+        the data is not complete yet.
+    """
+    import tempfile
+
+    import pandas as pd
+    from tqdm import tqdm
+
+    minBlur = _beautifulSnowflakesSetting(config, "minBlur", minBlur)
+    minSize = _beautifulSnowflakesSetting(config, "minSize", minSize)
+    min_track_length = _beautifulSnowflakesSetting(
+        config, "minTrackLength", min_track_length
+    )
+    min_rendered_frames = _beautifulSnowflakesSetting(
+        config, "minRenderedFrames", min_rendered_frames
+    )
+    target_gifs = _beautifulSnowflakesSetting(config, "targetGifs", target_gifs)
+
+    camera = config["leader"]
+    site = config["site"]
+    ff = files.FindFiles(case, camera, config, version)
+    if fOut == "default":
+        fOut = _beautifulSnowflakesPath(ff)
+    else:
+        fOut = fOut.format(case=case)
+    date = f"{ff.year}-{ff.month}-{ff.day}"
+    title = f"VISSS beautiful snowflakes {config['name']} {date}"
+
+    # ---- guard clauses -----------------------------------------------------
+    if skipExisting and tools.checkForExisting(
+        fOut,
+        level0=ff.listFiles("level0"),
+        events=[(ff, "metaEvents")],
+        parents=[(ff, "level1match"), (ff, "level1track")],
+    ):
+        return None, None
+
+    has_raw = (len(ff.listFiles("level0")) > 0) or (
+        len(ff.listFiles("level0status")) > 0
+    )
+    if has_raw:
+        if len(ff.listFiles("metaFrames")) > len(ff.listFiles("level0")):
+            print("DATA TRANSFER INCOMPLETE ", fOut)
+            print(
+                len(ff.listFiles("level0")),
+                "of",
+                len(ff.listFiles("metaFrames")),
+                "transmitted",
+            )
+            return None, None
+
+        if (len(ff.listFilesExt("level1match")) == 0) and (
+            len(ff.listFiles("level0")) > 0
+        ):
+            print("NO DATA YET ", fOut)
+            return None, None
+
+        if not ff.isCompleteL1match:
+            print(
+                "NOT COMPLETE YET %i of %i L1match %s "
+                % (
+                    len(ff.listFilesExt("level1match")),
+                    len(ff.listFiles("level0txt")),
+                    fOut,
+                )
+            )
+            return None, None
+    else:
+        # raw level0 is gone (e.g. Ny-Ålesund): rely on the processed files only
+        if site != "mosaic" and len(ff.listFilesExt("level1match")) == 0:
+            print("NO DATA (no level0 and no level1match)", fOut)
+            return None, None
+        log.info("no level0 on disk - using processed level1match only")
+
+    def _noFigures(reason):
+        log.info(f"{case}: {reason}")
+        _writeHtml(fOut, f"<p>no figures for day {date} ({reason})</p>", config, title)
+        return fOut, 0
+
+    print("RUNNING open files ", fOut, len(ff.listFiles("metaFrames")))
+
+    # ---- load + filter each level1match file -------------------------------
+    dats2 = []
+    for fname2 in tqdm(ff.listFilesWithNeighbors("level1match")):
+        fname1 = fname2.replace("level1match", "metaFrames")
+        try:
+            dat2 = xr.open_dataset(fname2)
+        except FileNotFoundError:
+            if os.path.isfile(f"{fname2}.nodata"):
+                continue
+            elif os.path.isfile(f"{fname2}.broken.txt"):
+                continue
+            elif os.path.isfile(f"{fname2}.notenoughframes"):
+                continue
+            else:
+                raise FileNotFoundError(fname2)
+
+        if particleLimitPerFile is not None:
+            dat2 = dat2.isel(pair_id=slice(particleLimitPerFile))
+
+        dat2 = dat2[
+            ["Dmax", "blur", "record_time", "record_id", "Droi",
+             "file_starttime", "matchScore"]
+        ].load()
+
+        dat2 = dat2.isel(
+            pair_id=(
+                (dat2.blur > minBlur).all("camera")
+                & (dat2.Dmax > minSize).all("camera")
+                & (dat2.matchScore > config.quality.minMatchScore)
+            )
+        )
+        if len(dat2.pair_id) == 0:
+            continue
+
+        dat2 = dat2[["record_time", "record_id", "Droi", "file_starttime", "Dmax", "blur"]]
+        dat2 = dat2.expand_dims(dict(file=[fname1]))
+        dat2 = dat2.stack(fpair_id=("file", "pair_id"))
+        dats2.append(dat2)
+
+    if len(dats2) == 0:
+        return _noFigures("no particles passed the filters")
+
+    limDat = xr.concat(dats2, dim="fpair_id")
+    limDat = limDat.isel(
+        fpair_id=(limDat.record_time.isel(camera=0).values >= ff.datetime64)
+        & (limDat.record_time.isel(camera=0).values < (ff.datetime64 + timedelta))
+    )
+    if len(limDat.fpair_id) == 0:
+        return _noFigures("no particles on this day")
+
+    # ---- bridge level1match <-> level1track --------------------------------
+    track_lookup = _buildTrackLookup(limDat, config, version)
+    st_arr = limDat.file_starttime.sel(camera=config.leader).values
+    pid_arr = limDat.pair_id.values.astype("int64")
+    track_ids = np.array(
+        [
+            track_lookup.get((np.datetime64(s, "ns"), int(p)), np.nan)
+            for s, p in zip(st_arr, pid_arr)
+        ]
+    )
+    limDat = limDat.assign_coords(track_id=("fpair_id", track_ids))
+    log.info(
+        f"attached track_id to {np.isfinite(track_ids).sum()} / {len(track_ids)} particles"
+    )
+
+    # ---- per-track scoring -------------------------------------------------
+    key = pd.DataFrame(
+        {
+            "file": limDat["file"].values,
+            "tid": limDat["track_id"].values,
+            "blur": limDat["blur"].mean("camera").values,
+            "Dmax": limDat["Dmax"].mean("camera").values,
+        }
+    )
+    g = key.groupby(["file", "tid"])
+    limDat = limDat.assign(
+        length_track=("fpair_id", g["tid"].transform("size").values),
+        blur_mean_track=("fpair_id", g["blur"].transform("mean").values),
+        Dmax_mean_track=("fpair_id", g["Dmax"].transform("mean").values),
+    )
+
+    limDat = limDat.isel(fpair_id=(limDat["length_track"] >= min_track_length).values)
+    if len(limDat.fpair_id) == 0:
+        return _noFigures(f"no tracks with length >= {min_track_length}")
+
+    def _norm(da):
+        lo, hi = da.min().item(), da.max().item()
+        return (da - lo) / (hi - lo) if hi > lo else da * 0.0
+
+    w_sum = weight_track_length + weight_blur + weight_dmax
+    score = (
+        weight_track_length * _norm(limDat["length_track"])
+        + weight_blur * _norm(limDat["blur_mean_track"])
+        + weight_dmax * _norm(limDat["Dmax_mean_track"])
+    ) / w_sum
+    limDat = limDat.assign(score=("fpair_id", score.values))
+
+    # per-track table, best first; candidate pool so failures can be backfilled
+    top = (
+        pd.DataFrame(
+            {
+                v: limDat[v].values
+                for v in ["file", "track_id", "length_track", "blur_mean_track",
+                          "Dmax_mean_track", "score"]
+            }
+        )
+        .drop_duplicates(["file", "track_id"])
+        .sort_values("score", ascending=False)
+    )
+    ranked = top.head(target_gifs * candidate_multiplier)
+
+    top_keys = set(map(tuple, ranked[["file", "track_id"]].values))
+    mask = np.array(
+        [
+            (f, t) in top_keys
+            for f, t in zip(limDat["file"].values, limDat["track_id"].values)
+        ]
+    )
+    candidates = limDat.isel(fpair_id=mask)
+
+    # ---- GIFs (temporary) -> html grid --------------------------------------
+    with tempfile.TemporaryDirectory() as tmpDir:
+        gifs = _makeTrackGifs(
+            candidates,
+            ranked,
+            config,
+            tmpDir,
+            version=version,
+            maxGifs=target_gifs,
+            minRenderedFrames=min_rendered_frames,
+        )
+        if len(gifs) == 0:
+            return _noFigures("no track rendered enough frames")
+        if len(gifs) < target_gifs:
+            log.warning(f"only {len(gifs)} of {target_gifs} GIF(s) could be made")
+        _writeGifHtml(gifs, fOut, config, title, ncols=ncols)
+
+    print("SAVED ", fOut)
+    return fOut, len(gifs)
+
+#####################################################################################
+# if you have found a beautiful snowflake, here is a function to retrieve the individual one
+
+import logging
+import os
+
+import numpy as np
+import xarray as xr
+
+from VISSSlib import __version__, files, tools
+
+log = logging.getLogger(__name__)
+
+
+def createSingleSnowflakeHtml(
+    case,
+    track_id,
+    config,
+    version=__version__,
+    view="both",  # "both", "leader" or "follower"
+    showLegend=True,  # False -> only the image(s), no title/labels/scale bar
+    filterLikeQuicklook=False,  # True -> exactly the frames of the quicklook GIF
+    fps=4,
+    upscale=2,  # only for showLegend=False
+    keepGif=False,  # also save the .gif next to the html
+    fOut="default",
+):
+    """
+    Expansion from jakobs hiwi project! If you find a nice snowflake, then you can extract it simply using this function. 
+    It saves a single, hand-picked particle track as its own html page.
+
+    Parameters
+    ----------
+    case : str
+        start time as shown in the GIF titles of the quicklook
+    track_id : int
+        track_id within that block.
+    config : dict or str
+        Configuration dictionary or settings file.
+    view : {"both", "leader", "follower"}, optional
+        Which camera(s) to show, by default "both".
+    showLegend : bool, optional
+        If False, the GIF contains only the crop(s) and the html page only the
+        GIF - no title, camera labels or scale bar. By default True.
+    filterLikeQuicklook : bool, optional
+        By default all particles of the track are shown. True applies the same
+        filters as the quicklook (minBlur, minSize, minMatchScore) 
+    fps : int, optional
+        Frames per second of the GIF.
+    upscale : int, optional
+        Nearest-neighbour upscaling factor for showLegend=False, by default 2.
+    keepGif : bool, optional
+        Also save the GIF itself next to the html, by default False.
+    fOut : str, optional
+        Output html path. "default" puts it next to the level1matchParticles
+        quicklook. May contain "{case}", "{track_id}" and "{view}".
+
+    Returns
+    -------
+    str
+        Path of the written html.
+    """
+    import base64
+    import html as _html
+    import re
+    import shutil
+    import tempfile
+
+    import pandas as pd
+    from PIL import Image
+
+    # ---- arguments -------------------------------------------------------------
+    if isinstance(config, str):
+        config = tools.readSettings(config)
+
+    digits = re.sub(r"\D", "", str(case))
+    if len(digits) != 14:
+        raise ValueError(
+            f"case needs date AND block start time (YYYYMMDD-HHMMSS), got {case!r}"
+        )
+    caseB = f"{digits[:8]}-{digits[8:]}"
+    track_id = int(track_id)
+    view = view.lower()
+    panels = []  # (label, camera name, camera index)
+    if view in ("both", "leader"):
+        panels.append(("Leader", config.leader, 0))
+    if view in ("both", "follower"):
+        panels.append(("Follower", config.follower, 1))
+    if len(panels) == 0:
+        raise ValueError(f"view must be 'both', 'leader' or 'follower', got {view!r}")
+
+    ff1 = files.FindFiles(caseB, config.leader, config, version=version)
+    if fOut == "default":
+        folder = os.path.dirname(ff1.quicklook.level1matchParticles)
+        suffix = "" if view == "both" else f"_{view}"
+        if not showLegend:
+            suffix += "_clean"
+        fOut = os.path.join(
+            folder, f"{config.site}_{caseB}_track{track_id}{suffix}.html"
+        )
+    else:
+        fOut = fOut.format(case=caseB, track_id=track_id, view=view)
+    title = f"site: {config.site} | case: {caseB} | track_id: {track_id}"
+
+    # ---- pair_ids of the track (level1track), ordered by track_step ------------
+    trackFiles = ff1.listFiles("level1track")
+    if len(trackFiles) == 0:
+        raise FileNotFoundError(f"no level1track file for {caseB}")
+    with xr.open_dataset(trackFiles[0]) as ds:
+        tid = ds["track_id"].values
+        step = ds["track_step"].values
+        pairIds = ds["pair_id"].values
+    inTrack = tid == track_id
+    if not inTrack.any():
+        raise ValueError(f"track_id {track_id} not found in {trackFiles[0]}")
+    pairIds, step = pairIds[inTrack], step[inTrack]
+    order = np.argsort(step, kind="stable")
+    pairIds, step = pairIds[order], step[order]
+    _, firstII = np.unique(pairIds, return_index=True)  # (rare) duplicates
+    keep = np.sort(firstII)
+    pairIds, step = pairIds[keep], step[keep]
+    if filterLikeQuicklook:  # quicklook only knows the first 40 track steps
+        pairIds = pairIds[np.isin(step, np.unique(step)[:40])]
+
+    # ---- pid / file_starttime per camera (level1match) -------------------------
+    matchFiles = ff1.listFiles("level1match")
+    if len(matchFiles) == 0:
+        raise FileNotFoundError(f"no level1match file for {caseB}")
+    with xr.open_dataset(matchFiles[0]) as ds:
+        dat = ds[["file_starttime", "Dmax", "blur", "matchScore"]].load()
+    present = np.isin(pairIds, dat.pair_id.values)
+    if (~present).any():
+        log.warning(
+            f"{(~present).sum()} pair_id(s) of track {track_id} not in level1match"
+        )
+    dat = dat.sel(pair_id=pairIds[present])
+
+    if filterLikeQuicklook:
+        qlCfg = config.get("level1BeautifulSnowflakesQuicklook", {}) or {}
+        minBlur = qlCfg.get("minBlur", 15)
+        minSize = qlCfg.get("minSize", 30)
+        good = (
+            (dat.blur > minBlur).all("camera")
+            & (dat.Dmax > minSize).all("camera")
+            & (dat.matchScore > config.quality.minMatchScore)
+        )
+        dat = dat.isel(pair_id=good.values)
+    if dat.sizes["pair_id"] == 0:
+        raise ValueError(f"no particles left for track {track_id} in {caseB}")
+    log.info(f"track {track_id} ({caseB}): {dat.sizes['pair_id']} particles")
+
+    # ---- load crops: every particle from its own block's image archive ---------
+    archives = {}  # (camera, block start) -> imageZipFile or None
+
+    def _archive(camera, st):
+        key = (camera, np.datetime64(st, "ns"))
+        if key not in archives:
+            archives[key] = None
+            blockCase = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
+            znames = files.FindFiles(
+                blockCase, camera, config, version=version
+            ).listFiles("imagesL1detect")
+            if len(znames) > 0:
+                try:
+                    archives[key] = tools.imageZipFile(znames[0], mode="r")
+                except (FileNotFoundError, tools.zipfile.BadZipFile):
+                    log.warning(f"cannot open {znames[0]}")
+        return archives[key]
+
+    frames = []  # list of [img per panel]
+    try:
+        for ii in range(dat.sizes["pair_id"]):
+            d = dat.isel(pair_id=ii)
+            imgs = []
+            for _, camera, cam in panels:
+                z = _archive(camera, d.file_starttime.isel(camera=cam).values)
+                if z is None:
+                    break
+                try:
+                    imgs.append(z.extractnpy("%07i" % int(d.pid.isel(camera=cam).values))[:, :, 0])
+                except KeyError:
+                    break
+            if len(imgs) == len(panels):
+                frames.append(imgs)
+    finally:
+        for z in archives.values():
+            if z is not None:
+                try:
+                    z.close()
+                except Exception:
+                    pass
+
+    nFrames = len(frames)
+    if nFrames == 0:
+        raise RuntimeError(f"no crops found for track {track_id} ({caseB})")
+
+    # center-pad all crops to a common shape (grey, like the quicklook)
+    allImgs = [img for f in frames for img in f]
+    H = max(img.shape[0] for img in allImgs)
+    W = max(img.shape[1] for img in allImgs)
+
+    def _pad(img):
+        dh, dw = H - img.shape[0], W - img.shape[1]
+        return np.pad(
+            img, ((dh // 2, dh - dh // 2), (dw // 2, dw - dw // 2)),
+            mode="constant", constant_values=150,
+        )
+
+    frames = [[_pad(img) for img in f] for f in frames]
+
+    with tempfile.TemporaryDirectory() as tmpDir:
+        gif = os.path.join(tmpDir, "track.gif")
+
+        # ---- GIF ---------------------------------------------------------------
+        if not showLegend:
+            # just the crop(s), pixel exact, white gap between leader | follower
+            sep = np.full((H, 4), 255, dtype=np.uint8)
+            out = []
+            for imgs in frames:
+                row = imgs[0]
+                for img in imgs[1:]:
+                    row = np.hstack([row, sep, img])
+                pil = Image.fromarray(row.astype(np.uint8))
+                if upscale > 1:
+                    pil = pil.resize(
+                        (pil.width * upscale, pil.height * upscale),
+                        Image.Resampling.NEAREST,
+                    )
+                out.append(pil)
+            out[0].save(gif, save_all=True, append_images=out[1:],
+                        duration=int(1000 / fps), loop=0)
+        else:
+            import matplotlib.pyplot as plt
+            from matplotlib.animation import FuncAnimation, PillowWriter
+
+            try:
+                from matplotlib_scalebar.scalebar import ScaleBar
+            except ImportError:
+                log.warning("matplotlib_scalebar not installed, GIF without scale bar")
+                ScaleBar = None
+
+            nP = len(panels)
+            fig, axes = plt.subplots(ncols=nP, figsize=(5 * nP, 5), squeeze=False)
+            axes = axes[0]
+            try:
+                plt.subplots_adjust(left=0, right=1, top=0.86, bottom=0, wspace=0.02)
+                ims = []
+                for ax, (label, _, _), img in zip(axes, panels, frames[0]):
+                    ims.append(ax.imshow(img, vmin=0, vmax=255, cmap="Greys_r"))
+                    ax.axis("off")
+                    ax.set_title(label, fontsize=15, pad=2)
+                fig.text(0.5, 0.98, title, ha="center", va="top",
+                         fontsize=15 if nP == 2 else 10)
+                if ScaleBar is not None:
+                    axes[0].add_artist(
+                        ScaleBar(1 / config.calibration.slope, "um",
+                                 length_fraction=0.25, box_color="grey")
+                    )
+
+                def animate(i):
+                    for im, img in zip(ims, frames[i]):
+                        im.set_data(img)
+                    return ims
+
+                ani = FuncAnimation(fig, animate, frames=nFrames, interval=200,
+                                    blit=False)
+                ani.save(gif, writer=PillowWriter(fps=fps))
+            finally:
+                plt.close(fig)
+
+        # ---- html (GIF base64-embedded -> self-contained) ----------------------
+        with open(gif, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+        img = f'<img src="data:image/gif;base64,{b64}" alt="{_html.escape(title)}">'
+        if showLegend:
+            body = f"<h1>{_html.escape(title)}</h1>\n{img}"
+            css = ("body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; }"
+                   " h1 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }"
+                   " img { display: block; width: 100%; max-width: 1000px; height: auto; }")
+        else:
+            body = img
+            css = ("body { margin: 0; }"
+                   " img { display: block; max-width: 100%; height: auto;"
+                   " image-rendering: pixelated; }")
+        doc = (
+            '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n'
+            f"<title>{_html.escape(title)}</title>\n"
+            f"<style> {css} body {{ background: #ffffff; }} </style></head>\n"
+            f"<body>\n{body}\n</body></html>"
+        )
+
+        tools.createParentDir(fOut, mode=config.dirMode)
+        written = [fOut]
+        try:
+            os.remove(fOut)
+        except FileNotFoundError:
+            pass
+        with open(fOut, "w", encoding="utf-8") as f:
+            f.write(doc)
+        if keepGif:
+            gifOut = os.path.splitext(fOut)[0] + ".gif"
+            shutil.copyfile(gif, gifOut)
+            written.append(gifOut)
+        for p in written:
+            try:
+                os.chmod(p, config.fileMode)
+            except PermissionError:
+                log.warning(f"chmod {config.fileMode} {p} failed")
+
+    print("SAVED ", fOut, f"({nFrames} frames)")
+    return fOut

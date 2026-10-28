@@ -62,7 +62,6 @@ quicklookLevelsComb = [
     "level2match",
     "level2track",
     "level3combinedRiming",
-    "level1BeautifulSnowflakes", # here i am unsure if I added this correctly
 ]
 imageLevels = ["imagesL1detect"]
 

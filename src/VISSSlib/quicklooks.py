@@ -4644,17 +4644,6 @@ def createLevel1QuicklookBeautifulSnowflakes(
 #####################################################################################
 # if you have found a beautiful snowflake, here is a function to retrieve the individual one
 
-import logging
-import os
-
-import numpy as np
-import xarray as xr
-
-from VISSSlib import __version__, files, tools
-
-log = logging.getLogger(__name__)
-
-
 def createSingleSnowflakeHtml(
     case,
     track_id,

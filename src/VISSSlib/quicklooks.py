@@ -4027,15 +4027,6 @@ def _trackParticlesSetting(config, key, value):
     return value
 
 
-def _trackParticlesPath(ff):
-    """
-    Output path of the track particles quicklook: an html file next to the
-    level1matchParticles quicklook.
-    """
-    base = os.path.splitext(ff.quicklook.level1matchParticles)[0]
-    return f"{base}_trackParticles.html"
-
-
 class _RoutedZip:
     """Routes every pid to its own block's archive."""
 
@@ -4460,7 +4451,7 @@ def createLevel1trackParticles(
     site = config["site"]
     ff = files.FindFiles(case, camera, config, version)
     if fOut == "default":
-        fOut = _trackParticlesPath(ff)
+        fOut = ff.quicklook.level1trackParticles
     else:
         fOut = fOut.format(case=case)
     date = f"{ff.year}-{ff.month}-{ff.day}"
@@ -4719,8 +4710,8 @@ def createLevel1trackParticlesSingle(
     keepGif : bool, optional
         Also save the GIF itself next to the html, by default False.
     fOut : str, optional
-        Output html path. "default" puts it next to the level1matchParticles
-        quicklook. May contain "{case}", "{track_id}" and "{view}".
+        Output html path. "default" puts it into the level1trackParticles
+        quicklook folder. May contain "{case}", "{track_id}" and "{view}".
 
     Returns
     -------
@@ -4758,7 +4749,7 @@ def createLevel1trackParticlesSingle(
 
     ff1 = files.FindFiles(caseB, config.leader, config, version=version)
     if fOut == "default":
-        folder = os.path.dirname(ff1.quicklook.level1matchParticles)
+        folder = os.path.dirname(ff1.quicklook.level1trackParticles)
         suffix = "" if view == "both" else f"_{view}"
         if not showLegend:
             suffix += "_clean"

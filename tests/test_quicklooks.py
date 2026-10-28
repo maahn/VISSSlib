@@ -72,15 +72,19 @@ class TestTrackParticlesUnit(object):
         assert quicklooks._trackParticlesSetting(config, "minSize", "config") == 30
 
     @pytest.mark.unit
-    def test_trackParticlesPath(self, tmp_path):
+    def test_trackParticlesQuicklookPath(self, tmp_path):
         from helpers import makeSyntheticConfig
-        from VISSSlib import files, quicklooks
+        from VISSSlib import files
 
         config = makeSyntheticConfig(tmp_path)
         ff = files.FindFiles("20260110", config.leader, config)
-        fOut = quicklooks._trackParticlesPath(ff)
-        assert fOut.endswith("_trackParticles.html")
-        assert "20260110" in fOut
+        fOut = ff.quicklook.level1trackParticles
+        assert "/level1trackParticles/2026/" in fOut
+        assert os.path.basename(fOut).startswith("level1trackParticles_V1_test_")
+        assert fOut.endswith("_20260110.html")
+        assert ff.quicklookCurrent.level1trackParticles.endswith("_current.html")
+        # the other quicklooks stay png
+        assert ff.quicklook.level1matchParticles.endswith(".png")
 
     @pytest.mark.unit
     def test_routedZip(self):

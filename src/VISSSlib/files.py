@@ -54,6 +54,7 @@ quicklookLevelsSep = [
     "level1detect",
     "level1match",
     "level1matchParticles",
+    "level1trackParticles",  # html instead of png
     # "level1shape",
     "metaRotation",
     "level2detect",
@@ -63,6 +64,7 @@ quicklookLevelsComb = [
     "level2track",
     "level3combinedRiming",
 ]
+htmlQuicklookLevels = ["level1trackParticles"]
 imageLevels = ["imagesL1detect"]
 
 
@@ -442,6 +444,12 @@ class FindFiles(object):
             self.quicklookCurrent[
                 qL
             ] = f"{config['pathQuicklooks'].format(version=self.versionShort,site=config['site'], level=qL)}/{qL}_{config['site']}_{nicerNames(self.camera).split('_')[0]}_current.png"
+        # the track particles quicklook is an html page with animated GIFs
+        for qL in htmlQuicklookLevels:
+            self.quicklook[qL] = self.quicklook[qL].replace(".png", ".html")
+            self.quicklookCurrent[qL] = self.quicklookCurrent[qL].replace(
+                ".png", ".html"
+            )
         for qL in quicklookLevelsComb:
             if self.hour == "":
                 self.quicklook[

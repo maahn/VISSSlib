@@ -61,8 +61,9 @@ that were tracked best on a given day as animated GIFs (leader | follower side
 by side, one frame per track step), arranged in a single, self-contained HTML
 page (the GIFs are base64-embedded). It is called by
 :func:`VISSSlib.distributions.createLevel2track` when ``doPlot=True`` and
-writes ``level1matchParticles_..._trackParticles.html`` next to the
-``level1matchParticles`` quicklook.
+writes the HTML page ``level1trackParticles/<year>/level1trackParticles_V1_<site>_<camera>_<YYYYMMDD>.html``
+into the quicklook folder (``files.quicklookLevelsSep``, but ``.html`` instead
+of ``.png``).
 
 How the tracks are chosen:
 

@@ -13,7 +13,7 @@ Install PIP dependencies
 
 .. code:: console
 
-    pip install image-packer flatten_dict pyOptimalEstimation vg manifold3d==2.2.2
+    pip install image-packer matplotlib-scalebar flatten_dict pyOptimalEstimation vg manifold3d==2.2.2
 
 Clone the library with 
 

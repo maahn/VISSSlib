@@ -53,6 +53,65 @@ objects directly rather than requiring each image to exist as a file on
 disk first, since packing tens of thousands of already-in-memory particle
 crops through a temp-file round trip would be wasteful.
 
+Track particles (``createLevel1trackParticles``)
+-----------------------------------------------------
+
+:func:`VISSSlib.quicklooks.createLevel1trackParticles` shows the particles
+that were tracked best on a given day as animated GIFs (leader | follower side
+by side, one frame per track step), arranged in a single, self-contained HTML
+page (the GIFs are base64-embedded). It is called by
+:func:`VISSSlib.distributions.createLevel2track` when ``doPlot=True`` and
+writes ``level1matchParticles_..._trackParticles.html`` next to the
+``level1matchParticles`` quicklook.
+
+How the tracks are chosen:
+
+1. Every ``level1match`` file of the day is read (first 30000 particles per
+   file) and particles are kept that pass ``minBlur``, ``minSize`` (both
+   cameras) and ``config.quality.minMatchScore``.
+2. The ``level1match`` particles are linked to their track via the
+   ``level1track`` files (``pair_id`` -> ``track_id``). Particles that are not
+   part of a track and tracks shorter than ``minTrackLength`` are dropped.
+3. Each track gets a score between 0 and 1, the weighted mean of the
+   min-max normalized track length, mean blur and mean Dmax
+   (``weightTrackLength``, ``weightBlur``, ``weightDmax``).
+4. Starting from the best track, GIFs are rendered until ``targetGifs`` GIFs
+   exist. Tracks for which the particle images are missing (images are only
+   stored for a subset of the particles, see ``imagesL1detect``) or which
+   have fewer than ``minRenderedFrames`` images are skipped and replaced by
+   the next best track, looking at most at
+   ``targetGifs * candidateMultiplier`` tracks.
+
+The defaults can be set in the settings file (see :doc:`config_files`):
+
+.. code:: yaml
+
+    level1trackParticlesQuicklook:
+      minBlur: 15
+      minSize: 30
+      minTrackLength: 5
+      minRenderedFrames: 3
+      targetGifs: 10
+
+If no track passes the filters, the HTML page states so instead of showing
+GIFs. Like the other quicklooks, nothing is done if the output is newer than
+``level1match``, ``level1track``, ``metaEvents`` and ``level0``
+(``skipExisting=True``) or if the ``level1match`` data are not complete yet.
+Unlike the other quicklooks, the return value is
+``(html file, number of GIFs)``. The scale bar in the GIFs requires
+``matplotlib-scalebar``.
+
+A track that looks interesting in the quicklook (the GIF title contains the
+site, the block start time and the ``track_id``) can be exported on its own with
+:func:`VISSSlib.quicklooks.createLevel1trackParticlesSingle`, optionally for
+only one camera and without any annotations:
+
+.. code:: python
+
+    VISSSlib.quicklooks.createLevel1trackParticlesSingle(
+        "20250115-023000", 2421, config, view="both", showLegend=True
+    )
+
 ``VISSSlib.quicklooks`` API
 -------------------------------
 

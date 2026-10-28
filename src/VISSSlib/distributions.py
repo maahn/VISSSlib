@@ -345,6 +345,9 @@ def createLevel2track(
     if doPlot:
         print(f"Running createLevel2trackQuicklook for {case}")
         quicklooks.createLevel2trackQuicklook(case, config, skipExisting=skipExisting)
+        quicklooks.createLevel1trackParticles(
+            case, config, skipExisting=skipExisting
+        )
 
     return out
 

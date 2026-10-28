@@ -340,6 +340,13 @@ DEFAULT_SETTINGS = {
         "trainingSize": 100,
         "writeImg": True,
     },
+    "level1trackParticlesQuicklook": {
+        "minBlur": 15,
+        "minSize": 30,
+        "minTrackLength": 5,
+        "minRenderedFrames": 3,
+        "targetGifs": 10,
+    },
     "level1detectQuicklook": {
         "minBlur": 500,
         "minSize": 10,

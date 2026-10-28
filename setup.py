@@ -48,6 +48,7 @@ setuptools.setup(
         "xarray-extras",
         "ninja",
         "image-packer",
+        "matplotlib-scalebar",
         "flatten_dict",
         "pyOptimalEstimation",
         "vg",

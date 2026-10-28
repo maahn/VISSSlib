@@ -1633,6 +1633,120 @@ def _mosaicDenseBlockLags(
     return out
 
 
+def _mosaicRefineRowLags(
+    rows,
+    lPart,
+    lPSeg,
+    lPU,
+    fPart,
+    fPSeg,
+    fPU,
+    frameWidth,
+    stepMinutes=1.0,
+    windowMinutes=3.0,
+    halfRange=1,
+    minZ=8.0,
+    minRatio=1.5,
+    minExcess=100,
+    maxDzDiff=10.0,
+    cache=None,
+):
+    """
+    Minute-level check of the lag of resolved rows. The lag found per 10 min
+    block and interpolated between the block centres puts the single-frame
+    steps of the (drifting) lag a few minutes off; in the minutes in between
+    the lag is a frame wrong and almost no particles match (SAIL 20230104:
+    87% of the minutes with little matching lie within 3 min of a step).
+
+    Every stepMinutes piece of each resolved row is tested with the dense lag
+    test (windowMinutes of follower capture_time around the piece, candidates
+    lag +- halfRange, rotation of the row if it has one). The lag of a piece
+    is replaced if the best candidate is decisive (z >= minZ, minRatio times
+    the second best, at least minExcess pairs in the peak, vertical offset within maxDzDiff of the rows without
+    rotation); otherwise the lag stays. Neighbouring pieces with the same lag
+    are merged.
+    """
+    P = MOSAIC_CAPTURE_ID_PERIOD
+    step = int(stepMinutes * 60_000_000)
+    half = int(windowMinutes * 60_000_000 / 2)
+    # vertical offset of the cameras for the rows without rotation
+    dz = [
+        r["dz_median"]
+        for r in rows
+        if r["resolved"]
+        and (not r["rotated"])
+        and np.isfinite(r["dz_median"])
+        and (r["n_pairs"] >= 300)
+    ]
+    dzRef = float(np.median(dz)) if len(dz) > 0 else None
+    out = []
+    for r in rows:
+        dur = r["fct_end"] - r["fct_start"]
+        rotate = None
+        if (not r["resolved"]) or (dur + 1 < step // 2) or (lPart is None) or (fPart is None):
+            out.append(r)
+            continue
+        if r["rotated"]:
+            if not np.isfinite(r["rot_Ofz"]):
+                out.append(r)  # rotation of the day, not available here
+                continue
+            rotate = dict(
+                camera_Ofz=r["rot_Ofz"],
+                camera_phi=r["rot_phi"],
+                camera_theta=r["rot_theta"],
+            )
+        edges = np.arange(int(r["fct_start"]), int(r["fct_end"]) + 1, step)
+        edges = np.append(edges, int(r["fct_end"]) + 1)
+        cur = None
+        for e0, e1 in zip(edges[:-1], edges[1:]):
+            lag = int(r["lag"])
+            tc = (int(e0) + int(e1)) // 2
+            found = _mosaicDenseLagTest(
+                lPart,
+                lPSeg,
+                lPU,
+                r["lsegment"],
+                fPart,
+                fPSeg,
+                fPU,
+                r["fsegment"],
+                list(range(lag - halfRange, lag + halfRange + 1)),
+                rotate=rotate,
+                frameWidth=frameWidth,
+                cache=cache,
+                fWindow=(tc - half, tc + half),
+            )
+            if (
+                (found is not None)
+                and (found["z"] >= minZ)
+                and (found["z"] >= minRatio * max(found["z2nd"], 1.0))
+                and (found["excess"] >= minExcess)
+                and (
+                    (rotate is not None)
+                    or (dzRef is None)
+                    or (abs(found["dz"] - dzRef) < maxDzDiff)
+                )
+            ):
+                lag = int(found["lag"])
+            if (cur is not None) and (cur["lag"] == lag):
+                cur["fct_end"] = int(e1) - 1
+                continue
+            if cur is not None:
+                out.append(cur)
+            cur = dict(r)
+            cur.update(
+                {
+                    "fct_start": int(e0),
+                    "fct_end": int(e1) - 1,
+                    "lag": lag,
+                    "lag_mod": lag % P,
+                }
+            )
+        if cur is not None:
+            out.append(cur)
+    return out
+
+
 def _mosaicRotationGridSearch(lx, lz, fy, fz, phis, thetas, binw=1.0, win=2):
     """
     Camera rotation that makes most pairs agree: for each (phi, theta) of a
@@ -1952,6 +2066,7 @@ def createMosaicFrameMapping(
     denseBlockLags=True,
     minDenseZ=10.0,
     minDenseZRatio=2.0,
+    fineLags=False,
 ):
     """
     Determine, for one day, the exact follower -> leader capture_id mapping
@@ -2016,6 +2131,10 @@ def createMosaicFrameMapping(
         lag with the right vertical offset but not decisively (the lag drifts
         within the segment) are split into 10 min blocks, see
         _mosaicDenseBlockLags
+    fineLags : bool
+        Re-test the lag of the resolved rows minute by minute and move the
+        single-frame steps of the lag to where the particles show them, see
+        _mosaicRefineRowLags
     blockLags : bool
         Last resort for long unresolved segments: lag per time block with the
         rotation of the day (or the config prior), see _mosaicBlockLags
@@ -2624,6 +2743,19 @@ def createMosaicFrameMapping(
                     newRows.append(cur)
             rows[:] = newRows
 
+        if fineLags and (lPart is not None) and (fPart is not None):
+            rows[:] = _mosaicRefineRowLags(
+                rows,
+                lPart,
+                lPSeg,
+                lPU,
+                fPart,
+                fPSeg,
+                fPU,
+                config.frame_width,
+                cache=cache,
+            )
+
         # clock offset between the cameras: capture_time of a follower frame
         # minus capture_time of the same frame of the leader. The clocks of
         # the cameras are ~1-2 s apart and drift ~28 ppm, so follower
@@ -2935,6 +3067,30 @@ def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
     if len(starts) > 0:
         starts = np.concatenate(starts)
         ends = np.concatenate(ends)
+    # files processed without the frame mapping (fallback) are not unmapped
+    fStart, fEnd = [], []
+    if bool(config.mosaicFrameMappingFallback):
+        from . import files as _files
+
+        try:
+            for fn in _files.FindFiles(case, config.leader, config).listFiles(
+                "level1match"
+            ):
+                if not fn.endswith(".nc"):
+                    continue
+                with xr.open_dataset(fn, decode_times=False) as dsf:
+                    isFallback = dsf.attrs.get("mosaicFrameMapping", "") == "fallback"
+                if isFallback:
+                    t0 = pd.Timestamp(
+                        os.path.basename(fn).split("_")[-1][:15].replace("-", "T")
+                    ).to_datetime64()
+                    fStart.append(t0)
+                    fEnd.append(t0 + np.timedelta64(int(config.newFileInt), "s"))
+        except Exception as e:
+            log.warning(f"mosaicUnmappedTimes: fallback files not checked: {e}")
+    if len(fStart) > 0:
+        starts = np.concatenate([np.atleast_1d(starts), np.array(fStart)]) if len(starts) > 0 else np.array(fStart)
+        ends = np.concatenate([np.atleast_1d(ends), np.array(fEnd)]) if len(ends) > 0 else np.array(fEnd)
     binStart = timeIndex.values.astype("datetime64[ns]")
     binEnd = binStart + np.timedelta64(int(freqS * 1e9), "ns")
     covered = np.zeros(len(binStart))

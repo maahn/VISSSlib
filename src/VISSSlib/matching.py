@@ -2432,8 +2432,12 @@ def _newfileEventsAt(events, times):
     return newfile.sel(file_starttime=times, method="ffill")
 
 
-@log.catch(reraise=True)
-def matchParticles(
+class _MosaicFallback(Exception):
+    """raised inside the mapping variant of matchParticles to request the
+    variant without frame mapping (see matchParticles)"""
+
+
+def _matchParticlesImpl(
     fnameLv1Detect,
     config,
     y_cov_diag=1.65**2,
@@ -2456,6 +2460,8 @@ def matchParticles(
     subset=None,
     maxIter=30,
     skipExisting=True,
+    _fallbackMode=False,
+    _canFallback=False,
 ):
     """
     Match particles between leader and follower cameras.
@@ -2743,6 +2749,7 @@ def matchParticles(
             skipFixes=["captureIdOverflows"] if mosaicFrameMapping else [],
             datVars=datVars4load,
         )  # with foxes
+        nFollowerRaw = 0 if follower1DAll is None else len(follower1DAll.fpid)
         if mosaicFrameMapping and (follower1DAll is not None):
             # follower capture_id -> leader capture_id of the same frame,
             # see fixes.createMosaicFrameMapping
@@ -2777,6 +2784,10 @@ def matchParticles(
     follower1DAll = tools.removeBlockedBlowingData(follower1DAll, fEvents, config)
 
     if follower1DAll is None:
+        if _canFallback and mosaicFrameMapping and (not rotationOnly):
+            raise _MosaicFallback(
+                f"no follower data after removal of blocked data {fname1Match}"
+            )
         if not rotationOnly:
             ffl1.writeStatus(
                 "level1match",
@@ -3074,6 +3085,8 @@ def matchParticles(
                     log.warning(f"error in {errRatio*100}% of the data")
 
     if len(matchedDats) == 0:
+        if _canFallback and mosaicFrameMapping and (not rotationOnly):
+            raise _MosaicFallback(f"no matched particles {fname1Match}")
         ffl1.writeStatus("level1match", "nodata", "no data")
         log.error(tools.concat("NO DATA", fname1Match))
 
@@ -3098,6 +3111,21 @@ def matchParticles(
         matchedDats["pair_id"] = range(len(matchedDats["pair_id"]))
 
     nPairs = len(matchedDats["pair_id"])
+    if (
+        _canFallback
+        and mosaicFrameMapping
+        and (not rotationOnly)
+        and (min(nLeader, nFollowerRaw) >= 1000)
+        and (nPairs < 0.02 * min(nLeader, nFollowerRaw))
+    ):
+        # a few chance matches are no match: with the frame mapping (almost)
+        # nothing of the particles of the file was paired (mapping row
+        # unresolved or wrong, follower particles dropped), treat like
+        # "no matched particles"; counts are before the mapping removed
+        # follower particles
+        raise _MosaicFallback(
+            f"only {nPairs} pairs of {nLeader}/{nFollowerRaw} particles {fname1Match}"
+        )
     if nPairs > config.newFileInt:  # i.e at least one match per second
         matchScoreMedian = matchedDats.matchScore.median().values
         if matchScoreMedian < config.quality.minMatchScore:
@@ -3318,6 +3346,8 @@ def matchParticles(
         ),
     )
 
+    if _fallbackMode:
+        matchedDats.attrs["mosaicFrameMapping"] = "fallback"
     matchedDats["fitMethod"] = matchedDats.fitMethod.astype("U30")
     matchedDats["dim2D"] = matchedDats.dim2D.astype("U2")
     matchedDats["dim3D"] = matchedDats.dim3D.astype("U9")
@@ -3341,6 +3371,80 @@ def matchParticles(
         len(matchedDats.pair_id),
         errors,
     )
+
+
+
+def _mosaicFallbackConfig(config):
+    """copy of config without the dataFix mosaicFrameMapping (old method),
+    plus the fixes the old method needs (setting mosaicFallbackFixes)"""
+    import copy
+
+    legacy = copy.deepcopy(config)
+    fixesList = [f for f in config.dataFixes if f != "mosaicFrameMapping"]
+    for f in config.mosaicFallbackFixes or []:
+        if f not in fixesList:
+            fixesList.append(f)
+    legacy.dataFixes = fixesList
+    return legacy
+
+
+@log.catch(reraise=True)
+def matchParticles(*args, **kwargs):
+    """
+    Match the particles of one level1detect file of the leader with the
+    follower (level1match). Arguments: see _matchParticlesImpl.
+
+    With the dataFix mosaicFrameMapping and the setting
+    mosaicFrameMappingFallback the file is processed with the frame mapping
+    first; if that fails (no follower data left, no matched particles, Z
+    residual too wide, ...) it is processed once more WITHOUT the frame mapping
+    (old method plus the fixes of mosaicFallbackFixes). The output of such a
+    file carries the attribute mosaicFrameMapping="fallback", which level2 uses
+    not to treat its time as unmapped.
+    """
+    import inspect
+
+    bound = inspect.signature(_matchParticlesImpl).bind(*args, **kwargs)
+    bound.apply_defaults()
+    p = dict(bound.arguments)
+    config = p["config"]
+    if type(config) is str:
+        config = tools.readSettings(config)
+        p["config"] = config
+    can = (
+        (not p["rotationOnly"])
+        and (not p["offsetsOnly"])
+        and (p["subset"] is None)
+        and (not p["testing"])
+        and (not p["_fallbackMode"])
+        and bool(config.mosaicFrameMappingFallback)
+        and fixes.mosaicMappingActive(config, p["fnameLv1Detect"])
+    )
+    if not can:
+        return _matchParticlesImpl(**p)
+    p["_canFallback"] = True
+    try:
+        return _matchParticlesImpl(**p)
+    except Exception as e:
+        log.warning(
+            f"{p['fnameLv1Detect']}: frame mapping variant failed ({e}); "
+            "trying the variant without frame mapping"
+        )
+    # leftovers of the first attempt (status files) must not stay next to the
+    # result of the second one
+    try:
+        fname1Match = files.FilenamesFromLevel(p["fnameLv1Detect"], config).fname[
+            "level1match"
+        ]
+        for suffix in [".nodata", ".broken.txt"]:
+            if os.path.isfile(fname1Match + suffix):
+                os.remove(fname1Match + suffix)
+    except Exception:
+        pass
+    p["config"] = _mosaicFallbackConfig(config)
+    p["_fallbackMode"] = True
+    p["_canFallback"] = False
+    return _matchParticlesImpl(**p)
 
 
 @tools.loopify
@@ -3517,6 +3621,7 @@ def createMetaRotation(
             searchRotation=True,
             blockLags=True,
             denseLags=True,
+            fineLags=True,
         )
         # The last file(s) of the day also need the NEXT day's mapping
         # (fixes.mosaicFollowerCaptureIdToLeader looks up capture_time +- 10 s,
@@ -3542,6 +3647,7 @@ def createMetaRotation(
                     searchRotation=True,
                     blockLags=True,
                     denseLags=True,
+                    fineLags=True,
                 )
         except Exception as e:
             log.warning(f"could not precompute next day's frame mapping: {e}")

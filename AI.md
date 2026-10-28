@@ -128,6 +128,22 @@ if not, generates the shell commands needed to (re)produce them
 directly or push them onto the task queue. When adding a new product/level, you must wire
 it into this `parentNames` block and into the module dispatch table in `__main__.py`.
 
+### Frame mapping and per-file fallback (non-triggered cameras)
+
+For deployments with `mosaicFrameMapping` in `dataFixes` (mosaic_v1, hyytiala_v1,
+gochang_v1, sail_v1), `fixes.createMosaicFrameMapping` builds a daily
+`metaFrameMapping` (lag per follower run, tracked block by block because the lag
+drifts, ghost frames, clock-offset knots). It is built inside `createMetaRotation`
+and is a **hidden parent of level1match** (not in `LEVEL_REGISTRY`): after rebuilding
+it, touch that day's metaRotation (`tools.touchOutputFile`) so children are regenerated.
+`matching.matchParticles` is a thin wrapper around `_matchParticlesImpl`: with
+`mosaicFrameMappingFallback: true` a file whose mapping variant fails is retried once
+without the mapping (plus `mosaicFallbackFixes`); the output gets the attribute
+`mosaicFrameMapping="fallback"` and `fixes.mosaicUnmappedTimes` (level2 flag) respects it.
+`mosaicFrameMappingExclude` takes days out of the mapping altogether; use
+`fixes.mosaicMappingActive(config, case_or_filename)` instead of testing `dataFixes` directly.
+Do not combine with `captureIdOverflows` for 32-bit capture ids.
+
 ### Module map
 
 - `files.py` — filename patterns and path resolution per level (`FindFiles`,

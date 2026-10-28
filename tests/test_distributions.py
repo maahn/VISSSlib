@@ -7,6 +7,7 @@ import xarray as xr
 from VISSSlib.distributions import *
 from VISSSlib.distributions import (
     _applyBlurThreshold,
+    _sharpTailBlur,
     _blurThreshold,
     _preprocess,
     _selectAtMaxArea,
@@ -511,3 +512,77 @@ class TestVolume(object):
         V = VISSSlib.distributions._estimateVolume(width, height, phi, theta, Of_z)
 
         assert np.isclose(V, width * width * height)
+
+
+class TestBlurScale:
+    """Unit tests for the blur scale used to compensate a camera with lower contrast
+    (distributions._sharpTailBlur, _applyBlurThreshold(blurScale=...))."""
+
+    @pytest.mark.unit
+    def test_sharpTailBlur_uses_75th_percentile_of_8_to_16_px(self):
+        rng = np.random.default_rng(0)
+        dmax = np.concatenate([np.full(1000, 10.0), np.full(1000, 30.0)])
+        blur = np.concatenate([np.linspace(1, 1001, 1000), np.full(1000, 1e6)])
+        value, n = _sharpTailBlur(dmax, blur)
+        assert n == 1000
+        assert value == pytest.approx(np.percentile(np.linspace(1, 1001, 1000), 75))
+
+    @pytest.mark.unit
+    def test_sharpTailBlur_too_few_particles_returns_nan(self):
+        value, n = _sharpTailBlur(np.full(10, 10.0), np.full(10, 100.0))
+        assert n == 10
+        assert np.isnan(value)
+
+    @pytest.mark.unit
+    def test_applyBlurThreshold_blurScale_lowers_threshold(self):
+        config = types.SimpleNamespace(visssGen="visss")
+        thresh = _blurThreshold("visss")
+        # blur is 40% below the table: dropped as is, kept once the threshold is scaled by 0.5
+        level1dat = xr.Dataset(
+            {
+                "Dmax": ("pair_id", np.array([10.0])),
+                "blur": ("pair_id", np.array([0.6 * thresh[10]])),
+            },
+            coords={"pair_id": np.arange(1)},
+        )
+        assert _applyBlurThreshold(level1dat.copy(), config, "dummy.nc") is None
+        result = _applyBlurThreshold(level1dat.copy(), config, "dummy.nc", blurScale=0.5)
+        assert result is not None and len(result.pair_id) == 1
+
+    @pytest.mark.unit
+    def test_sharpTailBlur_excludes_glints(self):
+        # 500 sharp particles plus 3500 blurry sun glints: the glints would pull
+        # the 75th percentile down unless they are excluded
+        dmax = np.full(4000, 10.0)
+        blur = np.concatenate([np.full(500, 1000.0), np.full(3500, 100.0)])
+        glint = np.concatenate([np.zeros(500, bool), np.ones(3500, bool)])
+        assert _sharpTailBlur(dmax, blur)[0] == pytest.approx(100.0)
+        value, n = _sharpTailBlur(dmax, blur, exclude=glint)
+        assert n == 500
+        assert value == pytest.approx(1000.0)
+
+
+class TestSunGlintFlag:
+    @pytest.mark.unit
+    def test_unpackQualityFlags_includes_sunGlint_and_old_files_stay_valid(self):
+        import pandas as pd
+        from VISSSlib import tools
+
+        time = pd.date_range("2025-04-25", periods=3, freq="1min")
+        # seven flags as in files created before the sunGlint bit: highest bit unused
+        old = np.packbits(
+            np.array([[0, 0, 0, 1, 0, 0, 0], [0, 0, 0, 0, 0, 0, 1], [0] * 7], dtype=bool),
+            axis=-1,
+        ).squeeze()
+        q = tools.unpackQualityFlags(xr.DataArray(old, coords=[time], dims=["time"]))
+        assert list(q.flag.values)[-1] == "sunGlint"
+        assert int(q.sel(flag="sunGlint").sum()) == 0
+        assert int(q.sel(flag="blowingSnow").sum()) == 1
+        assert int(q.sel(flag="zResidualTooWide").sum()) == 1
+
+        new = np.packbits(
+            np.array([[0] * 7 + [1], [0] * 8, [1] + [0] * 7], dtype=bool), axis=-1
+        ).squeeze()
+        q = tools.unpackQualityFlags(xr.DataArray(new, coords=[time], dims=["time"]))
+        assert q.sel(flag="sunGlint").values.tolist() == [1, 0, 0]
+        assert q.sel(flag="recordingFailed").values.tolist() == [0, 0, 1]

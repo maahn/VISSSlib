@@ -2182,22 +2182,22 @@ def collectVersionAttrs(level, parentFiles):
     Build version-provenance attrs for `finishNc`'s `extra=`.
 
     Records this level's own __version__ under "{level}_version",
-    plus every "*_version"/"*_versions" attr already recorded on each
+    plus every ``*_version``/``*_versions`` attr already recorded on each
     direct parent's files, folded forward under its own key -- so the
     whole ancestor chain (e.g. level1detect -> level1match ->
     level1track -> level2track) accumulates without each level needing
     to know its grandparents. If a parent's underlying files disagree
     (e.g. partial reprocessing), the key becomes the plural
-    "*_versions" form with a sorted, comma-joined list of the distinct
+    ``*_versions`` form with a sorted, comma-joined list of the distinct
     values seen.
 
     A direct parent file that predates this feature entirely (no
-    "*_version" attrs of its own at all -- the case for every existing
+    ``*_version`` attrs of its own at all -- the case for every existing
     level1detect file, since reprocessing level1detect is not
     feasible and it will never gain a clean "level1detect_version" attr
     on its own) falls back to parsing its "history" attr (every file
     already gets one from `ncAttrs`, of the form "...created with
-    VISSSlib X.Y.Z..."), so the chain still records *something* for
+    VISSSlib X.Y.Z..."), so the chain still records "something"* for
     that ancestor instead of silently dropping it forever.
 
     Parameters
@@ -2207,7 +2207,7 @@ def collectVersionAttrs(level, parentFiles):
     parentFiles : dict of str -> list of str
         Maps each DIRECT parent level name to the already-produced
         file(s) of that level this product was built from, e.g.
-        {"level1detect": [leaderFile, *followerFiles]} for level1match,
+        {"level1detect": [leaderFile, followerFile]} for level1match,
         or {"level1track": [...], "level2match": [...]} for
         level2track. The level name is only used for the "history"
         fallback above (a file that already carries its own clean

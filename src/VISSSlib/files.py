@@ -94,6 +94,7 @@ def findLastFile(config, prod, camera, beforeCase=None):
     -------
     tuple
         Tuple containing:
+
         - foundLastFile: bool indicating if last file was found
         - lastCase: str, the last *complete* case found (not
           necessarily the case lastFile/lastFileTime belong to -- a

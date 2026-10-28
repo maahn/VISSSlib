@@ -28,8 +28,6 @@ Maahn, M., D. Moisseev, I. Steinke, N. Maherndl, and M. D. Shupe, 2024: Introduc
    metadata
    av
    detection
-   metaRotation
-   matching
    tracking
    distributions
    level3

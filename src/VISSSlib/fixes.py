@@ -2073,6 +2073,7 @@ def createMosaicFrameMapping(
     for every combination of leader and follower camera run.
 
     For every overlap of a leader run and a follower run:
+
     1. first guess of the lag from record_time (median over the overlap),
     2. clock-independent check by cross correlating the per-frame "anything
        moving" signal of both cameras,

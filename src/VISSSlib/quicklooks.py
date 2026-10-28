@@ -4014,45 +4014,26 @@ def createLevel3RimingQuicklook(
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level3combinedRiming"))
     return fig
 
-################################################################################################################################
-# Jakob's HiWi Projekt: Make Gifs of Beautiful snowflakes:)
-# ->animated GIFs of the best-scored particle tracks of a day, laid out in an HTML grid.
+
+################################################################################
+# Track particles quicklook: animated GIFs of the best-scored particle tracks of
+# a day (leader | follower), laid out in an HTML grid.
 
 
-# fallback values (used when neither the yaml nor tools.DEFAULT_SETTINGS has a "level1BeautifulSnowflakesQuicklook" section (keep in sync with DEFAULT_SETTINGS)
-_BEAUTIFUL_SNOWFLAKES_DEFAULTS = {
-    "minBlur": 15,
-    "minSize": 30,
-    "minTrackLength": 5,
-    "minRenderedFrames": 3,
-    "targetGifs": 10,
-}
+def _trackParticlesSetting(config, key, value):
+    """Resolve a "config" parameter value for the track particles quicklook."""
+    if isinstance(value, str) and value == "config":
+        return config["level1trackParticlesQuicklook"][key]
+    return value
 
 
-def _beautifulSnowflakesSetting(config, key, value):
-    """Resolve a "config" parameter value for the beautiful snowflakes quicklook."""
-    if not (isinstance(value, str) and value == "config"):
-        return value
-    try:
-        return config["level1BeautifulSnowflakesQuicklook"][key]
-    except KeyError:
-        return _BEAUTIFUL_SNOWFLAKES_DEFAULTS[key]
-
-
-def _beautifulSnowflakesPath(ff):
+def _trackParticlesPath(ff):
     """
-    Output path of the beautiful snowflakes quicklook. Uses the files.py entry
-    "level1BeautifulSnowflakes" if it exists, otherwise puts the html next to
-    the level1matchParticles quicklook.
+    Output path of the track particles quicklook: an html file next to the
+    level1matchParticles quicklook.
     """
-    try:
-        fOut = ff.quicklook["level1BeautifulSnowflakes"]
-        if isinstance(fOut, str) and len(fOut) > 0:
-            return fOut
-    except (KeyError, AttributeError, TypeError):
-        pass
     base = os.path.splitext(ff.quicklook.level1matchParticles)[0]
-    return f"{base}_beautifulSnowflakes.html"
+    return f"{base}_trackParticles.html"
 
 
 class _RoutedZip:
@@ -4080,16 +4061,29 @@ def _archiveFor(st, camera, config, cache, version=__version__):
         return cache[key]
     caseB = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
     ff1 = files.FindFiles(caseB, camera, config, version=version)
-    znames = ff1.listFiles("imagesL1detect")  # EXACT block, single archive
+    znames = ff1.listFiles("imagesL1detect")  # EXACT block
     if len(znames) == 0:
         cache[key] = None
     else:
+        # as in createLevel1matchParticlesQuicklook: several versions of the
+        # archive can exist, use the canonical name for the current version
+        zname = files.FilenamesFromLevel(znames[0], config).fname.imagesL1detect
         try:
-            cache[key] = tools.imageZipFile(znames[0], mode="r")
+            cache[key] = tools.imageZipFile(zname, mode="r")
         except (FileNotFoundError, tools.zipfile.BadZipFile):
-            log.warning(f"cannot open {znames[0]}")
+            log.warning(f"cannot open {zname}")
             cache[key] = None
     return cache[key]
+
+
+def _closeArchives(cache):
+    """Close all image archives opened by _archiveFor."""
+    for handle in cache.values():
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
 
 
 def _routedZips(trackDat, config, cache, version=__version__):
@@ -4172,14 +4166,27 @@ def _padToCommonShape(images, padding_value=150):
             (width_diff // 2, width_diff - width_diff // 2),
         )
         padded.append(
-            np.pad(img, pad_width=pad_width_2d, mode="constant",
-                   constant_values=padding_value)
+            np.pad(
+                img,
+                pad_width=pad_width_2d,
+                mode="constant",
+                constant_values=padding_value,
+            )
         )
     return padded
 
 
-def _renderTrackGif(trackDat, zLeader, zFollower, title, fOut, config,
-                    fps=4, minRenderedFrames=3, ScaleBar=None):
+def _renderTrackGif(
+    trackDat,
+    zLeader,
+    zFollower,
+    title,
+    fOut,
+    config,
+    fps=4,
+    minRenderedFrames=3,
+    ScaleBar=None,
+):
     """
     Animate one track (leader | follower side by side) and save it as GIF.
 
@@ -4221,8 +4228,12 @@ def _renderTrackGif(trackDat, zLeader, zFollower, title, fOut, config,
         if ScaleBar is not None:
             # pixel size in um, same calibration as the quicklook title
             ax1.add_artist(
-                ScaleBar(1 / config.calibration.slope, "um",
-                         length_fraction=0.25, box_color="grey")
+                ScaleBar(
+                    1 / config.calibration.slope,
+                    "um",
+                    length_fraction=0.25,
+                    box_color="grey",
+                )
             )
 
         def animate(i):
@@ -4237,8 +4248,15 @@ def _renderTrackGif(trackDat, zLeader, zFollower, title, fOut, config,
     return nFrames
 
 
-def _makeTrackGifs(limDat, ranked, config, outFolder, version=__version__,
-                   maxGifs=None, minRenderedFrames=3):
+def _makeTrackGifs(
+    limDat,
+    ranked,
+    config,
+    outFolder,
+    version=__version__,
+    maxGifs=None,
+    minRenderedFrames=3,
+):
     """
     Write one GIF per track into outFolder, walking `ranked` (per-track table,
     best score first) and stopping once maxGifs GIFs rendered successfully.
@@ -4277,9 +4295,16 @@ def _makeTrackGifs(limDat, ranked, config, outFolder, version=__version__,
             fpath = os.path.join(outFolder, f"{caseB}_track{int(tid)}.gif")
 
             zLeader, zFollower = _routedZips(trackDat, config, cache, version)
-            nFrames = _renderTrackGif(trackDat, zLeader, zFollower, title, fpath,
-                                      config, minRenderedFrames=minRenderedFrames,
-                                      ScaleBar=ScaleBar)
+            nFrames = _renderTrackGif(
+                trackDat,
+                zLeader,
+                zFollower,
+                title,
+                fpath,
+                config,
+                minRenderedFrames=minRenderedFrames,
+                ScaleBar=ScaleBar,
+            )
             if nFrames == 0:
                 log.info(f"skip track {int(tid)} ({caseB}): too few frames rendered")
                 continue
@@ -4289,12 +4314,7 @@ def _makeTrackGifs(limDat, ranked, config, outFolder, version=__version__,
             if maxGifs is not None and len(gifs) >= maxGifs:
                 break
     finally:
-        for h in cache.values():
-            if h is not None:
-                try:
-                    h.close()
-                except Exception:
-                    pass
+        _closeArchives(cache)
     return gifs
 
 
@@ -4355,27 +4375,27 @@ def _writeGifHtml(gifs, fOut, config, title, ncols=5):
 
 
 @tools.loopify
-def createLevel1QuicklookBeautifulSnowflakes(
+def createLevel1trackParticles(
     case,
     config,
     version=__version__,
     skipExisting=True,
     minBlur="config",
     minSize="config",
-    min_track_length="config",  # drop tracks shorter than this (detections)
-    min_rendered_frames="config",  # drop GIFs that render fewer frames than this
-    target_gifs="config",  # how many GIFs end up in the html
-    candidate_multiplier=20,  # try up to target_gifs * candidate_multiplier tracks
-    weight_track_length=2,
-    weight_blur=0.01,
-    weight_dmax=3,
+    minTrackLength="config",  # drop tracks shorter than this (detections)
+    minRenderedFrames="config",  # drop GIFs that render fewer frames than this
+    targetGifs="config",  # how many GIFs end up in the html
+    candidateMultiplier=20,  # try up to targetGifs * candidateMultiplier tracks
+    weightTrackLength=2,
+    weightBlur=0.01,
+    weightDmax=3,
     ncols=5,  # columns of the html grid
     particleLimitPerFile=30000,
     timedelta=np.timedelta64(1, "D"),
     fOut="default",
 ):
     """
-    Create the beautiful snowflakes quicklook for a given case: every
+    Create the track particles quicklook for a given case: every
     matched particle track of the day is scored (track length, blur, Dmax),
     the best tracks are animated as GIFs (leader | follower) and written into
     a HTML grid.
@@ -4394,17 +4414,17 @@ def createLevel1QuicklookBeautifulSnowflakes(
         by default True
     minBlur, minSize : float or str, optional
         Particle filters applied to both cameras. "config" reads
-        config["level1BeautifulSnowflakesQuicklook"].
-    min_track_length : int or str, optional
+        config["level1trackParticlesQuicklook"].
+    minTrackLength : int or str, optional
         Minimum number of detections per track. "config" as above.
-    min_rendered_frames : int or str, optional
+    minRenderedFrames : int or str, optional
         Minimum number of frames that actually load per GIF. "config" as above.
-    target_gifs : int or str, optional
+    targetGifs : int or str, optional
         Number of GIFs in the final html. "config" as above.
-    candidate_multiplier : int, optional
-        Size of the candidate pool relative to target_gifs, so tracks with
+    candidateMultiplier : int, optional
+        Size of the candidate pool relative to targetGifs, so tracks with
         missing crops can be replaced by the next best ones.
-    weight_track_length, weight_blur, weight_dmax : float, optional
+    weightTrackLength, weightBlur, weightDmax : float, optional
         Weights of the normalized per-track score.
     ncols : int, optional
         Number of columns in the html grid.
@@ -4428,25 +4448,23 @@ def createLevel1QuicklookBeautifulSnowflakes(
     import pandas as pd
     from tqdm import tqdm
 
-    minBlur = _beautifulSnowflakesSetting(config, "minBlur", minBlur)
-    minSize = _beautifulSnowflakesSetting(config, "minSize", minSize)
-    min_track_length = _beautifulSnowflakesSetting(
-        config, "minTrackLength", min_track_length
+    minBlur = _trackParticlesSetting(config, "minBlur", minBlur)
+    minSize = _trackParticlesSetting(config, "minSize", minSize)
+    minTrackLength = _trackParticlesSetting(config, "minTrackLength", minTrackLength)
+    minRenderedFrames = _trackParticlesSetting(
+        config, "minRenderedFrames", minRenderedFrames
     )
-    min_rendered_frames = _beautifulSnowflakesSetting(
-        config, "minRenderedFrames", min_rendered_frames
-    )
-    target_gifs = _beautifulSnowflakesSetting(config, "targetGifs", target_gifs)
+    targetGifs = _trackParticlesSetting(config, "targetGifs", targetGifs)
 
     camera = config["leader"]
     site = config["site"]
     ff = files.FindFiles(case, camera, config, version)
     if fOut == "default":
-        fOut = _beautifulSnowflakesPath(ff)
+        fOut = _trackParticlesPath(ff)
     else:
         fOut = fOut.format(case=case)
     date = f"{ff.year}-{ff.month}-{ff.day}"
-    title = f"VISSS beautiful snowflakes {config['name']} {date}"
+    title = f"VISSS track particles {config['name']} {date}"
 
     # ---- guard clauses -----------------------------------------------------
     if skipExisting and tools.checkForExisting(
@@ -4521,8 +4539,15 @@ def createLevel1QuicklookBeautifulSnowflakes(
             dat2 = dat2.isel(pair_id=slice(particleLimitPerFile))
 
         dat2 = dat2[
-            ["Dmax", "blur", "record_time", "record_id", "Droi",
-             "file_starttime", "matchScore"]
+            [
+                "Dmax",
+                "blur",
+                "record_time",
+                "record_id",
+                "Droi",
+                "file_starttime",
+                "matchScore",
+            ]
         ].load()
 
         dat2 = dat2.isel(
@@ -4535,7 +4560,9 @@ def createLevel1QuicklookBeautifulSnowflakes(
         if len(dat2.pair_id) == 0:
             continue
 
-        dat2 = dat2[["record_time", "record_id", "Droi", "file_starttime", "Dmax", "blur"]]
+        dat2 = dat2[
+            ["record_time", "record_id", "Droi", "file_starttime", "Dmax", "blur"]
+        ]
         dat2 = dat2.expand_dims(dict(file=[fname1]))
         dat2 = dat2.stack(fpair_id=("file", "pair_id"))
         dats2.append(dat2)
@@ -4582,19 +4609,19 @@ def createLevel1QuicklookBeautifulSnowflakes(
         Dmax_mean_track=("fpair_id", g["Dmax"].transform("mean").values),
     )
 
-    limDat = limDat.isel(fpair_id=(limDat["length_track"] >= min_track_length).values)
+    limDat = limDat.isel(fpair_id=(limDat["length_track"] >= minTrackLength).values)
     if len(limDat.fpair_id) == 0:
-        return _noFigures(f"no tracks with length >= {min_track_length}")
+        return _noFigures(f"no tracks with length >= {minTrackLength}")
 
     def _norm(da):
         lo, hi = da.min().item(), da.max().item()
         return (da - lo) / (hi - lo) if hi > lo else da * 0.0
 
-    w_sum = weight_track_length + weight_blur + weight_dmax
+    w_sum = weightTrackLength + weightBlur + weightDmax
     score = (
-        weight_track_length * _norm(limDat["length_track"])
-        + weight_blur * _norm(limDat["blur_mean_track"])
-        + weight_dmax * _norm(limDat["Dmax_mean_track"])
+        weightTrackLength * _norm(limDat["length_track"])
+        + weightBlur * _norm(limDat["blur_mean_track"])
+        + weightDmax * _norm(limDat["Dmax_mean_track"])
     ) / w_sum
     limDat = limDat.assign(score=("fpair_id", score.values))
 
@@ -4603,14 +4630,20 @@ def createLevel1QuicklookBeautifulSnowflakes(
         pd.DataFrame(
             {
                 v: limDat[v].values
-                for v in ["file", "track_id", "length_track", "blur_mean_track",
-                          "Dmax_mean_track", "score"]
+                for v in [
+                    "file",
+                    "track_id",
+                    "length_track",
+                    "blur_mean_track",
+                    "Dmax_mean_track",
+                    "score",
+                ]
             }
         )
         .drop_duplicates(["file", "track_id"])
         .sort_values("score", ascending=False)
     )
-    ranked = top.head(target_gifs * candidate_multiplier)
+    ranked = top.head(targetGifs * candidateMultiplier)
 
     top_keys = set(map(tuple, ranked[["file", "track_id"]].values))
     mask = np.array(
@@ -4629,22 +4662,24 @@ def createLevel1QuicklookBeautifulSnowflakes(
             config,
             tmpDir,
             version=version,
-            maxGifs=target_gifs,
-            minRenderedFrames=min_rendered_frames,
+            maxGifs=targetGifs,
+            minRenderedFrames=minRenderedFrames,
         )
         if len(gifs) == 0:
             return _noFigures("no track rendered enough frames")
-        if len(gifs) < target_gifs:
-            log.warning(f"only {len(gifs)} of {target_gifs} GIF(s) could be made")
+        if len(gifs) < targetGifs:
+            log.warning(f"only {len(gifs)} of {targetGifs} GIF(s) could be made")
         _writeGifHtml(gifs, fOut, config, title, ncols=ncols)
 
     print("SAVED ", fOut)
     return fOut, len(gifs)
 
-#####################################################################################
-# if you have found a beautiful snowflake, here is a function to retrieve the individual one
 
-def createSingleSnowflakeHtml(
+#####################################################################################
+# if you have found a nice track in the quicklook, retrieve the individual one
+
+
+def createLevel1trackParticlesSingle(
     case,
     track_id,
     config,
@@ -4658,8 +4693,8 @@ def createSingleSnowflakeHtml(
     fOut="default",
 ):
     """
-    Expansion from jakobs hiwi project! If you find a nice snowflake, then you can extract it simply using this function. 
-    It saves a single, hand-picked particle track as its own html page.
+    Save a single, hand-picked particle track (e.g. one found in the
+    createLevel1trackParticles quicklook) as its own html page.
 
     Parameters
     ----------
@@ -4676,7 +4711,7 @@ def createSingleSnowflakeHtml(
         GIF - no title, camera labels or scale bar. By default True.
     filterLikeQuicklook : bool, optional
         By default all particles of the track are shown. True applies the same
-        filters as the quicklook (minBlur, minSize, minMatchScore) 
+        filters as the quicklook (minBlur, minSize, minMatchScore)
     fps : int, optional
         Frames per second of the GIF.
     upscale : int, optional
@@ -4768,7 +4803,7 @@ def createSingleSnowflakeHtml(
     dat = dat.sel(pair_id=pairIds[present])
 
     if filterLikeQuicklook:
-        qlCfg = config.get("level1BeautifulSnowflakesQuicklook", {}) or {}
+        qlCfg = config.get("level1trackParticlesQuicklook", {}) or {}
         minBlur = qlCfg.get("minBlur", 15)
         minSize = qlCfg.get("minSize", 30)
         good = (
@@ -4784,61 +4819,42 @@ def createSingleSnowflakeHtml(
     # ---- load crops: every particle from its own block's image archive ---------
     archives = {}  # (camera, block start) -> imageZipFile or None
 
-    def _archive(camera, st):
-        key = (camera, np.datetime64(st, "ns"))
-        if key not in archives:
-            archives[key] = None
-            blockCase = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
-            znames = files.FindFiles(
-                blockCase, camera, config, version=version
-            ).listFiles("imagesL1detect")
-            if len(znames) > 0:
-                try:
-                    archives[key] = tools.imageZipFile(znames[0], mode="r")
-                except (FileNotFoundError, tools.zipfile.BadZipFile):
-                    log.warning(f"cannot open {znames[0]}")
-        return archives[key]
-
     frames = []  # list of [img per panel]
     try:
         for ii in range(dat.sizes["pair_id"]):
             d = dat.isel(pair_id=ii)
             imgs = []
             for _, camera, cam in panels:
-                z = _archive(camera, d.file_starttime.isel(camera=cam).values)
+                z = _archiveFor(
+                    np.datetime64(d.file_starttime.isel(camera=cam).values, "ns"),
+                    camera,
+                    config,
+                    archives,
+                    version,
+                )
                 if z is None:
                     break
                 try:
-                    imgs.append(z.extractnpy("%07i" % int(d.pid.isel(camera=cam).values))[:, :, 0])
+                    imgs.append(
+                        z.extractnpy("%07i" % int(d.pid.isel(camera=cam).values))[
+                            :, :, 0
+                        ]
+                    )
                 except KeyError:
                     break
             if len(imgs) == len(panels):
                 frames.append(imgs)
     finally:
-        for z in archives.values():
-            if z is not None:
-                try:
-                    z.close()
-                except Exception:
-                    pass
+        _closeArchives(archives)
 
     nFrames = len(frames)
     if nFrames == 0:
         raise RuntimeError(f"no crops found for track {track_id} ({caseB})")
 
     # center-pad all crops to a common shape (grey, like the quicklook)
-    allImgs = [img for f in frames for img in f]
-    H = max(img.shape[0] for img in allImgs)
-    W = max(img.shape[1] for img in allImgs)
-
-    def _pad(img):
-        dh, dw = H - img.shape[0], W - img.shape[1]
-        return np.pad(
-            img, ((dh // 2, dh - dh // 2), (dw // 2, dw - dw // 2)),
-            mode="constant", constant_values=150,
-        )
-
-    frames = [[_pad(img) for img in f] for f in frames]
+    padded = _padToCommonShape([img for f in frames for img in f])
+    frames = [padded[i : i + len(panels)] for i in range(0, len(padded), len(panels))]
+    H, W = frames[0][0].shape
 
     with tempfile.TemporaryDirectory() as tmpDir:
         gif = os.path.join(tmpDir, "track.gif")
@@ -4859,8 +4875,13 @@ def createSingleSnowflakeHtml(
                         Image.Resampling.NEAREST,
                     )
                 out.append(pil)
-            out[0].save(gif, save_all=True, append_images=out[1:],
-                        duration=int(1000 / fps), loop=0)
+            out[0].save(
+                gif,
+                save_all=True,
+                append_images=out[1:],
+                duration=int(1000 / fps),
+                loop=0,
+            )
         else:
             import matplotlib.pyplot as plt
             from matplotlib.animation import FuncAnimation, PillowWriter
@@ -4881,12 +4902,22 @@ def createSingleSnowflakeHtml(
                     ims.append(ax.imshow(img, vmin=0, vmax=255, cmap="Greys_r"))
                     ax.axis("off")
                     ax.set_title(label, fontsize=15, pad=2)
-                fig.text(0.5, 0.98, title, ha="center", va="top",
-                         fontsize=15 if nP == 2 else 10)
+                fig.text(
+                    0.5,
+                    0.98,
+                    title,
+                    ha="center",
+                    va="top",
+                    fontsize=15 if nP == 2 else 10,
+                )
                 if ScaleBar is not None:
                     axes[0].add_artist(
-                        ScaleBar(1 / config.calibration.slope, "um",
-                                 length_fraction=0.25, box_color="grey")
+                        ScaleBar(
+                            1 / config.calibration.slope,
+                            "um",
+                            length_fraction=0.25,
+                            box_color="grey",
+                        )
                     )
 
                 def animate(i):
@@ -4894,8 +4925,9 @@ def createSingleSnowflakeHtml(
                         im.set_data(img)
                     return ims
 
-                ani = FuncAnimation(fig, animate, frames=nFrames, interval=200,
-                                    blit=False)
+                ani = FuncAnimation(
+                    fig, animate, frames=nFrames, interval=200, blit=False
+                )
                 ani.save(gif, writer=PillowWriter(fps=fps))
             finally:
                 plt.close(fig)
@@ -4906,14 +4938,18 @@ def createSingleSnowflakeHtml(
         img = f'<img src="data:image/gif;base64,{b64}" alt="{_html.escape(title)}">'
         if showLegend:
             body = f"<h1>{_html.escape(title)}</h1>\n{img}"
-            css = ("body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; }"
-                   " h1 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }"
-                   " img { display: block; width: 100%; max-width: 1000px; height: auto; }")
+            css = (
+                "body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; }"
+                " h1 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }"
+                " img { display: block; width: 100%; max-width: 1000px; height: auto; }"
+            )
         else:
             body = img
-            css = ("body { margin: 0; }"
-                   " img { display: block; max-width: 100%; height: auto;"
-                   " image-rendering: pixelated; }")
+            css = (
+                "body { margin: 0; }"
+                " img { display: block; max-width: 100%; height: auto;"
+                " image-rendering: pixelated; }"
+            )
         doc = (
             '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n'
             f"<title>{_html.escape(title)}</title>\n"

@@ -340,7 +340,7 @@ DEFAULT_SETTINGS = {
         "trainingSize": 100,
         "writeImg": True,
     },
-    "level1BeautifulSnowflakesQuicklook": {
+    "level1trackParticlesQuicklook": {
         "minBlur": 15,
         "minSize": 30,
         "minTrackLength": 5,

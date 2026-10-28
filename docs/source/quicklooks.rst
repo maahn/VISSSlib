@@ -92,7 +92,7 @@ The defaults can be set in the settings file (see :doc:`config_files`):
       minSize: 30
       minTrackLength: 5
       minRenderedFrames: 3
-      targetGifs: 10
+      targetGifs: 12
 
 If no track passes the filters, the HTML page states so instead of showing
 GIFs. Like the other quicklooks, nothing is done if the output is newer than

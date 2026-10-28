@@ -345,7 +345,7 @@ DEFAULT_SETTINGS = {
         "minSize": 30,
         "minTrackLength": 5,
         "minRenderedFrames": 3,
-        "targetGifs": 10,
+        "targetGifs": 12,
     },
     "level1detectQuicklook": {
         "minBlur": 500,

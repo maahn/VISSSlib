@@ -61,7 +61,7 @@ class TestTrackParticlesUnit(object):
 
         config = makeSyntheticConfig(tmp_path)
         # defaults come from tools.DEFAULT_SETTINGS
-        assert quicklooks._trackParticlesSetting(config, "targetGifs", "config") == 10
+        assert quicklooks._trackParticlesSetting(config, "targetGifs", "config") == 12
         # explicit values are not touched
         assert quicklooks._trackParticlesSetting(config, "targetGifs", 3) == 3
         # a yaml value overrides the default

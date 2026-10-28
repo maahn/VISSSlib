@@ -4343,7 +4343,7 @@ def _writeHtml(fOut, body, config, title):
     return fOut
 
 
-def _writeGifHtml(gifs, fOut, config, title, ncols=5):
+def _writeGifHtml(gifs, fOut, config, title, ncols=4):
     """HTML grid of GIFs, base64-embedded so the page is self-contained."""
     import base64
     import html as _html
@@ -4380,7 +4380,7 @@ def createLevel1trackParticles(
     weightTrackLength=2,
     weightBlur=0.01,
     weightDmax=3,
-    ncols=5,  # columns of the html grid
+    ncols=4,  # columns of the html grid (4 x 3 GIFs with the default targetGifs)
     particleLimitPerFile=30000,
     timedelta=np.timedelta64(1, "D"),
     fOut="default",

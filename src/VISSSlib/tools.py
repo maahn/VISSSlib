@@ -341,11 +341,15 @@ DEFAULT_SETTINGS = {
         "writeImg": True,
     },
     "level1trackParticlesQuicklook": {
-        "minBlur": 15,
-        "minSize": 30,
+        "minBlur": 200,
+        "minSize": 20,
         "minTrackLength": 5,
         "minRenderedFrames": 3,
         "targetGifs": 12,
+        # weights of the percentile ranks of the tracks in the score
+        "weightTrackLength": 1,
+        "weightBlur": 0.01,
+        "weightDmax": 3,
     },
     "level1detectQuicklook": {
         "minBlur": 500,

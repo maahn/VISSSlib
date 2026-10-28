@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import functools
 import glob
 import os
 import shutil
@@ -4095,55 +4096,6 @@ def _routedZips(trackDat, config, cache, version=__version__):
     return zLeader, zFollower
 
 
-def _getPerTrackStatisticsTrimmed(level1dat):
-    """Reshape a level1track file to (track_id, track_step) and keep only pair_id."""
-    import pandas as pd
-
-    track_mi = pd.MultiIndex.from_arrays(
-        (level1dat.track_id.values, level1dat.track_step.values),
-        names=["track_id", "track_step"],
-    )
-    level1dat["track_mi"] = xr.DataArray(track_mi, coords=[level1dat.pair_id])
-    level1dat = level1dat.swap_dims(pair_id="track_mi")
-
-    # very rarely there are duplicate index values
-    _, uniqueII = np.unique(level1dat.track_mi, return_index=True)
-    level1dat = level1dat.isel(track_mi=uniqueII)
-
-    level1dat = level1dat.unstack("track_mi")
-    # cut very long tracks to save memory
-    if len(level1dat.track_step) > 40:
-        level1dat = level1dat.isel(track_step=slice(40))
-    return level1dat[["track_id", "pair_id"]]
-
-
-def _buildTrackLookup(matchDat, config, version=__version__):
-    """(leader block start, pair_id) -> track_id, read from the level1track files."""
-    import pandas as pd
-
-    lookup = {}
-    starttimes = np.unique(matchDat.file_starttime.sel(camera=config.leader).values)
-    starttimes = starttimes[~pd.isnull(starttimes)]
-    for st in starttimes:
-        caseB = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
-        ff1 = files.FindFiles(caseB, config.leader, config, version=version)
-        trackFiles = ff1.listFiles("level1track")
-        if len(trackFiles) == 0:
-            log.warning(f"no level1track for {caseB} (deleted?)")
-            continue
-        with xr.open_dataset(trackFiles[0]) as ds:
-            t2 = _getPerTrackStatisticsTrimmed(ds.load())
-        pi = t2["pair_id"]
-        if "camera" in pi.dims:
-            pi = pi.isel(camera=0, drop=True)
-        tid_b, pi_b = xr.broadcast(t2["track_id"], pi)
-        pf, tf = pi_b.values.ravel(), tid_b.values.ravel()
-        good = ~np.isnan(pf)
-        for p, t in zip(pf[good].astype("int64"), tf[good].astype("int64")):
-            lookup[(np.datetime64(st, "ns"), int(p))] = int(t)
-    return lookup
-
-
 def _padToCommonShape(images, padding_value=150):
     """Center-pad all 2D images to the largest height/width among them."""
     pad_to_length = max(img.shape[0] for img in images)
@@ -4167,6 +4119,124 @@ def _padToCommonShape(images, padding_value=150):
     return padded
 
 
+# crops are enlarged (integer factor, nearest neighbour) so that a panel is about
+# this many pixels large, which keeps text and scale bar readable for small
+# particles
+_PANEL_TARGET = 320
+
+
+@functools.lru_cache(maxsize=None)
+def _font(size):
+    """DejaVu Sans, shipped with matplotlib, so it is always there."""
+    import matplotlib as mpl
+    from PIL import ImageFont
+
+    ttfDir = os.path.join(os.path.dirname(mpl.matplotlib_fname()), "fonts", "ttf")
+    return ImageFont.truetype(f"{ttfDir}/DejaVuSans.ttf", size)
+
+
+def _niceLength(maxLength):
+    """Largest 1, 2 or 5 times a power of ten that is <= maxLength."""
+    exponent = np.floor(np.log10(maxLength))
+    for mantissa in (5, 2, 1):
+        if mantissa * 10**exponent <= maxLength:
+            return mantissa * 10**exponent
+
+
+def _saveTrackGif(
+    frames,
+    labels,
+    title,
+    fOut,
+    umPerPx,
+    fps=4,
+    showLegend=True,
+    upscale=None,
+):
+    """
+    Save the frames of a track as an animated grey scale GIF.
+
+    Parameters
+    ----------
+    frames : list of list of numpy.ndarray
+        For every frame one 2D uint8 image per panel (all of the same shape).
+    labels : list of str
+        Label of each panel, only used with showLegend.
+    title : str
+        Title, only used with showLegend.
+    fOut : str
+        Output file.
+    umPerPx : float
+        Size of a pixel of the crops in micrometer for the scale bar.
+    fps : int, optional
+        Frames per second.
+    showLegend : bool, optional
+        Add title, panel labels and a scale bar (below the first panel). The
+        text always has the same size, small crops are enlarged for this. If
+        False, only the crops are saved (separated by a small gap).
+    upscale : int, optional
+        Enlargement factor of the crops. Default: automatic with showLegend,
+        1 without.
+    """
+    from PIL import Image, ImageDraw
+
+    nPanels = len(frames[0])
+    H, W = frames[0][0].shape
+    if upscale is None:
+        upscale = max(1, int(round(_PANEL_TARGET / max(H, W)))) if showLegend else 1
+    panelH, panelW = H * upscale, W * upscale
+    gap = 4
+    panelsW = nPanels * panelW + (nPanels - 1) * gap
+
+    # static part of the frames
+    if showLegend:
+        fontTitle, fontLabel = _font(16), _font(15)
+        draw = ImageDraw.Draw(Image.new("L", (1, 1)))
+        titleW = int(draw.textlength(title, font=fontTitle))
+        titleH, labelH, footerH = 30, 24, 34
+        canvasW = max(panelsW, titleW + 20)
+        canvasH = titleH + labelH + panelH + footerH
+        x0, y0 = (canvasW - panelsW) // 2, titleH + labelH
+    else:
+        canvasW, canvasH, x0, y0 = panelsW, panelH, 0, 0
+    xPanels = [x0 + i * (panelW + gap) for i in range(nPanels)]
+
+    template = Image.new("L", (canvasW, canvasH), 255)
+    if showLegend:
+        draw = ImageDraw.Draw(template)
+        draw.text((canvasW / 2, 6), title, fill=0, font=fontTitle, anchor="ma")
+        for x, label in zip(xPanels, labels):
+            draw.text(
+                (x + panelW / 2, titleH + 2), label, fill=0, font=fontLabel, anchor="ma"
+            )
+        # scale bar below the first panel
+        length = _niceLength(0.3 * panelW * umPerPx / upscale)
+        barPx = int(round(length / umPerPx * upscale))
+        text = f"{length / 1000:g} mm" if length >= 1000 else f"{length:g} \u00b5m"
+        xb, yb = xPanels[0] + 6, y0 + panelH + footerH // 2
+        draw.line((xb, yb, xb + barPx, yb), fill=0, width=3)
+        draw.line((xb, yb - 5, xb, yb + 5), fill=0, width=2)
+        draw.line((xb + barPx, yb - 5, xb + barPx, yb + 5), fill=0, width=2)
+        draw.text((xb + barPx + 10, yb), text, fill=0, font=fontLabel, anchor="lm")
+
+    images = []
+    for imgs in frames:
+        im = template.copy()
+        for x, img in zip(xPanels, imgs):
+            pil = Image.fromarray(np.asarray(img, dtype=np.uint8), "L")
+            if upscale > 1:
+                pil = pil.resize((panelW, panelH), Image.Resampling.NEAREST)
+            im.paste(pil, (x, y0))
+        images.append(im)
+    images[0].save(
+        fOut,
+        save_all=True,
+        append_images=images[1:],
+        duration=int(1000 / fps),
+        loop=0,
+    )
+
+
 def _renderTrackGif(
     trackDat,
     zLeader,
@@ -4176,7 +4246,6 @@ def _renderTrackGif(
     config,
     fps=4,
     minRenderedFrames=3,
-    ScaleBar=None,
 ):
     """
     Animate one track (leader | follower side by side) and save it as GIF.
@@ -4184,9 +4253,6 @@ def _renderTrackGif(
     Returns the number of rendered frames; 0 if nothing was saved (missing
     crops, or fewer than minRenderedFrames frames).
     """
-    import matplotlib.pyplot as plt
-    from matplotlib.animation import FuncAnimation, PillowWriter
-
     img1_list, img2_list = [], []
     for ii in range(trackDat.sizes["fpair_id"]):
         pid = trackDat.pid.isel(fpair_id=ii).values
@@ -4203,39 +4269,15 @@ def _renderTrackGif(
         return 0
 
     padded = _padToCommonShape(img1_list + img2_list)
-    img1_list, img2_list = padded[:nFrames], padded[nFrames:]
-
-    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(10, 5))
-    try:
-        plt.subplots_adjust(left=0, right=1, top=0.86, bottom=0, wspace=0.02)
-        im1 = ax1.imshow(img1_list[0], vmin=0, vmax=255, cmap="Greys_r")
-        im2 = ax2.imshow(img2_list[0], vmin=0, vmax=255, cmap="Greys_r")
-        ax1.axis("off")
-        ax2.axis("off")
-        ax1.set_title("Leader", fontsize=15, pad=2)
-        ax2.set_title("Follower", fontsize=15, pad=2)
-        fig.text(0.5, 0.98, title, ha="center", va="top", fontsize=15)
-
-        if ScaleBar is not None:
-            # pixel size in um, same calibration as the quicklook title
-            ax1.add_artist(
-                ScaleBar(
-                    1 / config.calibration.slope,
-                    "um",
-                    length_fraction=0.25,
-                    box_color="grey",
-                )
-            )
-
-        def animate(i):
-            im1.set_data(img1_list[i])
-            im2.set_data(img2_list[i])
-            return im1, im2
-
-        ani = FuncAnimation(fig, animate, frames=nFrames, interval=200, blit=False)
-        ani.save(fOut, writer=PillowWriter(fps=fps))
-    finally:
-        plt.close(fig)
+    frames = list(zip(padded[:nFrames], padded[nFrames:]))
+    _saveTrackGif(
+        frames,
+        ["Leader", "Follower"],
+        title,
+        fOut,
+        umPerPx=1 / config.calibration.slope,
+        fps=fps,
+    )
     return nFrames
 
 
@@ -4247,25 +4289,22 @@ def _makeTrackGifs(
     version=__version__,
     maxGifs=None,
     minRenderedFrames=3,
+    maxFrames=40,
 ):
     """
     Write one GIF per track into outFolder, walking `ranked` (per-track table,
     best score first) and stopping once maxGifs GIFs rendered successfully.
     Tracks with missing crops / too few frames are skipped and don't count.
+    The frames of a track are ordered by track_step, at most maxFrames
+    (first) particles per track are animated.
 
     Returns the list of written GIF paths, best first.
     """
     import pandas as pd
 
-    try:
-        from matplotlib_scalebar.scalebar import ScaleBar
-    except ImportError:
-        log.warning("matplotlib_scalebar not installed, GIFs without scale bar")
-        ScaleBar = None
-
-    dat = limDat.isel(fpair_id=np.isfinite(limDat.track_id.values))
+    dat = limDat
     if dat.sizes.get("fpair_id", 0) == 0:
-        log.info("no track-tagged particles to animate")
+        log.info("no particles to animate")
         return []
 
     files_arr = dat["file"].values
@@ -4279,6 +4318,8 @@ def _makeTrackGifs(
             trackDat = dat.isel(fpair_id=(files_arr == fkey) & (tid_arr == tid))
             if trackDat.sizes.get("fpair_id", 0) == 0:
                 continue
+            order1 = np.argsort(trackDat.track_step.values, kind="stable")
+            trackDat = trackDat.isel(fpair_id=order1[:maxFrames])
 
             st = trackDat.file_starttime.sel(camera=config.leader).values[0]
             caseB = pd.to_datetime(str(st)).strftime("%Y%m%d-%H%M%S")
@@ -4294,7 +4335,6 @@ def _makeTrackGifs(
                 fpath,
                 config,
                 minRenderedFrames=minRenderedFrames,
-                ScaleBar=ScaleBar,
             )
             if nFrames == 0:
                 log.info(f"skip track {int(tid)} ({caseB}): too few frames rendered")
@@ -4377,9 +4417,9 @@ def createLevel1trackParticles(
     minRenderedFrames="config",  # drop GIFs that render fewer frames than this
     targetGifs="config",  # how many GIFs end up in the html
     candidateMultiplier=20,  # try up to targetGifs * candidateMultiplier tracks
-    weightTrackLength=2,
-    weightBlur=0.01,
-    weightDmax=3,
+    weightTrackLength="config",
+    weightBlur="config",
+    weightDmax="config",
     ncols=4,  # columns of the html grid (4 x 3 GIFs with the default targetGifs)
     particleLimitPerFile=30000,
     timedelta=np.timedelta64(1, "D"),
@@ -4387,7 +4427,8 @@ def createLevel1trackParticles(
 ):
     """
     Create the track particles quicklook for a given case: every
-    matched particle track of the day is scored (track length, blur, Dmax),
+    matched particle track of the day is scored (track length, blur, Dmax; large
+    particles are preferred),
     the best tracks are animated as GIFs (leader | follower) and written into
     a HTML grid.
 
@@ -4403,9 +4444,13 @@ def createLevel1trackParticles(
     skipExisting : bool, optional
         Whether to skip if output exists and is newer than its parents,
         by default True
-    minBlur, minSize : float or str, optional
-        Particle filters applied to both cameras. "config" reads
+    minBlur : float or str, optional
+        A track is only used if, in each camera, at least one track step has
+        blur > minBlur (the other steps may be blurrier). "config" reads
         config["level1trackParticlesQuicklook"].
+    minSize : float or str, optional
+        Only particles with Dmax > minSize in both cameras are used. "config"
+        as above.
     minTrackLength : int or str, optional
         Minimum number of detections per track. "config" as above.
     minRenderedFrames : int or str, optional
@@ -4415,12 +4460,13 @@ def createLevel1trackParticles(
     candidateMultiplier : int, optional
         Size of the candidate pool relative to targetGifs, so tracks with
         missing crops can be replaced by the next best ones.
-    weightTrackLength, weightBlur, weightDmax : float, optional
-        Weights of the normalized per-track score.
+    weightTrackLength, weightBlur, weightDmax : float or str, optional
+        Weights of the per-track score, the weighted mean of the percentile
+        ranks of track length, mean blur and mean Dmax. "config" as above.
     ncols : int, optional
         Number of columns in the html grid.
     particleLimitPerFile : int or None, optional
-        Only look at the first n particles per level1match file.
+        Only look at the first n particles per level1track file.
     timedelta : numpy.timedelta64, optional
         Time window for data selection, by default np.timedelta64(1, "D")
     fOut : str, optional
@@ -4446,6 +4492,11 @@ def createLevel1trackParticles(
         config, "minRenderedFrames", minRenderedFrames
     )
     targetGifs = _trackParticlesSetting(config, "targetGifs", targetGifs)
+    weightTrackLength = _trackParticlesSetting(
+        config, "weightTrackLength", weightTrackLength
+    )
+    weightBlur = _trackParticlesSetting(config, "weightBlur", weightBlur)
+    weightDmax = _trackParticlesSetting(config, "weightDmax", weightDmax)
 
     camera = config["leader"]
     site = config["site"]
@@ -4462,7 +4513,7 @@ def createLevel1trackParticles(
         fOut,
         level0=ff.listFiles("level0"),
         events=[(ff, "metaEvents")],
-        parents=[(ff, "level1match"), (ff, "level1track")],
+        parents=[(ff, "level1track")],
     ):
         return None, None
 
@@ -4480,17 +4531,17 @@ def createLevel1trackParticles(
             )
             return None, None
 
-        if (len(ff.listFilesExt("level1match")) == 0) and (
+        if (len(ff.listFilesExt("level1track")) == 0) and (
             len(ff.listFiles("level0")) > 0
         ):
             print("NO DATA YET ", fOut)
             return None, None
 
-        if not ff.isCompleteL1match:
+        if not ff.isCompleteL1track:
             print(
-                "NOT COMPLETE YET %i of %i L1match %s "
+                "NOT COMPLETE YET %i of %i L1track %s "
                 % (
-                    len(ff.listFilesExt("level1match")),
+                    len(ff.listFilesExt("level1track")),
                     len(ff.listFiles("level0txt")),
                     fOut,
                 )
@@ -4498,10 +4549,10 @@ def createLevel1trackParticles(
             return None, None
     else:
         # raw level0 is gone (e.g. Ny-Ålesund): rely on the processed files only
-        if site != "mosaic" and len(ff.listFilesExt("level1match")) == 0:
-            print("NO DATA (no level0 and no level1match)", fOut)
+        if site != "mosaic" and len(ff.listFilesExt("level1track")) == 0:
+            print("NO DATA (no level0 and no level1track)", fOut)
             return None, None
-        log.info("no level0 on disk - using processed level1match only")
+        log.info("no level0 on disk - using processed level1track only")
 
     def _noFigures(reason):
         log.info(f"{case}: {reason}")
@@ -4510,12 +4561,27 @@ def createLevel1trackParticles(
 
     print("RUNNING open files ", fOut, len(ff.listFiles("metaFrames")))
 
-    # ---- load + filter each level1match file -------------------------------
+    # ---- load + filter each level1track file -------------------------------
     dats2 = []
-    for fname2 in tqdm(ff.listFilesWithNeighbors("level1match")):
-        fname1 = fname2.replace("level1match", "metaFrames")
+    for fname2 in tqdm(ff.listFilesWithNeighbors("level1track")):
+        fname1 = fname2.replace("level1track", "metaFrames")
         try:
-            dat2 = xr.open_dataset(fname2)
+            with xr.open_dataset(fname2) as dat2:
+                if particleLimitPerFile is not None:
+                    dat2 = dat2.isel(pair_id=slice(particleLimitPerFile))
+                dat2 = dat2[
+                    [
+                        "Dmax",
+                        "blur",
+                        "record_time",
+                        "record_id",
+                        "Droi",
+                        "file_starttime",
+                        "matchScore",
+                        "track_id",
+                        "track_step",
+                    ]
+                ].load()
         except FileNotFoundError:
             if os.path.isfile(f"{fname2}.nodata"):
                 continue
@@ -4526,25 +4592,9 @@ def createLevel1trackParticles(
             else:
                 raise FileNotFoundError(fname2)
 
-        if particleLimitPerFile is not None:
-            dat2 = dat2.isel(pair_id=slice(particleLimitPerFile))
-
-        dat2 = dat2[
-            [
-                "Dmax",
-                "blur",
-                "record_time",
-                "record_id",
-                "Droi",
-                "file_starttime",
-                "matchScore",
-            ]
-        ].load()
-
         dat2 = dat2.isel(
             pair_id=(
-                (dat2.blur > minBlur).all("camera")
-                & (dat2.Dmax > minSize).all("camera")
+                (dat2.Dmax > minSize).all("camera")
                 & (dat2.matchScore > config.quality.minMatchScore)
             )
         )
@@ -4552,7 +4602,16 @@ def createLevel1trackParticles(
             continue
 
         dat2 = dat2[
-            ["record_time", "record_id", "Droi", "file_starttime", "Dmax", "blur"]
+            [
+                "record_time",
+                "record_id",
+                "Droi",
+                "file_starttime",
+                "Dmax",
+                "blur",
+                "track_id",
+                "track_step",
+            ]
         ]
         dat2 = dat2.expand_dims(dict(file=[fname1]))
         dat2 = dat2.stack(fpair_id=("file", "pair_id"))
@@ -4569,81 +4628,78 @@ def createLevel1trackParticles(
     if len(limDat.fpair_id) == 0:
         return _noFigures("no particles on this day")
 
-    # ---- bridge level1match <-> level1track --------------------------------
-    track_lookup = _buildTrackLookup(limDat, config, version)
-    st_arr = limDat.file_starttime.sel(camera=config.leader).values
-    pid_arr = limDat.pair_id.values.astype("int64")
-    track_ids = np.array(
-        [
-            track_lookup.get((np.datetime64(s, "ns"), int(p)), np.nan)
-            for s, p in zip(st_arr, pid_arr)
-        ]
-    )
-    limDat = limDat.assign_coords(track_id=("fpair_id", track_ids))
-    log.info(
-        f"attached track_id to {np.isfinite(track_ids).sum()} / {len(track_ids)} particles"
-    )
-
-    # ---- per-track scoring -------------------------------------------------
-    key = pd.DataFrame(
+    # very rarely there are duplicate (track_id, track_step) entries
+    isDuplicate = pd.DataFrame(
         {
             "file": limDat["file"].values,
-            "tid": limDat["track_id"].values,
-            "blur": limDat["blur"].mean("camera").values,
-            "Dmax": limDat["Dmax"].mean("camera").values,
+            "track_id": limDat["track_id"].values,
+            "track_step": limDat["track_step"].values,
         }
-    )
-    g = key.groupby(["file", "tid"])
-    limDat = limDat.assign(
-        length_track=("fpair_id", g["tid"].transform("size").values),
-        blur_mean_track=("fpair_id", g["blur"].transform("mean").values),
-        Dmax_mean_track=("fpair_id", g["Dmax"].transform("mean").values),
-    )
+    ).duplicated()
+    limDat = limDat.isel(fpair_id=~isDuplicate.values)
 
-    limDat = limDat.isel(fpair_id=(limDat["length_track"] >= minTrackLength).values)
-    if len(limDat.fpair_id) == 0:
-        return _noFigures(f"no tracks with length >= {minTrackLength}")
-
-    def _norm(da):
-        lo, hi = da.min().item(), da.max().item()
-        return (da - lo) / (hi - lo) if hi > lo else da * 0.0
-
-    w_sum = weightTrackLength + weightBlur + weightDmax
-    score = (
-        weightTrackLength * _norm(limDat["length_track"])
-        + weightBlur * _norm(limDat["blur_mean_track"])
-        + weightDmax * _norm(limDat["Dmax_mean_track"])
-    ) / w_sum
-    limDat = limDat.assign(score=("fpair_id", score.values))
-
-    # per-track table, best first; candidate pool so failures can be backfilled
-    top = (
+    # ---- blur criterion per track ------------------------------------------
+    # not every particle has to be sharp: a track is kept if each camera has
+    # at least one track step with blur > minBlur
+    blurCam = limDat["blur"].transpose("camera", "fpair_id").values
+    blurMax = (
         pd.DataFrame(
             {
-                v: limDat[v].values
-                for v in [
-                    "file",
-                    "track_id",
-                    "length_track",
-                    "blur_mean_track",
-                    "Dmax_mean_track",
-                    "score",
-                ]
+                "file": limDat["file"].values,
+                "tid": limDat["track_id"].values,
+                "leader": blurCam[0],
+                "follower": blurCam[1],
             }
         )
-        .drop_duplicates(["file", "track_id"])
-        .sort_values("score", ascending=False)
+        .groupby(["file", "tid"])[["leader", "follower"]]
+        .transform("max")
     )
-    ranked = top.head(targetGifs * candidateMultiplier)
+    sharpTrack = (
+        (blurMax["leader"] > minBlur) & (blurMax["follower"] > minBlur)
+    ).values
+    limDat = limDat.isel(fpair_id=sharpTrack)
+    if len(limDat.fpair_id) == 0:
+        return _noFigures(f"no tracks with blur > {minBlur} in both cameras")
 
-    top_keys = set(map(tuple, ranked[["file", "track_id"]].values))
-    mask = np.array(
-        [
-            (f, t) in top_keys
-            for f, t in zip(limDat["file"].values, limDat["track_id"].values)
-        ]
+    # ---- per-track scoring -------------------------------------------------
+    tracks = (
+        pd.DataFrame(
+            {
+                "file": limDat["file"].values,
+                "track_id": limDat["track_id"].values,
+                "blur": limDat["blur"].mean("camera").values,
+                "Dmax": limDat["Dmax"].mean("camera").values,
+            }
+        )
+        .groupby(["file", "track_id"])
+        .agg(
+            length_track=("track_id", "size"),
+            blur_mean_track=("blur", "mean"),
+            Dmax_mean_track=("Dmax", "mean"),
+        )
+        .reset_index()
     )
-    candidates = limDat.isel(fpair_id=mask)
+    tracks = tracks[tracks["length_track"] >= minTrackLength]
+    if len(tracks) == 0:
+        return _noFigures(f"no tracks with length >= {minTrackLength}")
+
+    # Score = weighted mean of the percentile ranks (0..1) of the tracks, so a
+    # few extreme tracks do not dominate the scale
+    wSum = weightTrackLength + weightBlur + weightDmax
+    tracks["score"] = (
+        weightTrackLength * tracks["length_track"].rank(pct=True)
+        + weightBlur * tracks["blur_mean_track"].rank(pct=True)
+        + weightDmax * tracks["Dmax_mean_track"].rank(pct=True)
+    ) / wSum
+
+    # best first; candidate pool so failures can be backfilled
+    ranked = tracks.sort_values("score", ascending=False).head(
+        targetGifs * candidateMultiplier
+    )
+    isCandidate = pd.MultiIndex.from_arrays(
+        [limDat["file"].values, limDat["track_id"].values]
+    ).isin(pd.MultiIndex.from_frame(ranked[["file", "track_id"]]))
+    candidates = limDat.isel(fpair_id=isCandidate)
 
     # ---- GIFs (temporary) -> html grid --------------------------------------
     with tempfile.TemporaryDirectory() as tmpDir:
@@ -4760,49 +4816,37 @@ def createLevel1trackParticlesSingle(
         fOut = fOut.format(case=caseB, track_id=track_id, view=view)
     title = f"site: {config.site} | case: {caseB} | track_id: {track_id}"
 
-    # ---- pair_ids of the track (level1track), ordered by track_step ------------
+    # ---- the particles of the track (level1track), ordered by track_step -------
     trackFiles = ff1.listFiles("level1track")
     if len(trackFiles) == 0:
         raise FileNotFoundError(f"no level1track file for {caseB}")
     with xr.open_dataset(trackFiles[0]) as ds:
-        tid = ds["track_id"].values
-        step = ds["track_step"].values
-        pairIds = ds["pair_id"].values
-    inTrack = tid == track_id
-    if not inTrack.any():
-        raise ValueError(f"track_id {track_id} not found in {trackFiles[0]}")
-    pairIds, step = pairIds[inTrack], step[inTrack]
-    order = np.argsort(step, kind="stable")
-    pairIds, step = pairIds[order], step[order]
-    _, firstII = np.unique(pairIds, return_index=True)  # (rare) duplicates
-    keep = np.sort(firstII)
-    pairIds, step = pairIds[keep], step[keep]
-    if filterLikeQuicklook:  # quicklook only knows the first 40 track steps
-        pairIds = pairIds[np.isin(step, np.unique(step)[:40])]
-
-    # ---- pid / file_starttime per camera (level1match) -------------------------
-    matchFiles = ff1.listFiles("level1match")
-    if len(matchFiles) == 0:
-        raise FileNotFoundError(f"no level1match file for {caseB}")
-    with xr.open_dataset(matchFiles[0]) as ds:
-        dat = ds[["file_starttime", "Dmax", "blur", "matchScore"]].load()
-    present = np.isin(pairIds, dat.pair_id.values)
-    if (~present).any():
-        log.warning(
-            f"{(~present).sum()} pair_id(s) of track {track_id} not in level1match"
+        inTrack = ds["track_id"].values == track_id
+        if not inTrack.any():
+            raise ValueError(f"track_id {track_id} not found in {trackFiles[0]}")
+        dat = ds[["file_starttime", "Dmax", "blur", "matchScore", "track_step"]].isel(
+            pair_id=inTrack
         )
-    dat = dat.sel(pair_id=pairIds[present])
+        dat = dat.load()
+    dat = dat.isel(pair_id=np.argsort(dat.track_step.values, kind="stable"))
+    # (rare) duplicates of track_step
+    _, firstII = np.unique(dat.track_step.values, return_index=True)
+    dat = dat.isel(pair_id=np.sort(firstII))
 
     if filterLikeQuicklook:
-        qlCfg = config.get("level1trackParticlesQuicklook", {}) or {}
-        minBlur = qlCfg.get("minBlur", 15)
-        minSize = qlCfg.get("minSize", 30)
-        good = (
-            (dat.blur > minBlur).all("camera")
-            & (dat.Dmax > minSize).all("camera")
-            & (dat.matchScore > config.quality.minMatchScore)
+        minBlur = _trackParticlesSetting(config, "minBlur", "config")
+        minSize = _trackParticlesSetting(config, "minSize", "config")
+        good = (dat.Dmax > minSize).all("camera") & (
+            dat.matchScore > config.quality.minMatchScore
         )
         dat = dat.isel(pair_id=good.values)
+        if dat.sizes["pair_id"] > 0 and not (dat.blur.max("pair_id") > minBlur).all():
+            log.warning(
+                f"track {track_id} would not be used by the quicklook: blur is not "
+                f"> {minBlur} in both cameras at any step"
+            )
+        # the quicklook animates the first 40 particles only
+        dat = dat.isel(pair_id=slice(40))
     if dat.sizes["pair_id"] == 0:
         raise ValueError(f"no particles left for track {track_id} in {caseB}")
     log.info(f"track {track_id} ({caseB}): {dat.sizes['pair_id']} particles")
@@ -4845,83 +4889,20 @@ def createLevel1trackParticlesSingle(
     # center-pad all crops to a common shape (grey, like the quicklook)
     padded = _padToCommonShape([img for f in frames for img in f])
     frames = [padded[i : i + len(panels)] for i in range(0, len(padded), len(panels))]
-    H, W = frames[0][0].shape
-
     with tempfile.TemporaryDirectory() as tmpDir:
         gif = os.path.join(tmpDir, "track.gif")
 
         # ---- GIF ---------------------------------------------------------------
-        if not showLegend:
-            # just the crop(s), pixel exact, white gap between leader | follower
-            sep = np.full((H, 4), 255, dtype=np.uint8)
-            out = []
-            for imgs in frames:
-                row = imgs[0]
-                for img in imgs[1:]:
-                    row = np.hstack([row, sep, img])
-                pil = Image.fromarray(row.astype(np.uint8))
-                if upscale > 1:
-                    pil = pil.resize(
-                        (pil.width * upscale, pil.height * upscale),
-                        Image.Resampling.NEAREST,
-                    )
-                out.append(pil)
-            out[0].save(
-                gif,
-                save_all=True,
-                append_images=out[1:],
-                duration=int(1000 / fps),
-                loop=0,
-            )
-        else:
-            import matplotlib.pyplot as plt
-            from matplotlib.animation import FuncAnimation, PillowWriter
-
-            try:
-                from matplotlib_scalebar.scalebar import ScaleBar
-            except ImportError:
-                log.warning("matplotlib_scalebar not installed, GIF without scale bar")
-                ScaleBar = None
-
-            nP = len(panels)
-            fig, axes = plt.subplots(ncols=nP, figsize=(5 * nP, 5), squeeze=False)
-            axes = axes[0]
-            try:
-                plt.subplots_adjust(left=0, right=1, top=0.86, bottom=0, wspace=0.02)
-                ims = []
-                for ax, (label, _, _), img in zip(axes, panels, frames[0]):
-                    ims.append(ax.imshow(img, vmin=0, vmax=255, cmap="Greys_r"))
-                    ax.axis("off")
-                    ax.set_title(label, fontsize=15, pad=2)
-                fig.text(
-                    0.5,
-                    0.98,
-                    title,
-                    ha="center",
-                    va="top",
-                    fontsize=15 if nP == 2 else 10,
-                )
-                if ScaleBar is not None:
-                    axes[0].add_artist(
-                        ScaleBar(
-                            1 / config.calibration.slope,
-                            "um",
-                            length_fraction=0.25,
-                            box_color="grey",
-                        )
-                    )
-
-                def animate(i):
-                    for im, img in zip(ims, frames[i]):
-                        im.set_data(img)
-                    return ims
-
-                ani = FuncAnimation(
-                    fig, animate, frames=nFrames, interval=200, blit=False
-                )
-                ani.save(gif, writer=PillowWriter(fps=fps))
-            finally:
-                plt.close(fig)
+        _saveTrackGif(
+            frames,
+            [label for label, _, _ in panels],
+            title,
+            gif,
+            umPerPx=1 / config.calibration.slope,
+            fps=fps,
+            showLegend=showLegend,
+            upscale=None if showLegend else upscale,
+        )
 
         # ---- html (GIF base64-embedded -> self-contained) ----------------------
         with open(gif, "rb") as fh:

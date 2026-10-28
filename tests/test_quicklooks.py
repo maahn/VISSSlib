@@ -62,6 +62,7 @@ class TestTrackParticlesUnit(object):
         config = makeSyntheticConfig(tmp_path)
         # defaults come from tools.DEFAULT_SETTINGS
         assert quicklooks._trackParticlesSetting(config, "targetGifs", "config") == 12
+        assert quicklooks._trackParticlesSetting(config, "weightDmax", "config") == 3
         # explicit values are not touched
         assert quicklooks._trackParticlesSetting(config, "targetGifs", 3) == 3
         # a yaml value overrides the default
@@ -69,7 +70,7 @@ class TestTrackParticlesUnit(object):
             tmp_path, level1trackParticlesQuicklook=dict(targetGifs=7)
         )
         assert quicklooks._trackParticlesSetting(config, "targetGifs", "config") == 7
-        assert quicklooks._trackParticlesSetting(config, "minSize", "config") == 30
+        assert quicklooks._trackParticlesSetting(config, "minSize", "config") == 20
 
     @pytest.mark.unit
     def test_trackParticlesQuicklookPath(self, tmp_path):
@@ -165,7 +166,6 @@ class TestTrackParticles(object):
 
         ff = files.FindFiles("20260110", self.config.leader, self.config)
         trackFile = ff.listFiles("level1track")[0]
-        matchFile = ff.listFiles("level1match")[0]
         block = re.search(r"(\d{8}-\d{6})", os.path.basename(trackFile)).group(1)
         ffBlock = files.FindFiles(block, self.config.leader, self.config)
 
@@ -178,8 +178,8 @@ class TestTrackParticles(object):
             )
             for camera in (self.config.leader, self.config.follower)
         ]
-        with xr.open_dataset(trackFile) as tr, xr.open_dataset(matchFile) as ma:
-            pids = ma.pid.sel(pair_id=tr.pair_id.values).values
+        with xr.open_dataset(trackFile) as tr:
+            pids = tr.pid.values
             hasCrops = np.array(
                 [
                     ("%07i" % pids[0, ii] in archives[0].index)

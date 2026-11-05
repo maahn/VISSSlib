@@ -284,13 +284,13 @@ DEFAULT_SETTINGS = {
     # yaml's value instead of letting it be overridden like other settings
     "dataFixes": ["removeFlippedCaptureTimeFrames", "dropUnrecordedTrailingFrames"],
     # days (YYYYMMDD or YYYYMMDD-YYYYMMDD) for which the dataFix
-    # mosaicFrameMapping is NOT applied (None: applied to all days)
-    "mosaicFrameMappingExclude": None,
+    # frameMapping is NOT applied (None: applied to all days)
+    "frameMappingExclude": None,
     # process a file once more without the frame mapping if the mapping variant
-    # fails (needs the dataFix mosaicFrameMapping); mosaicFallbackFixes: dataFixes
+    # fails (needs the dataFix frameMapping); frameMappingFallbackFixes: dataFixes
     # the variant without frame mapping needs (e.g. makeCaptureTimeEven)
-    "mosaicFrameMappingFallback": False,
-    "mosaicFallbackFixes": None,
+    "frameMappingFallback": False,
+    "frameMappingFallbackFixes": None,
     "dirMode": 0o775,  # 509
     "fileMode": 0o664,  # 436
     "goodFiles": ["None", "None"],
@@ -668,6 +668,23 @@ def isBadPeriod(case, config, product=None):
         Case identifier (YYYYMMDD or YYYYMMDD-HHMMSS)
     config : dict
         Configuration dictionary
+            # legacy names of the frame mapping fix and its settings
+            for old, new in [
+                ("mosaicFrameMappingExclude", "frameMappingExclude"),
+                ("mosaicFrameMappingFallback", "frameMappingFallback"),
+                ("mosaicFallbackFixes", "frameMappingFallbackFixes"),
+            ]:
+                if (old,) in loadedSettings:
+                    log.warning(f"setting {old} is now called {new}")
+                    loadedSettings[(new,)] = loadedSettings.pop((old,))
+            if dataFixesKey in loadedSettings and (
+                "mosaicFrameMapping" in loadedSettings[dataFixesKey]
+            ):
+                log.warning("dataFix mosaicFrameMapping is now called frameMapping")
+                loadedSettings[dataFixesKey] = [
+                    "frameMapping" if f == "mosaicFrameMapping" else f
+                    for f in loadedSettings[dataFixesKey]
+                ]
     product : str, optional
         Product level to check. If None, returns True if case is bad for any product.
     
@@ -1298,7 +1315,7 @@ def removeBlockedBlowingData(dat1D, events, config, threshold=0.1):
     blocked = events.blocking.sel(blockingThreshold=50) > threshold
 
     # interpolate blocking status to observed particles
-    # events are on the clock of their own camera; with the mosaicFrameMapping
+    # events are on the clock of their own camera; with the frameMapping
     # fix capture_time has been moved to the leader clock
     ctEvents = (
         dat1D.capture_time_followerClock

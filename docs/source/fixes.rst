@@ -45,14 +45,14 @@ fix names are actually referenced anywhere outside this file:
   cleanup, but are left as-is here since neither was in scope for a
   documentation pass.
 
-Frame mapping (``mosaicFrameMapping``)
+Frame mapping (``frameMapping``)
 ----------------------------------------
 
 For deployments whose cameras are not hardware-triggered (or whose
 ``capture_id`` / ``capture_time`` are unreliable, e.g. MOSAiC, ``hyytiala_v1``,
 ``gochang_v1``, ``sail_v1``) the lag between the frames of the leader and the
 follower cannot be taken from the record time alone. The dataFix
-``mosaicFrameMapping`` determines it explicitly, once per day, in
+``frameMapping`` determines it explicitly, once per day, in
 :func:`VISSSlib.fixes.createMosaicFrameMapping` (built at the start of
 :func:`VISSSlib.matching.createMetaRotation`, cached as ``metaFrameMapping``
 next to ``metaRotation``; it is a hidden parent of level1match, so touch the
@@ -85,15 +85,15 @@ without a reliable mapping are dropped, and level2 flags such times
 
 *Settings* (see :doc:`config_files`):
 
-- ``mosaicFrameMappingExclude``: days (``YYYYMMDD`` or ``YYYYMMDD-YYYYMMDD``)
+- ``frameMappingExclude``: days (``YYYYMMDD`` or ``YYYYMMDD-YYYYMMDD``)
   for which the fix is **not** applied. Use it for days that were processed
   well without the mapping (light snow, where the particle tests have too little
   to work with).
-- ``mosaicFrameMappingFallback``: if the mapping variant of a file fails (no
+- ``frameMappingFallback``: if the mapping variant of a file fails (no
   follower data left, no matched particles, Z residual too wide, ...), the file
   is processed once more **without** the mapping
   (:func:`VISSSlib.matching.matchParticles`). The settings
-  ``mosaicFallbackFixes`` lists the dataFixes that variant needs (e.g.
+  ``frameMappingFallbackFixes`` lists the dataFixes that variant needs (e.g.
   ``makeCaptureTimeEven``). The result carries the attribute
   ``mosaicFrameMapping = "fallback"`` and level2 does not flag its time as
   unmapped. Rotation estimation is never done with the fallback.

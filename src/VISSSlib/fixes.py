@@ -1997,10 +1997,10 @@ def _mosaicDayRotation(case, config):
 
 def mosaicMappingActive(config, case):
     """
-    True if the dataFix mosaicFrameMapping applies to this case.
+    True if the dataFix frameMapping applies to this case.
 
-    The fix is switched on deployment-wide by "mosaicFrameMapping" in
-    dataFixes; the setting mosaicFrameMappingExclude (list of YYYYMMDD or
+    The fix is switched on deployment-wide by "frameMapping" in
+    dataFixes; the setting frameMappingExclude (list of YYYYMMDD or
     "YYYYMMDD-YYYYMMDD" ranges, inclusive) takes days out again, e.g. days
     that were processed well before the fix existed and get worse with it
     (sail_v1: light-snow days).
@@ -2016,9 +2016,9 @@ def mosaicMappingActive(config, case):
     import os
     import re
 
-    if "mosaicFrameMapping" not in config.dataFixes:
+    if "frameMapping" not in config.dataFixes:
         return False
-    exclude = config.mosaicFrameMappingExclude
+    exclude = config.frameMappingExclude
     if not exclude:
         return True
     dates = re.findall(r"(?<!\d)(\d{8})(?!\d)", os.path.basename(str(case)))
@@ -3070,7 +3070,7 @@ def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
         ends = np.concatenate(ends)
     # files processed without the frame mapping (fallback) are not unmapped
     fStart, fEnd = [], []
-    if bool(config.mosaicFrameMappingFallback):
+    if bool(config.frameMappingFallback):
         from . import files as _files
 
         try:

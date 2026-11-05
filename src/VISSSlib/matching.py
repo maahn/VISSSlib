@@ -2734,23 +2734,23 @@ def _matchParticlesImpl(
     start = leader1D.capture_time[0].values - np.timedelta64(2, "s")
     end = leader1D.capture_time[-1].values + np.timedelta64(2, "s")
     log.info(tools.concat(f"opening {fnames1F}"))
-    mosaicFrameMapping = fixes.mosaicMappingActive(config, fname1Match)
+    frameMapping = fixes.mosaicMappingActive(config, fname1Match)
     # MOSAiC: follower capture_time is on its own clock, up to some seconds
     # away from the leader's, and is only converted to the leader clock below
     offsetF = np.timedelta64(int(round(mosaicClockOffset * 1e3)), "ms")
-    startF = start - np.timedelta64(30, "s") + offsetF if mosaicFrameMapping else start
-    endF = end + np.timedelta64(30, "s") + offsetF if mosaicFrameMapping else end
+    startF = start - np.timedelta64(30, "s") + offsetF if frameMapping else start
+    endF = end + np.timedelta64(30, "s") + offsetF if frameMapping else end
     try:
         follower1DAll = tools.open_mflevel1detect(
             fnames1F,
             config,
             start=startF,
             end=endF,
-            skipFixes=["captureIdOverflows"] if mosaicFrameMapping else [],
+            skipFixes=["captureIdOverflows"] if frameMapping else [],
             datVars=datVars4load,
         )  # with foxes
         nFollowerRaw = 0 if follower1DAll is None else len(follower1DAll.fpid)
-        if mosaicFrameMapping and (follower1DAll is not None):
+        if frameMapping and (follower1DAll is not None):
             # follower capture_id -> leader capture_id of the same frame,
             # see fixes.createMosaicFrameMapping
             follower1DAll = fixes.mosaicFollowerCaptureIdToLeader(
@@ -2784,7 +2784,7 @@ def _matchParticlesImpl(
     follower1DAll = tools.removeBlockedBlowingData(follower1DAll, fEvents, config)
 
     if follower1DAll is None:
-        if _canFallback and mosaicFrameMapping and (not rotationOnly):
+        if _canFallback and frameMapping and (not rotationOnly):
             raise _MosaicFallback(
                 f"no follower data after removal of blocked data {fname1Match}"
             )
@@ -2861,7 +2861,7 @@ def _matchParticlesImpl(
         ]
     )[0]
     followerRestarted = fEvents.file_starttime[followerRestartedII].values
-    if mosaicFrameMapping:
+    if frameMapping:
         # event times are on the follower clock, capture_time on the leader's
         followerRestarted = followerRestarted - offsetF
 
@@ -2891,8 +2891,8 @@ def _matchParticlesImpl(
     )
     captureIdDropTimes = []
     phaseJumpTimes = []
-    # with mosaicFrameMapping, follower capture_id is already exact
-    if ptpDisabled and not mosaicFrameMapping:
+    # with frameMapping, follower capture_id is already exact
+    if ptpDisabled and not frameMapping:
         maxDiffMsForDropDetection = maxDiffMs
         if maxDiffMsForDropDetection == "config":
             maxDiffMsForDropDetection = 1000 / config.fps / 2
@@ -3085,7 +3085,7 @@ def _matchParticlesImpl(
                     log.warning(f"error in {errRatio*100}% of the data")
 
     if len(matchedDats) == 0:
-        if _canFallback and mosaicFrameMapping and (not rotationOnly):
+        if _canFallback and frameMapping and (not rotationOnly):
             raise _MosaicFallback(f"no matched particles {fname1Match}")
         ffl1.writeStatus("level1match", "nodata", "no data")
         log.error(tools.concat("NO DATA", fname1Match))
@@ -3113,7 +3113,7 @@ def _matchParticlesImpl(
     nPairs = len(matchedDats["pair_id"])
     if (
         _canFallback
-        and mosaicFrameMapping
+        and frameMapping
         and (not rotationOnly)
         and (min(nLeader, nFollowerRaw) >= 1000)
         and (nPairs < 0.02 * min(nLeader, nFollowerRaw))
@@ -3375,13 +3375,13 @@ def _matchParticlesImpl(
 
 
 def _mosaicFallbackConfig(config):
-    """copy of config without the dataFix mosaicFrameMapping (old method),
-    plus the fixes the old method needs (setting mosaicFallbackFixes)"""
+    """copy of config without the dataFix frameMapping (old method),
+    plus the fixes the old method needs (setting frameMappingFallbackFixes)"""
     import copy
 
     legacy = copy.deepcopy(config)
-    fixesList = [f for f in config.dataFixes if f != "mosaicFrameMapping"]
-    for f in config.mosaicFallbackFixes or []:
+    fixesList = [f for f in config.dataFixes if f != "frameMapping"]
+    for f in config.frameMappingFallbackFixes or []:
         if f not in fixesList:
             fixesList.append(f)
     legacy.dataFixes = fixesList
@@ -3394,11 +3394,11 @@ def matchParticles(*args, **kwargs):
     Match the particles of one level1detect file of the leader with the
     follower (level1match). Arguments: see _matchParticlesImpl.
 
-    With the dataFix mosaicFrameMapping and the setting
-    mosaicFrameMappingFallback the file is processed with the frame mapping
+    With the dataFix frameMapping and the setting
+    frameMappingFallback the file is processed with the frame mapping
     first; if that fails (no follower data left, no matched particles, Z
     residual too wide, ...) it is processed once more WITHOUT the frame mapping
-    (old method plus the fixes of mosaicFallbackFixes). The output of such a
+    (old method plus the fixes of frameMappingFallbackFixes). The output of such a
     file carries the attribute mosaicFrameMapping="fallback", which level2 uses
     not to treat its time as unmapped.
     """
@@ -3417,7 +3417,7 @@ def matchParticles(*args, **kwargs):
         and (p["subset"] is None)
         and (not p["testing"])
         and (not p["_fallbackMode"])
-        and bool(config.mosaicFrameMappingFallback)
+        and bool(config.frameMappingFallback)
         and fixes.mosaicMappingActive(config, p["fnameLv1Detect"])
     )
     if not can:

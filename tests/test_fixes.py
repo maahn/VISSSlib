@@ -665,16 +665,16 @@ class TestMosaicMappingActive:
     def _cfg(fixes_, exclude=None):
         from VISSSlib import tools
 
-        c = tools.DictNoDefault({"dataFixes": fixes_, "mosaicFrameMappingExclude": exclude})
+        c = tools.DictNoDefault({"dataFixes": fixes_, "frameMappingExclude": exclude})
         return c
 
     def test_switch_and_exclusion(self):
         from VISSSlib.fixes import mosaicMappingActive
 
         assert not mosaicMappingActive(self._cfg(["x"]), "20230325")
-        c = self._cfg(["mosaicFrameMapping"])
+        c = self._cfg(["frameMapping"])
         assert mosaicMappingActive(c, "20230325")
-        c = self._cfg(["mosaicFrameMapping"], ["20230325", "20230401-20230410"])
+        c = self._cfg(["frameMapping"], ["20230325", "20230401-20230410"])
         assert not mosaicMappingActive(c, "20230325")
         assert not mosaicMappingActive(c, "20230325-120000")
         assert not mosaicMappingActive(c, "20230405")
@@ -695,10 +695,10 @@ class TestMosaicFallbackWrapper:
 
         return tools.DictNoDefault(
             {
-                "dataFixes": ["mosaicFrameMapping", "detectTimingGlitches"],
-                "mosaicFrameMappingExclude": exclude,
-                "mosaicFrameMappingFallback": fallback,
-                "mosaicFallbackFixes": ["makeCaptureTimeEven"],
+                "dataFixes": ["frameMapping", "detectTimingGlitches"],
+                "frameMappingExclude": exclude,
+                "frameMappingFallback": fallback,
+                "frameMappingFallbackFixes": ["makeCaptureTimeEven"],
             }
         )
 
@@ -733,9 +733,9 @@ class TestMosaicFallbackWrapper:
         assert calls[0]["_canFallback"] and not calls[0]["_fallbackMode"]
         assert calls[1]["_fallbackMode"] and not calls[1]["_canFallback"]
         legacy = calls[1]["config"].dataFixes
-        assert "mosaicFrameMapping" not in legacy and "makeCaptureTimeEven" in legacy
+        assert "frameMapping" not in legacy and "makeCaptureTimeEven" in legacy
         assert "detectTimingGlitches" in legacy
-        assert "mosaicFrameMapping" in cfg.dataFixes  # original untouched
+        assert "frameMapping" in cfg.dataFixes  # original untouched
 
     def test_no_retry_if_disabled_or_excluded_or_rotation_only(self, monkeypatch):
         import pytest

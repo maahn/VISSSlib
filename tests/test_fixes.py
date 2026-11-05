@@ -595,7 +595,7 @@ class TestMosaicDenseBlockLagsDrift:
 
 
 class TestMosaicRefineRowLags:
-    def test_steps_moved_to_where_particles_show_them(self):
+    def test_drift_inside_one_row_is_followed(self):
         from VISSSlib.fixes import _mosaicRefineRowLags
 
         period, per, lag0 = 60_000, 3000, 3000  # 1000 frames = 1 min
@@ -605,34 +605,45 @@ class TestMosaicRefineRowLags:
         lPart["ct"] = lu * period
         uF = fu - lag0 - 2 * ((fu - lag0) // (per + 2))  # leader frame of the follower frame
         fPart["ct"] = uF * period
-        # true lag steps by 2 every `per` frames (3 min); the row has the
-        # steps 1000 frames (1 min) too late
-        minute = 60_000_000
         t0, t1 = int(fPart["ct"].min()), int(fPart["ct"].max())
-        base = dict(
+        row = dict(
             lsegment=0, fsegment=0, rotated=False, resolved=True, dz_median=43.0,
-            n_pairs=1000, lag=0, lag_mod=0, rot_Ofz=np.nan, rot_phi=np.nan,
-            rot_theta=np.nan,
+            n_pairs=1000, lag=lag0, lag_mod=0, rot_Ofz=np.nan, rot_phi=np.nan,
+            rot_theta=np.nan, fct_start=t0, fct_end=t1,
         )
-        rows = []
-        edges = [t0 + i * minute for i in range(int((t1 - t0) // minute) + 2)]
-        for e0, e1 in zip(edges[:-1], edges[1:]):
-            tc = (e0 + e1) / 2 / period  # approx. frame index of the minute
-            late = int(max(tc - 1000, 0) // per)
-            r = dict(base)
-            r.update(fct_start=int(e0), fct_end=int(e1) - 1, lag=lag0 + 2 * late)
-            rows.append(r)
         out = _mosaicRefineRowLags(
-            rows, lPart, np.zeros(len(lu), int), lu, fPart, np.zeros(len(fu), int),
-            fu, 1000, stepMinutes=1.0, windowMinutes=1.0, halfRange=2, minExcess=50,
+            [row], lPart, np.zeros(len(lu), int), lu, fPart, np.zeros(len(fu), int),
+            fu, 1000, windowMinutes=1.0, minExcess=50,
         )
         def truth(r):
             tc = (r["fct_start"] + r["fct_end"]) / 2 / period
             return lag0 + 2 * int(max(tc, 0) // per)
-        errBefore = np.mean([abs(r["lag"] - truth(r)) for r in rows])
-        errAfter = np.mean([abs(r["lag"] - truth(r)) for r in out])
-        assert errAfter < errBefore
+        err = [abs(r["lag"] - truth(r)) for r in out]
+        assert max(err) <= 2 and np.mean(err) < 0.3
+        assert len(out) >= 4
         assert all(b["fct_start"] == a["fct_end"] + 1 for a, b in zip(out[:-1], out[1:]))
+
+    def test_constant_lag_is_kept(self):
+        from VISSSlib.fixes import _mosaicRefineRowLags
+
+        # constant lag everywhere, but the dense test is fooled in one piece
+        # by a few pairs of a wrong lag: no change beyond one frame
+        period, lag0 = 60_000, 3000
+        lPart, lu, fPart, fu = TestMosaicDenseBlockLagsDrift._drifting(
+            nFrames=6000, K=20, lag0=lag0, per=10**9
+        )
+        lPart["ct"] = lu * period
+        fPart["ct"] = (fu - lag0) * period
+        row = dict(
+            lsegment=0, fsegment=0, rotated=False, resolved=True, dz_median=43.0,
+            n_pairs=1000, lag=lag0, lag_mod=0, rot_Ofz=np.nan, rot_phi=np.nan,
+            rot_theta=np.nan, fct_start=int(fPart["ct"].min()), fct_end=int(fPart["ct"].max()),
+        )
+        out = _mosaicRefineRowLags(
+            [row], lPart, np.zeros(len(lu), int), lu, fPart, np.zeros(len(fu), int),
+            fu, 1000, windowMinutes=1.0, minExcess=50,
+        )
+        assert [r["lag"] for r in out] == [lag0]
 
 
 class TestMosaicBlocksToRows:

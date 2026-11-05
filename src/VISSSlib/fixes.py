@@ -1644,27 +1644,32 @@ def _mosaicRefineRowLags(
     frameWidth,
     stepMinutes=1.0,
     windowMinutes=3.0,
-    halfRange=1,
+    halfRange=6,
     minZ=8.0,
-    minRatio=1.5,
+    minRatio=2.0,
     minExcess=100,
     maxDzDiff=10.0,
+    maxFillMinutes=10,
     cache=None,
 ):
     """
-    Minute-level check of the lag of resolved rows. The lag found per 10 min
-    block and interpolated between the block centres puts the single-frame
-    steps of the (drifting) lag a few minutes off; in the minutes in between
-    the lag is a frame wrong and almost no particles match (SAIL 20230104:
-    87% of the minutes with little matching lie within 3 min of a step).
+    Minute-level check of the lag of resolved rows. The lag of a row is one
+    number per block (10 min) or even per run (2 h, found with single
+    particles), but the lag drifts by a frame every few minutes, so for part
+    of a row the lag is a few frames wrong and almost nothing matches (SAIL
+    20230104: 10% of the minutes, in runs of up to 50 min).
 
     Every stepMinutes piece of each resolved row is tested with the dense lag
     test (windowMinutes of follower capture_time around the piece, candidates
-    lag +- halfRange, rotation of the row if it has one). The lag of a piece
-    is replaced if the best candidate is decisive (z >= minZ, minRatio times
-    the second best, at least minExcess pairs in the peak, vertical offset within maxDzDiff of the rows without
-    rotation); otherwise the lag stays. Neighbouring pieces with the same lag
-    are merged.
+    lag +- halfRange, rotation of the row if it has one). A piece takes the
+    best candidate if it is decisive (z >= minZ, minRatio times the second
+    best, at least minExcess pairs in the peak, vertical offset within
+    maxDzDiff of the rows without rotation). A change of more than one frame
+    additionally needs a neighbouring piece (+-2) that found the same lag, so
+    an isolated outlier cannot move the lag far. Pieces without a decisive
+    result (little snow) take the change of the nearest decided pieces
+    (interpolated if there is one on each side, at most maxFillMinutes away).
+    Neighbouring pieces with the same lag are merged.
     """
     P = MOSAIC_CAPTURE_ID_PERIOD
     step = int(stepMinutes * 60_000_000)
@@ -1697,9 +1702,10 @@ def _mosaicRefineRowLags(
             )
         edges = np.arange(int(r["fct_start"]), int(r["fct_end"]) + 1, step)
         edges = np.append(edges, int(r["fct_end"]) + 1)
-        cur = None
-        for e0, e1 in zip(edges[:-1], edges[1:]):
-            lag = int(r["lag"])
+        n = len(edges) - 1
+        lag0 = int(r["lag"])
+        change = [None] * n  # decisive change of the lag per piece
+        for k, (e0, e1) in enumerate(zip(edges[:-1], edges[1:])):
             tc = (int(e0) + int(e1)) // 2
             found = _mosaicDenseLagTest(
                 lPart,
@@ -1710,7 +1716,7 @@ def _mosaicRefineRowLags(
                 fPSeg,
                 fPU,
                 r["fsegment"],
-                list(range(lag - halfRange, lag + halfRange + 1)),
+                list(range(lag0 - halfRange, lag0 + halfRange + 1)),
                 rotate=rotate,
                 frameWidth=frameWidth,
                 cache=cache,
@@ -1727,7 +1733,47 @@ def _mosaicRefineRowLags(
                     or (abs(found["dz"] - dzRef) < maxDzDiff)
                 )
             ):
-                lag = int(found["lag"])
+                change[k] = int(found["lag"]) - lag0
+        # a change of more than a frame needs company
+        for k in range(n):
+            c = change[k]
+            if (c is not None) and (abs(c) > 1):
+                nb = [
+                    change[j]
+                    for j in range(max(k - 2, 0), min(k + 3, n))
+                    if j != k
+                ]
+                if c not in nb:
+                    change[k] = None
+        # pieces without a decisive result: nearest decided pieces
+        decided = [k for k in range(n) if change[k] is not None]
+        filled = list(change)
+        if len(decided) > 0:
+            maxFill = int(round(maxFillMinutes * 60_000_000 / step))
+            for k in range(n):
+                if change[k] is not None:
+                    continue
+                before = [d for d in decided if d < k]
+                after = [d for d in decided if d > k]
+                b = before[-1] if (before and k - before[-1] <= maxFill) else None
+                a = after[0] if (after and after[0] - k <= maxFill) else None
+                if (b is not None) and (a is not None):
+                    filled[k] = int(
+                        np.round(
+                            np.interp(k, [b, a], [change[b], change[a]])
+                        )
+                    )
+                elif b is not None:
+                    filled[k] = change[b]
+                elif a is not None:
+                    filled[k] = change[a]
+                else:
+                    filled[k] = 0
+        else:
+            filled = [0] * n
+        cur = None
+        for k, (e0, e1) in enumerate(zip(edges[:-1], edges[1:])):
+            lag = lag0 + int(filled[k])
             if (cur is not None) and (cur["lag"] == lag):
                 cur["fct_end"] = int(e1) - 1
                 continue

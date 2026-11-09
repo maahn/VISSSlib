@@ -1517,6 +1517,36 @@ def _mosaicBlocksToRows(blocks, r, P, fineMinutes=1.0, maxInterpStep=4):
     return rows
 
 
+def _mosaicNeighbourCandidates(row, candidates, resolvedRows, P, nSide=2, half=3):
+    """
+    Add the lags of the nearest resolved segments of the day to the candidates
+    of an unresolved segment. The record time guess can be off by more than
+    the search window of a few frames (hyytiala_v1 20220405: 11 frames), while
+    the lag modulo the capture_id period is the same in the neighbouring
+    segments (the cameras lose frames only rarely). Only the value
+    congruent to the neighbour's lag modulo P that is closest to the
+    candidates is added.
+    """
+    if len(candidates) == 0 or len(resolvedRows) == 0:
+        return candidates
+    center = int(np.median(candidates))
+    t = row["rt_start"]
+    before = sorted(
+        (r for r in resolvedRows if r["rt_start"] <= t),
+        key=lambda r: t - r["rt_start"],
+    )[:nSide]
+    after = sorted(
+        (r for r in resolvedRows if r["rt_start"] > t),
+        key=lambda r: r["rt_start"] - t,
+    )[:nSide]
+    out = set(candidates)
+    for r in before + after:
+        lagMod = int(r["lag_mod"])
+        congruent = lagMod + P * int(round((center - lagMod) / P))
+        out |= set(range(congruent - half, congruent + half + 1))
+    return sorted(out)
+
+
 def _mosaicDenseBlockLags(
     lPart,
     lSeg,
@@ -2475,10 +2505,13 @@ def createMosaicFrameMapping(
             ]
             dzDay = float(np.median(dzDay)) if len(dzDay) > 0 else None
             denseDrift = {}
+            resolvedRows = [r for r in rows if r["resolved"]]
             for r in rows:
                 if r["resolved"] or (id(r) not in candidateSets):
                     continue
                 ls, fs, cc = candidateSets[id(r)]
+                cc = _mosaicNeighbourCandidates(r, cc, resolvedRows, P)
+                candidateSets[id(r)] = (ls, fs, cc)
                 found = _mosaicDenseLagTest(
                     lPart, lPSeg, lPU, ls, fPart, fPSeg, fPU, fs, cc, cache=cache
                 )

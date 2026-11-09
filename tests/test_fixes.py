@@ -792,3 +792,27 @@ class TestMosaicFallbackWrapper:
                 matching.matchParticles(self.FN, cfg, **kw)
             assert len(calls) == 1
             assert not calls[0]["_canFallback"]
+
+
+class TestMosaicNeighbourCandidates:
+    def test_adds_congruent_lag_of_resolved_neighbours(self):
+        from VISSSlib.fixes import MOSAIC_CAPTURE_ID_PERIOD as P
+        from VISSSlib.fixes import _mosaicNeighbourCandidates
+
+        # guess 11 frames off the lag of the neighbours (same lag modulo P)
+        row = dict(rt_start=100)
+        resolved = [
+            dict(rt_start=50, lag_mod=(-19) % P),
+            dict(rt_start=200, lag_mod=(-19) % P),
+        ]
+        guess = -3 * P - 8
+        out = _mosaicNeighbourCandidates(row, list(range(guess - 3, guess + 4)), resolved, P)
+        assert (-3 * P - 19) in out
+        assert (-3 * P - 8) in out  # original candidates are kept
+
+    def test_without_resolved_rows_unchanged(self):
+        from VISSSlib.fixes import MOSAIC_CAPTURE_ID_PERIOD as P
+        from VISSSlib.fixes import _mosaicNeighbourCandidates
+
+        cand = [1, 2, 3]
+        assert _mosaicNeighbourCandidates(dict(rt_start=0), cand, [], P) == cand

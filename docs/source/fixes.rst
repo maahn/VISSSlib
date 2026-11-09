@@ -70,13 +70,20 @@ same with the camera rotation applied if the cameras are rotated against each
 other, and a joint search of lag and rotation as last resort. Long runs are
 checked **block by block** (10 min): the lag drifts steadily when the cameras
 do not record exactly the same frame rate (SAIL: 2 frames per 10 min); it is
-tracked from the strongest block in both directions, interpolated at 1 minute
-resolution and extrapolated through quiet blocks. Because the single-frame
-steps of the interpolated lag can sit a few minutes away from the real ones
-(the minutes in between then match almost nothing), every minute is finally
-re-tested against the neighbouring lags (``fineLags``,
-:func:`VISSSlib.fixes._mosaicRefineRowLags`) and the lag is changed by at most
-one frame where the particles show it decisively. Ghost frames of the follower
+tracked from the strongest block in both directions (the search window follows
+the drift and grows with the distance to the last block that was found, so a
+lag that drifts far from the first guess, e.g. -5 to -164 frames over a day, is
+still followed), interpolated at 1 minute resolution and extrapolated through
+quiet blocks. Because the single-frame steps of the interpolated lag can sit a
+few minutes away from the real ones (the minutes in between then match almost
+nothing), every minute is finally re-tested against the lags around the
+interpolated one (``fineLags``, :func:`VISSSlib.fixes._mosaicRefineRowLags`,
++-6 frames, 3 minute follower window). A new lag is taken only where the
+particles show it decisively (peak, vertical offset consistent with the day); a
+change of more than one frame needs a neighbouring minute with the same change,
+and minutes without a decisive result take the nearest decided changes. Rows that
+were resolved by single particles are checked as well, because the lag can drift
+inside a long row. Ghost frames of the follower
 and the clock offset between the cameras (knots per minute) are stored too.
 The follower ``capture_id``/``capture_time`` are converted to the leader's in
 :func:`VISSSlib.fixes.mosaicFollowerCaptureIdToLeader`; follower particles
@@ -110,10 +117,16 @@ particles, so the weakest files rely on the fallback and have lower match
 scores. Measured on the days that had problems without the mapping (October
 2026): hyytiala_v1 2.0x the matched pairs and 27x fewer broken level1match files
 (1081 to 40); sail_v1 1.16x the pairs and 6x fewer broken files (560 to 91).
-The minute-wise lag refinement raised the pairs of two test days further
-(sail 20230104: 1.05x, hyytiala 20211203: 1.36x, no file lost pairs) and reduced the
-share of minutes in which less than 0.3x the usual fraction of the particles
-is matched from 26% to 5% (sail) and from 33% to 13% (hyytiala).
+The minute-wise lag refinement was applied to all days that had problems
+(98 hyytiala_v1 and 48 sail_v1 days; the 65 sail days that are fine without the
+mapping stay excluded). Over these days the matched pairs rose by 1.01x
+(sail) and 1.04x (hyytiala) on top of the earlier gain, the minutes in which less than 0.3x the usual
+fraction of the particles is matched fell from 6558 to 4550 (sail) and from
+18394 to 8208 (hyytiala), the files with a median match score below 0.02
+from 1305 to 1192 and from 1447 to 961. Some days stay partly unmatched, e.g.
+sail 20230415 in the evening (a few frames of the lag still move inside a file)
+and dense-snow periods in which no lag can be determined (hyytiala 20220405
+06:20-07:00).
 
 ``VISSSlib.fixes`` API
 --------------------------

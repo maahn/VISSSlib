@@ -407,6 +407,35 @@ class TestMosaicBlockLags:
         )
         assert [b[2] for b in out] == lagTrue
 
+    def test_drift_beyond_initial_window_is_followed(self):
+        from VISSSlib import matching
+        from VISSSlib.fixes import _mosaicBlockLags
+
+        rng = np.random.default_rng(7)
+        rotate = dict(camera_Ofz=-25.0, camera_phi=0.4, camera_theta=0.45)
+        fw, nPer = 1280, 600
+        # the lag drifts by 3 frames per block, far out of the window of +-5
+        # around the first guess; every block lies within +-5 of the previous
+        lagTrue = [-229, -232, -235, -238, -241, -244]
+        n = nPer * len(lagTrue)
+        lx = rng.uniform(0, fw, n)
+        fx = rng.uniform(0, fw, n)
+        fz = rng.uniform(0, 1000, n)
+        lz = np.asarray(matching.calc_L_z_withOffsets(lx, fw - fx, fz, **rotate)) + rng.normal(0, 0.8, n)
+        lU = np.arange(n) * 4 + 10000
+        block = np.repeat(np.arange(len(lagTrue)), nPer)
+        fU = lU + np.array(lagTrue)[block]
+        blockUs = int(10 * 60e6)
+        fct = block * blockUs + np.tile(np.linspace(1e6, blockUs - 1e6, nPer), len(lagTrue)).astype(np.int64)
+        lPart = dict(D=np.full(n, 30.0), z=lz, xc=lx, ct=fct)
+        fPart = dict(D=np.full(n, 30.0), z=fz, xc=fx, ct=fct)
+        seg = np.zeros(n, dtype=int)
+        out = _mosaicBlockLags(
+            lPart, seg, lU, 0, fPart, seg, fU, 0, -229, rotate, fw,
+            0, blockUs * len(lagTrue), blockMinutes=10, halfRange=5, minPairs=40,
+        )
+        assert [b[2] for b in out] == lagTrue
+
     def test_block_without_pairs_has_no_lag(self):
         from VISSSlib.fixes import _mosaicBlockLags
 

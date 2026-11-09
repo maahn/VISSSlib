@@ -1610,7 +1610,9 @@ def _mosaicDenseBlockLags(
                         pass
                     gap = abs(i - lastI)
                     expect = lastLag + lastSlope * (i - lastI)
-                    found, ok = test(i, int(round(expect)), halfRange + min(gap, 6))
+                    found, ok = test(
+                        i, int(round(expect)), halfRange + min(2 * gap, 24)
+                    )
                     res[i] = (found, ok)
                     if ok:
                         newLag = int(found["lag"])
@@ -1966,24 +1968,22 @@ def _mosaicBlockLags(
     fct = fPart["ct"][fi]
     blockUs = int(blockMinutes * 60e6)
     edges = np.arange(tStart, tEnd + blockUs, blockUs)
-    out = []
-    for t0, t1 in zip(edges[:-1], edges[1:]):
+
+    def evaluate(t0, t1, center, half):
         sel = (fct >= t0) & (fct < t1)
         if sel.sum() < minPairs:
-            out.append((int(t0), int(t1), None, int(sel.sum()), np.nan))
-            continue
+            return (int(t0), int(t1), None, int(sel.sum()), np.nan)
         fIdx = fi[sel]
         fUb = fUsAll[sel]
         order = np.argsort(fUb)
         fIdx, fUb = fIdx[order], fUb[order]
-        lo = np.searchsorted(lUs, fUb.min() - lagCenter - halfRange - 5)
-        hi = np.searchsorted(lUs, fUb.max() - lagCenter + halfRange + 5)
+        lo = np.searchsorted(lUs, fUb.min() - center - half - 5)
+        hi = np.searchsorted(lUs, fUb.max() - center + half + 5)
         if hi - lo < minPairs:
-            out.append((int(t0), int(t1), None, int(hi - lo), np.nan))
-            continue
+            return (int(t0), int(t1), None, int(hi - lo), np.nan)
         lUb, lxb, lzb = lUs[lo:hi], lx[lo:hi], lz[lo:hi]
         scores = []
-        for lag in range(lagCenter - halfRange, lagCenter + halfRange + 1):
+        for lag in range(center - half, center + half + 1):
             tgt = lUb + lag
             jj = np.clip(np.searchsorted(fUb, tgt), 0, len(fUb) - 1)
             hit = fUb[jj] == tgt
@@ -2000,14 +2000,30 @@ def _mosaicBlockLags(
             cnt = int((np.abs(d - np.median(d)) < 3).sum())
             scores.append((cnt / n, cnt, n, lag))
         if len(scores) < 2:
-            out.append((int(t0), int(t1), None, 0, np.nan))
-            continue
+            return (int(t0), int(t1), None, 0, np.nan)
         scores.sort(reverse=True)
         best, second = scores[0], scores[1]
         if (best[0] >= minFrac) and (best[0] >= minRatio * second[0]):
-            out.append((int(t0), int(t1), int(best[3]), int(best[2]), float(best[0])))
-        else:
-            out.append((int(t0), int(t1), None, int(best[2]), float(best[0])))
+            return (int(t0), int(t1), int(best[3]), int(best[2]), float(best[0]))
+        return (int(t0), int(t1), None, int(best[2]), float(best[0]))
+
+    out = [evaluate(t0, t1, lagCenter, halfRange) for t0, t1 in zip(edges[:-1], edges[1:])]
+    # The lag can drift out of the window around lagCenter (SAIL 20230415:
+    # -5 at 00 UTC, -101 at 16 UTC, below -160 at 19 UTC; the window ended at
+    # -101 and the blocks after it were filled with that value). Blocks
+    # without a decisive lag, or with a lag at the edge of the window, are
+    # tested again with a window around the lag of the previous block.
+    last = None
+    for i, (t0, t1) in enumerate(zip(edges[:-1], edges[1:])):
+        lag = out[i][2]
+        atEdge = (lag is not None) and (abs(lag - lagCenter) >= halfRange - 2)
+        if ((lag is None) or atEdge) and (last is not None) and (last != lagCenter):
+            again = evaluate(t0, t1, last, halfRange)
+            if again[2] is not None:
+                out[i] = again
+                lag = again[2]
+        if lag is not None:
+            last = lag
     return out
 
 

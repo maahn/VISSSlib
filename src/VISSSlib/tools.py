@@ -399,6 +399,10 @@ DEFAULT_SETTINGS = {
         # Time steps with fewer than sunGlintMinParticles particles are not flagged.
         "sunGlintMargin": 20,
         "sunGlintMinParticles": 50,
+        # name of a deployment specific blur threshold table (blurTables.BLUR_TABLES)
+        # used by level2detect instead of the table of the VISSS generation, for
+        # camera pairs with a different image contrast. None: table of the generation
+        "blurTable": None,
         "sunGlintRatioThresh": 0.1,
         # pixels (level1's native unit -- this residual is computed
         # directly on level1-stage pixel data, before level2's SI/meter

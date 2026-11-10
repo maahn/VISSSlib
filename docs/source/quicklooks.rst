@@ -22,24 +22,46 @@ rather than through the DAG's own dependency mechanism — quicklooks are a
 side effect of running the corresponding processing function, not a
 separate DAG level.
 
-``generate()`` — a dispatcher with a latent bug
------------------------------------------------------
+``generate()`` — the level dispatcher
+-------------------------------------------
 
 :func:`VISSSlib.quicklooks.generate` is a ``level`` → quicklook-function
 dispatcher, structurally identical to :func:`VISSSlib.distributions._createLevel2`'s
 ``sublevel`` dispatch. It is not wired into the CLI (there's no
 ``quicklooks.generate`` entry in ``tools._create_parser()``), and no
 processing module calls it either — only ``tests/test_quicklooks.py``
-exercises it directly. It has a copy-paste bug: its ``level == "level2track"``
-branch calls :func:`~VISSSlib.quicklooks.createLevel2matchQuicklook`
-instead of :func:`~VISSSlib.quicklooks.createLevel2trackQuicklook` (the
-correct function, and the one
-:func:`VISSSlib.distributions.createLevel2track` itself calls directly).
-The existing test doesn't catch this: it only asserts the returned figure
-object is not ``None``, not which quicklook function actually produced it,
-so the wrong-but-still-non-``None`` result passes silently — a good
-reminder that "the test passes" and "the test would catch this bug" are
-different claims.
+exercises it directly. Its ``level == "level2track"`` branch used to call
+:func:`~VISSSlib.quicklooks.createLevel2matchQuicklook` (a copy-paste bug that
+the test did not notice, because it only asserts that *a* figure is returned);
+it now calls :func:`~VISSSlib.quicklooks.createLevel2trackQuicklook`, and a unit
+test checks which function gets dispatched.
+
+Common look of the time series quicklooks
+-----------------------------------------------
+
+All quicklooks except the particle image montages (level1detect,
+level1matchParticles, level1trackParticles) share one look, implemented by a
+few helpers at the top of ``quicklooks.py``:
+
+* ``_styled`` runs a quicklook function in a matplotlib ``rc_context``
+  (``_QL_RC``: font sizes, light grid, no top/right spines), so the plotting
+  code does not set font sizes by hand and the global matplotlib settings are
+  left alone.
+* Panels share a 00:00–24:00 time axis (``_formatDayAxes``, ticks every 3 h,
+  labels only below the lowest panel); ``_stackedFigure`` builds the stack,
+  with a spacer column that keeps the labels of twin axes clear of the colorbars.
+* Quality flags (``cameras off``, ``blocked``, ``blowing snow``, ``sun glint``,
+  ...), idle periods and restarts are drawn by ``_shadeSpans`` /
+  ``_markRestarts`` as full-height spans (``broken_barh`` in axes coordinates)
+  and collected in **one legend above the top panel** (``_legendAbove``)
+  instead of a legend in every panel. Every flagged time step is drawn, also
+  isolated ones, and the shading does not change the y-limits.
+* Sizes are shown in mm, camera colors are consistent (leader red, follower
+  purple), and days without data or without raw data get a small placeholder
+  figure (``_placeholderFigure``) with the same title.
+* level2detect / level2match / level2track share ``_plotLevel2Core`` for the
+  size distribution with N_tot, characteristic sizes, shape parameters and
+  particle counts with the match score (on a second y-axis).
 
 Particle image montages (``Packer_patched``)
 --------------------------------------------------

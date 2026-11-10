@@ -100,7 +100,7 @@ def generate(
                 case, config, version=version, skipExisting=skipExisting
             )
         elif level == "level2track":
-            res = createLevel2matchQuicklook(
+            res = createLevel2trackQuicklook(
                 case, config, version=version, skipExisting=skipExisting
             )
         elif level == "level3combinedRiming":
@@ -309,6 +309,433 @@ def _crop(image):
         np.min(y_nonzero) : np.max(y_nonzero) + 1,
         np.min(x_nonzero) : np.max(x_nonzero) + 1,
     ]
+
+
+################################################################################
+# Shared look & feel of the (non-particle-image) quicklooks: one rc style, flag
+# shading with a single legend, a common time axis and stacked-panel figures.
+
+_QL_RC = {
+    "figure.dpi": 150,
+    "font.size": 11,
+    "axes.titlesize": 12,
+    "axes.labelsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 9.5,
+    "legend.frameon": True,
+    "legend.framealpha": 0.85,
+    "legend.edgecolor": "none",
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "axes.axisbelow": True,
+    "grid.color": "0.85",
+    "grid.linewidth": 0.6,
+    "lines.linewidth": 1.4,
+    "lines.markersize": 4,
+}
+
+# colors identifying the two cameras in plots showing both of them
+_LEADER_COLOR = "tab:red"
+_FOLLOWER_COLOR = "tab:purple"
+
+
+def _styled(func):
+    """Run a quicklook function with the common quicklook rc style."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        import matplotlib as mpl
+
+        with mpl.rc_context(_QL_RC):
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
+def _dayLimits(ff):
+    """Start and end of the day of a FindFiles object as datetime64."""
+    t0 = np.datetime64(f"{ff.year}-{ff.month}-{ff.day}T00:00")
+    return t0, t0 + np.timedelta64(1, "D")
+
+
+def _timeStep(times, default=np.timedelta64(10, "m")):
+    """Typical (median) spacing of a time array, `default` if undefined."""
+    times = np.sort(np.asarray(times).astype("datetime64[ns]"))
+    times = times[~np.isnat(times)]
+    dt = np.diff(times).astype("timedelta64[s]").astype(float)
+    dt = dt[dt > 0]
+    if len(dt) == 0:
+        return default
+    return np.timedelta64(int(np.median(dt)), "s")
+
+
+def _suptitle(fig, what, ff, config):
+    fig.suptitle(
+        f"VISSS {what}  ·  {ff.year}-{ff.month}-{ff.day}  ·  {config['name']}",
+        fontsize=15,
+        fontweight="bold",
+    )
+
+
+def _panelTitle(ax, text):
+    # inside the axes: tight_layout does not reserve room for titles between
+    # stacked panels
+    ax.text(
+        0.005,
+        0.96,
+        text,
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=12,
+        fontweight="bold",
+        bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "none", "pad": 2},
+        zorder=5,
+    )
+
+
+def _placeholderFigure(what, ff, config, message):
+    """Small figure for days without (raw) data, so the gallery has no gaps."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(13, 3))
+    ax.axis("off")
+    ax.text(
+        0.5,
+        0.5,
+        message,
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=20,
+        color="0.45",
+    )
+    _suptitle(fig, what, ff, config)
+    return fig
+
+
+def _shadeSpans(axs, starts, width, color, label, alpha=0.25, hatch=None):
+    """
+    Shade full-height spans [start, start+width) on all axes.
+
+    Unlike `fill_between` between flagged time stamps, every flagged time
+    step is shown (also isolated ones) and the y-limits are not touched.
+
+    Returns
+    -------
+    matplotlib.patches.Patch or None
+        Legend handle, None if there is nothing to shade.
+    """
+    import matplotlib.dates as mdates
+    from matplotlib.patches import Patch
+
+    starts = np.asarray(starts).astype("datetime64[ns]")
+    starts = starts[~np.isnat(starts)]
+    if len(starts) == 0:
+        return None
+    x = mdates.date2num(starts)
+    w = width / np.timedelta64(1, "D")
+    for ax in np.atleast_1d(axs):
+        ylim = ax.get_ylim()
+        ax.broken_barh(
+            [(xi, w) for xi in x],
+            (0, 1),
+            transform=ax.get_xaxis_transform(),
+            facecolors=color,
+            edgecolors="none",
+            alpha=alpha,
+            hatch=hatch,
+            zorder=1,
+        )
+        ax.set_ylim(ylim)  # shading must not change the autoscaled limits
+    return Patch(facecolor=color, alpha=alpha, hatch=hatch, label=label)
+
+
+def _flagStyles(config):
+    """Color/label of the level2 quality flags (in the order of the legend)."""
+    q = config.quality
+    return [
+        ("recordingFailed", "0.55", 0.2, "cameras off"),
+        ("processingFailed", "purple", 0.25, "processing failed"),
+        ("cameraBlocked", "red", 0.25, f"camera blocked > {q.blockedPixThresh*100:g}%"),
+        (
+            "blowingSnow",
+            "orange",
+            0.25,
+            f"blowing snow > {q.blowingSnowFrameThresh*100:g}%",
+        ),
+        ("sunGlint", "gold", 0.35, f"sun glint > {q.sunGlintRatioThresh*100:g}%"),
+        ("obervationsDiffer", "magenta", 0.25, "observed # of particles differ"),
+        (
+            "trackingIncomplete",
+            "blue",
+            0.2,
+            f"tracking completeness < {q.minTrackCompleteness}",
+        ),
+        ("zResidualTooWide", "cyan", 0.25, f"Z-residual sigma > {q.maxZSigma} px"),
+    ]
+
+
+def _shadeQualityFlags(axs, dat2, config, flagNames):
+    """Shade the level2 quality flags `flagNames`, return the legend handles."""
+    quality = tools.unpackQualityFlags(dat2.qualityFlags)
+    time = quality.time.values
+    width = _timeStep(time, default=np.timedelta64(5, "m"))
+    handles = []
+    for name, color, alpha, label in _flagStyles(config):
+        if name not in flagNames:
+            continue
+        flag = quality.sel(flag=name).values.astype(bool)
+        handle = _shadeSpans(axs, time[flag], width, color, label, alpha=alpha)
+        if handle is not None:
+            handles.append(handle)
+    return handles
+
+
+def _restartTimes(events):
+    """Times at which the acquisition software was (re)started."""
+    isRestart = np.array(
+        [str(e).startswith(("start", "launch")) for e in events.event.values],
+        dtype=bool,
+    )
+    return events.file_starttime.values[isRestart]
+
+
+def _markRestarts(axs, times, label="restarted", color="red", ls=":"):
+    """Draw vertical lines at `times`, return the legend handle (or None)."""
+    from matplotlib.lines import Line2D
+
+    times = np.asarray(times).astype("datetime64[ns]")
+    times = times[~np.isnat(times)]
+    if len(times) == 0:
+        return None
+    for ax in np.atleast_1d(axs):
+        ax.vlines(
+            times,
+            0,
+            1,
+            transform=ax.get_xaxis_transform(),
+            colors=color,
+            linestyles=ls,
+            linewidth=1,
+            zorder=3,
+        )
+    return Line2D([], [], color=color, ls=ls, lw=1, label=label)
+
+
+def _formatDayAxes(axs, ff, xlabel="time"):
+    """
+    Common time axis for the panels of a day: 00:00-24:00, ticks every 3 h
+    (minor every hour), labels only below the lowest panel.
+    """
+    import matplotlib.dates as mdates
+    from matplotlib.ticker import FuncFormatter
+
+    axs = list(axs)
+    t0, t1 = _dayLimits(ff)
+    end = mdates.date2num(t1)
+
+    def formatter(x, pos=None):
+        if np.isclose(x, end):
+            return "24:00"
+        return mdates.num2date(x).strftime("%H:%M")
+
+    for ax in axs:
+        ax.set_xlim(t0, t1)
+        ax.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 24, 3)))
+        ax.xaxis.set_minor_locator(mdates.HourLocator())
+        ax.xaxis.set_major_formatter(FuncFormatter(formatter))
+        ax.set_xlabel("")
+        ax.tick_params(axis="x", which="minor", length=2)
+    for ax in axs[:-1]:
+        ax.tick_params(axis="x", labelbottom=False)
+    axs[-1].set_xlabel(xlabel)
+
+
+def _legendAbove(ax, handles, ncol=4):
+    """One legend above the top panel (does not hide any data)."""
+    if len(handles) == 0:
+        return
+    ax.legend(
+        handles=handles,
+        loc="lower right",
+        bbox_to_anchor=(1, 1.0),
+        ncol=ncol,
+        borderaxespad=0.2,
+    )
+
+
+def _line(ax, da, **kwargs):
+    """Plot a 1D DataArray against its coordinate without xarray's labels."""
+    da = da.squeeze(drop=True)
+    return ax.plot(da[da.dims[0]].values, da.values, **kwargs)
+
+
+def _stackedFigure(heights, figsize, cbar=True, hspace=0.12):
+    """
+    Panels sharing the time axis; with `cbar` a narrow second column holds
+    the color bars (unused ones are switched off by the caller).
+
+    Returns
+    -------
+    fig, axs, caxs
+        `caxs` is None without `cbar`.
+    """
+    import matplotlib.pyplot as plt
+
+    if cbar:
+        fig, axcax = plt.subplots(
+            nrows=len(heights),
+            ncols=3,
+            figsize=figsize,
+            gridspec_kw={
+                # the middle column leaves room for the labels of twin axes
+                "width_ratios": [1, 0.08, 0.015],
+                "height_ratios": heights,
+                "wspace": 0.0,
+                "hspace": hspace,
+            },
+        )
+        axs, caxs = list(axcax[:, 0]), list(axcax[:, 2])
+        for cax in caxs:
+            cax.axis("off")
+        for spacer in axcax[:, 1]:
+            spacer.axis("off")
+    else:
+        fig, axs = plt.subplots(
+            nrows=len(heights),
+            ncols=1,
+            figsize=figsize,
+            gridspec_kw={"height_ratios": heights, "hspace": hspace},
+        )
+        axs, caxs = list(axs), None
+    for ax in axs[1:]:
+        ax.sharex(axs[0])
+    return fig, axs, caxs
+
+
+def _plotSizeDist(ax, cax, da, cbarLabel, **kwargs):
+    """
+    Size distribution (time x D_bins) as color plot, sizes converted to mm.
+
+    Returns None without plotting if there are no data.
+    """
+    import matplotlib as mpl
+
+    da = da.squeeze(drop=True)
+    if not np.any(da.notnull()):
+        return None
+    if "norm" not in kwargs and "vmin" not in kwargs:
+        # PSD: logarithmic
+        vmax = float(da.max())
+        kwargs["norm"] = mpl.colors.LogNorm(vmin=1, vmax=max(vmax, 10))
+    da = da.assign_coords(D_bins=da.D_bins * 1e3)
+    cax.axis("on")
+    mesh = da.transpose("D_bins", "time").plot.pcolormesh(
+        ax=ax,
+        x="time",
+        y="D_bins",
+        cbar_ax=cax,
+        cbar_kwargs={"label": cbarLabel},
+        rasterized=True,
+        **kwargs,
+    )
+    ax.set_ylim(bottom=0)
+    ax.set_title("")
+    ax.set_xlabel("")
+    return mesh
+
+
+def _plotLevel2Core(
+    axPSD, caxPSD, axSize, axShape, axPerf, dat2, sel, aspectSel=None, matchScore=False
+):
+    """
+    Panels shared by the level2 quicklooks: size distribution with N_tot,
+    characteristic sizes, shape parameters and counts (with match score).
+
+    Parameters
+    ----------
+    sel : dict
+        Selection for the camera dimension (empty for single camera data).
+    aspectSel : dict, optional
+        Different selection for the aspect ratio (default `sel`).
+    matchScore : bool
+        Also show the mean match score.
+    """
+    if aspectSel is None:
+        aspectSel = sel
+    Dmax = dict(size_definition="Dmax", **sel)
+
+    _plotSizeDist(
+        axPSD,
+        caxPSD,
+        dat2.PSD.sel(**Dmax),
+        "Particle size distribution [m$^{-4}$]",
+    )
+    axPSD.set_ylabel("Dmax [mm]")
+
+    axN = axPSD.twinx()
+    axN.spines["right"].set_visible(True)
+    axN.grid(False)
+    _line(axN, dat2.Ntot.sel(**Dmax), color="k", alpha=0.7, lw=1.2)
+    axN.set_yscale("log")
+    axN.set_ylim(1e0, 1e11)
+    axN.set_ylabel("N$_{tot}$ [m$^{-3}$]")
+
+    _line(axSize, dat2.Dmax_mean.sel(**sel) * 1e3, label="mean Dmax")
+    _line(axSize, dat2.D32.sel(**Dmax) * 1e3, label="D32")
+    _line(axSize, dat2.D43.sel(**Dmax) * 1e3, label="D43")
+    axSize.set_ylabel("Size [mm]")
+    axSize.legend(loc="upper right", ncol=3)
+
+    _line(
+        axShape,
+        dat2.normalizedRimeMass_dist.sel(**Dmax).mean("D_bins"),
+        label="normalized rime mass [-]",
+    )
+    _line(
+        axShape,
+        dat2.aspectRatio_mean.sel(fitMethod="cv2.fitEllipseDirect", **aspectSel),
+        label="aspect ratio [-]",
+    )
+    axShape.set_ylabel("Shape [-]")
+    axShape.legend(loc="upper right", ncol=2)
+
+    _line(
+        axPerf,
+        dat2.counts.sel(**Dmax).sum("D_bins"),
+        label="observed particles [1/min]",
+    )
+    axPerf.set_yscale("log")
+    axPerf.set_ylabel("Particles [1/min]")
+    handles = list(axPerf.get_lines())
+    if matchScore:
+        axM = axPerf.twinx()
+        axM.spines["right"].set_visible(True)
+        axM.grid(False)
+        _line(axM, dat2.matchScore_mean.sel(**sel), color="C1", label="match score [-]")
+        axM.set_ylabel("Match score [-]", color="C1")
+        axM.tick_params(axis="y", colors="C1")
+        handles += list(axM.get_lines())
+    axPerf.legend(handles=handles, loc="upper right", ncol=2)
+
+    for ax in [axPSD, axN, axSize, axShape, axPerf]:
+        ax.set_title("")
+        ax.set_xlabel("")
+
+
+def _concatRotationFiles(rotFiles):
+    """Concatenate metaRotation files, dropping duplicate file_starttimes."""
+    # open_mfdataset does not work due to duplicate file_starttimes...
+    rotDat = [xr.open_dataset(rotFile) for rotFile in rotFiles]
+    if len(rotDat) == 0:
+        return None
+    rotDat = xr.concat(rotDat, "file_starttime")
+    return rotDat.isel(
+        file_starttime=np.unique(rotDat.file_starttime, return_index=True)[1]
+    ).sortby("file_starttime")
 
 
 @tools.loopify_with_camera(endYesterday=False)
@@ -1134,6 +1561,7 @@ def level0Quicklook(case, camera, config, version=__version__, skipExisting=True
 
 
 @tools.loopify_with_camera(endYesterday=False)
+@_styled
 def metaFramesQuicklook(
     case, camera, config, version=__version__, skipExisting=True, plotCompleteOnly=True
 ):
@@ -1165,8 +1593,6 @@ def metaFramesQuicklook(
 
     global metaDats
     metaDats = []
-
-    camera_new = camera.split("_")[0] + "-" + camera.split("_")[1]
 
     # get level 0 file names
     ff = files.FindFiles(case, camera, config, version)
@@ -1252,200 +1678,72 @@ def metaFramesQuicklook(
         metaDats = xr.concat(metaDats, dim="capture_time")
         metaDats = metaDats.sortby("capture_time")
 
-    ts = events.file_starttime.where(
+    isIdle = (
         (events.event == "sleep-trigger") | (events.event == "stop-trigger")
-    )
+    ).values
+    idleStarts = events.file_starttime.values[isIdle]
+    fileStep = _timeStep(events.file_starttime.values)
+    isBlocked = events.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
+    isBlocked = isBlocked.file_starttime.values[isBlocked.values]
 
     print("plotting")
     # plotting
-    fig, (ax1, ax2, ax3) = plt.subplots(
-        3, figsize=(20, 15), gridspec_kw={"hspace": 0.3}
-    )
-    # plt.rcParams['text.usetex'] = False
-    # plt.rcParams['lines.linewidth'] = 1.5
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    plt.suptitle(
-        "VISSS Status-Plot \n"
-        + f"{ff.year}-{ff.month}-{ff.day}"
-        + ", "
-        + config["name"]
-        + "",
-        fontsize=25,
-        y=0.995,
-        fontweight="bold",
-        x=mid,
-    )
-    fig.text(mid, 0.07, "time", fontsize=20, ha="center")
+    fig, axs, _ = _stackedFigure([1, 1, 1], figsize=(13, 9), cbar=False, hspace=0.12)
+    ax1, ax2, ax3 = axs
+    _suptitle(fig, f"metaFrames  ·  {camera.replace('_', ' ')}", ff, config)
 
     if metaDats is not None:
         if "queue_size" in keys:
-            queue = metaDats.queue_size
-            ax1.plot(metaDats.capture_time, queue)
-            ax1.set_ylabel("frames in queue", fontsize=20)
-            ax1.set_title(
-                r"$\bf{" + str(camera_new) + "}$" "\n" "queue size", fontsize=20
-            )
+            ax1.plot(metaDats.capture_time.values, metaDats.queue_size.values, lw=1)
+            ax1.set_ylabel("frames in queue")
+            _panelTitle(ax1, "Queue size")
         else:
             delay = (metaDats.record_time - metaDats.capture_time).astype(int) / 1e9
-            ax1.plot(metaDats.capture_time, delay)
-            ax1.set_ylabel("record delay [s]", fontsize=20)
-            ax1.set_title(
-                r"$\bf{" + str(camera_new) + "}$" "\n" "record delay", fontsize=20
-            )
+            ax1.plot(metaDats.capture_time.values, delay.values, lw=1)
+            ax1.set_ylabel("record delay [s]")
+            _panelTitle(ax1, "Record delay")
+    ax1.set_ylim(bottom=0)
 
-    isBlocked = events.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
-    isBlocked = isBlocked.file_starttime.where(isBlocked).values
-
-    ylim = ax1.get_ylim()
-    if isBlocked.any():
-        ax1.fill_between(
-            isBlocked,
-            [ylim[0]] * len(isBlocked),
-            [ylim[1]] * len(isBlocked),
-            color="red",
-            alpha=0.25,
-            label="blocked",
-        )
-    if ts.notnull().sum() > 0:
-        ax1.fill_between(
-            ts,
-            [ylim[0]] * len(ts),
-            [ylim[1]] * len(ts),
-            color="orange",
-            alpha=0.5,
-            label="idle",
-        )
-    ax1.set_ylim(ylim)
-    ax1.set_xlim(
-        np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-        np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-        + np.timedelta64(1, "D"),
-    )
-    ax1.tick_params(axis="both", labelsize=15)
-    ax1.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-    ax1.grid()
-
+    nominalFrames = config.fps * 5 * 60
     if metaDats is not None:
         frames = metaDats.capture_time.notnull().resample(capture_time="5min").sum()
-        ax2.plot(frames.capture_time, frames)
-    ylim = [0, config.fps * 5 * 60 * 1.05]
-    if isBlocked.any():
-        ax2.fill_between(
-            isBlocked,
-            [ylim[0]] * len(isBlocked),
-            [ylim[1]] * len(isBlocked),
-            color="red",
-            alpha=0.25,
-            label="blocked",
-        )
-    if ts.notnull().sum() > 0:
-        ax2.fill_between(
-            ts,
-            [ylim[0]] * len(ts),
-            [ylim[1]] * len(ts),
-            color="orange",
-            alpha=0.5,
-            label="idle",
-        )
-    ax2.set_ylim(ylim)
-    ax2.set_xlim(
-        np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-        np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-        + np.timedelta64(1, "D"),
-    )
-    ax2.set_title("total frames / 5 min", fontsize=20)
-    ax2.set_ylabel("frames", fontsize=20)
-    ax2.tick_params(axis="both", labelsize=15)
-    ax2.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-    ax2.grid()
+        ax2.plot(frames.capture_time.values, frames.values, lw=1)
+    ax2.axhline(nominalFrames, color="0.4", ls="--", lw=0.8)
+    ax2.set_ylim(0, nominalFrames * 1.05)
+    _panelTitle(ax2, "Total frames / 5 min")
+    ax2.set_ylabel("frames")
 
-    if (
-        len(
-            events.blocking.isel(
-                blockingThreshold=range(0, len(events.blockingThreshold), 2)
-            ).dropna("file_starttime")
-        )
-        != 0
-    ):
-        events.blocking.isel(
-            blockingThreshold=range(0, len(events.blockingThreshold), 2)
-        ).dropna("file_starttime").plot.line(x="file_starttime")
-        ylim = [0, 1]
-        if isBlocked.any():
-            ax3.fill_between(
-                isBlocked,
-                [ylim[0]] * len(isBlocked),
-                [ylim[1]] * len(isBlocked),
-                color="red",
-                alpha=0.25,
-                label="blocked",
+    blocking = events.blocking.isel(
+        blockingThreshold=range(0, len(events.blockingThreshold), 2)
+    ).dropna("file_starttime")
+    if len(blocking) != 0:
+        cmap = plt.get_cmap("viridis")
+        for ii, threshold in enumerate(blocking.blockingThreshold.values):
+            ax3.plot(
+                blocking.file_starttime.values,
+                blocking.sel(blockingThreshold=threshold).values,
+                color=cmap(ii / max(len(blocking.blockingThreshold) - 1, 1)),
+                lw=1.2,
+                label=f"{threshold:g}",
             )
-        if ts.notnull().sum() > 0:
-            ax3.fill_between(
-                ts, [ylim[0]] * len(ts), [ylim[1]] * len(ts), color="orange", alpha=0.5
-            )
-        ax3.set_ylim(ylim)
-        ax3.set_xlim(
-            np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-            np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-            + np.timedelta64(1, "D"),
+        ax3.legend(
+            title="threshold", title_fontsize=9, loc="upper right", ncol=4, fontsize=8.5
         )
-        ax3.set_title("blocking", fontsize=20)
-        ax3.set_ylabel("pixels below \n blocking threshold", fontsize=20)
-        ax3.set_xlabel("")
-        plt.setp(
-            ax3.get_xticklabels(), rotation=False, ha="center", rotation_mode="anchor"
-        )
-        ax3.tick_params(axis="both", labelsize=15)
-        ax3.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-        ax3.grid()
+    ax3.set_ylim(0, 1)
+    _panelTitle(ax3, "Blocking")
+    ax3.set_ylabel("fraction of pixels\nbelow threshold")
 
-    else:
-        if isBlocked.any():
-            ax3.fill_between(
-                isBlocked,
-                [ylim[0]] * len(isBlocked),
-                [ylim[1]] * len(isBlocked),
-                color="red",
-                alpha=0.25,
-                label="blocked",
-            )
-        if ts.notnull().sum() > 0:
-            ax3.fill_between(
-                ts, [ylim[0]] * len(ts), [ylim[1]] * len(ts), color="orange", alpha=0.5
-            )
-        ax3.set_ylim(0, 1)
-        ax3.set_xlim(
-            np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-            np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-            + np.timedelta64(1, "D"),
-        )
-        ax3.set_title("blocking", fontsize=20)
-        ax3.set_ylabel("pixels below \n blocking threshold", fontsize=20)
-        ax3.set_xlabel("")
-        ax3.tick_params(axis="both", labelsize=15)
-        ax3.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-        ax3.grid()
-
-    firstEvent = True
-    for event in events.event:
-        if str(event.values).startswith("start") or str(event.values).startswith(
-            "launch"
-        ):
-            for bx in [ax1, ax2, ax3]:
-                if firstEvent:
-                    label = "restarted"
-                    firstEvent = False
-                else:
-                    label = None
-                bx.axvline(
-                    event.file_starttime.values, color="red", ls=":", label=label
-                )
-
-    ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
+    handles = [
+        _shadeSpans(axs, isBlocked, fileStep, "red", "blocked", alpha=0.25),
+        _shadeSpans(axs, idleStarts, fileStep, "orange", "idle", alpha=0.35),
+        _markRestarts(axs, _restartTimes(events)),
+    ]
+    _formatDayAxes(axs, ff)
+    _legendAbove(ax1, [h for h in handles if h is not None], ncol=3)
+    fig.align_ylabels(axs)
 
     # _statusText(fig, ff.listFiles("metaFrames"), config)
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaFrames"))
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaFrames"), h_pad=1.8)
     tools.copyCurrentQuicklook("metaFrames", ff)
 
     if metaDats is not None:
@@ -1456,6 +1754,7 @@ def metaFramesQuicklook(
 
 
 @tools.loopify
+@_styled
 def createLevel1matchQuicklook(
     case,
     config,
@@ -1539,10 +1838,7 @@ def createLevel1matchQuicklook(
     fnames1M = fl.listFiles("level1match")
     if len(fnames1M) == 0:
         print("No precipitation", case, fl.fnamesPattern.level1match)
-        fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
-        axcax.axis("off")
-        axcax.set_title(f"VISSS level1match {config.name} {case} \n No precipitation")
-        # _statusText(fig, [], config)
+        fig = _placeholderFigure("level1match", fl, config, "no precipitation")
         tools.savefig(fig, config, fOut)
         return fOut, fig
 
@@ -1574,12 +1870,7 @@ def createLevel1matchQuicklook(
 
     if len(datM.fpair_id) <= 1:
         print("No precipitation (2)", case, fl.fnamesPattern.level1match)
-        fig, axcax = plt.subplots(nrows=1, ncols=1, figsize=(10, 15))
-        axcax.axis("off")
-        axcax.set_title(
-            f"VISSS level1match {config.name} {case} \n No precipitation (2)"
-        )
-        # _statusText(fig, [], config)
+        fig = _placeholderFigure("level1match", fl, config, "no precipitation (2)")
         tools.savefig(fig, config, fOut)
         return fOut, fig
 
@@ -1590,20 +1881,21 @@ def createLevel1matchQuicklook(
         fnames1DF, config, skipFixes="all", datVars=["Dmax", "capture_time"]
     )
 
-    fig, axcax = plt.subplots(
-        nrows=9,
-        ncols=2,
-        figsize=(10, 15),
-        gridspec_kw={
-            "width_ratios": [1, 0.01],
-            "height_ratios": [2, 2, 2, 1, 1, 1, 1, 1, 1],
-        },
+    fig, axs, caxs = _stackedFigure(
+        [2, 2, 2, 1, 1, 1, 1, 1, 1],
+        figsize=(13, 17),
+        hspace=0.12,
     )
+    ax = axs
+    cax = caxs
+    cax[1].axis("on")
+    cax[2].axis("on")
 
-    fig.suptitle(f"VISSS level1match {config.name} {case}")
-
-    ax = axcax[:, 0]
-    cax = axcax[:, 1]
+    fig.suptitle(
+        f"VISSS level1match  ·  {case}  ·  {config.name}",
+        fontsize=15,
+        fontweight="bold",
+    )
 
     Dmax = datM.Dmax.mean("camera").values
     _, rs = _plotVar(
@@ -1623,7 +1915,7 @@ def createLevel1matchQuicklook(
         "Counts [-]",
         func="ratio",
         label="ratio leader",
-        color="C2",
+        color=_LEADER_COLOR,
         ratiovar=rs,
         resample=resample,
     )
@@ -1634,13 +1926,12 @@ def createLevel1matchQuicklook(
         "Counts [-]",
         func="ratio",
         label="ratio follower",
-        color="C3",
+        color=_FOLLOWER_COLOR,
         ratiovar=rs,
         resample=resample,
     )
     ax[0].set_yscale("log")
-    cax[0].axis("off")
-    ax[0].legend()
+    ax[0].add_artist(ax[0].legend(loc="upper left", ncol=3))
 
     bins = np.logspace(0, 2.5, 21)
     _, _ = _plot2dhist(
@@ -1658,7 +1949,7 @@ def createLevel1matchQuicklook(
         ylabel="match score [-]",
         cbarlabel="%",
     )
-    ax[2].axhline(config.quality.minMatchScore)
+    ax[2].axhline(config.quality.minMatchScore, color="k", lw=1, ls="--")
 
     zDiff = datM.position_upperLeft.sel(dim2D="y").diff("camera").values.squeeze()
     _, rs = _plotVar(
@@ -1669,7 +1960,6 @@ def createLevel1matchQuicklook(
         axhline=0,
         resample=resample,
     )
-    cax[3].axis("off")
 
     hDiff = datM.Droi.sel(dim2D="y").diff("camera").values.squeeze()
     _, _ = _plotVar(
@@ -1680,7 +1970,6 @@ def createLevel1matchQuicklook(
         axhline=0,
         resample=resample,
     )
-    cax[4].axis("off")
 
     tDiff = datM.capture_time.diff("camera").values.squeeze().astype(int) * 1e-9
     _, _ = _plotVar(
@@ -1691,7 +1980,6 @@ def createLevel1matchQuicklook(
         axhline=0,
         resample=resample,
     )
-    cax[5].axis("off")
 
     try:
         defaultRotation, prevTime = tools.getPrevRotationEstimate(
@@ -1714,7 +2002,7 @@ def createLevel1matchQuicklook(
         theta,
         datM.capture_time.isel(camera=0),
         ax[6],
-        "theta",
+        "theta [°]",
         axhline=defaultRotation["camera_theta"] if defaultRotation else None,
         resample=resample,
     )
@@ -1723,7 +2011,7 @@ def createLevel1matchQuicklook(
         phi,
         datM.capture_time.isel(camera=0),
         ax[7],
-        "phi",
+        "phi [°]",
         axhline=defaultRotation["camera_phi"] if defaultRotation else None,
         resample=resample,
     )
@@ -1732,14 +2020,10 @@ def createLevel1matchQuicklook(
         Ofz,
         datM.capture_time.isel(camera=0),
         ax[8],
-        "Ofz",
+        "Ofz [px]",
         axhline=defaultRotation["camera_Ofz"] if defaultRotation else None,
         resample=resample,
     )
-
-    cax[6].axis("off")
-    cax[7].axis("off")
-    cax[8].axis("off")
 
     timeIndex1 = pd.date_range(
         start=case,
@@ -1754,127 +2038,91 @@ def createLevel1matchQuicklook(
     blowingSnowF, nDetectedF = tools.identifyBlockedBlowingSnowData(
         ff.listFilesWithNeighbors("metaDetection"), config, timeIndex1, "match"
     )
-    blowingSnowL = blowingSnowL.time.where(
-        blowingSnowL > config.quality.blowingSnowFrameThresh
-    ).values
-    blowingSnowF = blowingSnowF.time.where(
-        blowingSnowF > config.quality.blowingSnowFrameThresh
-    ).values
+    blowingSnowL = blowingSnowL.time.values[
+        (blowingSnowL > config.quality.blowingSnowFrameThresh).values
+    ]
+    blowingSnowF = blowingSnowF.time.values[
+        (blowingSnowF > config.quality.blowingSnowFrameThresh).values
+    ]
 
     observationsRatio = tools.compareNDetected(nDetectedL, nDetectedF)
     obervationsDiffer = observationsRatio < config.quality.obsRatioThreshold
-    # required to show individual outliers
-    obervationsDiffer = obervationsDiffer.resample(time="1min").pad()
-    obervationsDiffer = obervationsDiffer.time.where(obervationsDiffer).values
-
-    for bx in ax:
-        ylim = bx.get_ylim()
-        try:
-            bx.fill_between(
-                obervationsDiffer,
-                [ylim[0]] * len(obervationsDiffer),
-                [ylim[1]] * len(obervationsDiffer),
-                color="magenta",
-                alpha=0.25,
-                label="observed # of particles differ",
-            )
-        except TypeError:
-            log.warning("no data to plot obervationsDiffer")
+    obervationsDiffer = obervationsDiffer.time.values[obervationsDiffer.values]
 
     eventDatL = xr.open_dataset(fl.listFiles("metaEvents")[0])
-    for event in eventDatL.event:
-        if str(event.values).startswith("start") or str(event.values).startswith(
-            "launch"
-        ):
-            for bx in ax:
-                bx.axvline(event.file_starttime.values, color="r")
     lBlocked = (
         eventDatL.blocking.sel(blockingThreshold=50) > config.quality.blockedPixThresh
     )
-
-    lBlocked = lBlocked.file_starttime.where(lBlocked).values
-    for bx in ax:
-        ylim = bx.get_ylim()
-        if not np.all(np.isnan(lBlocked)):
-            bx.fill_between(
-                lBlocked,
-                [ylim[0]] * len(lBlocked),
-                [ylim[1]] * len(lBlocked),
-                color="red",
-                alpha=0.25,
-                label="blocked leader",
-            )
-
-        if not np.all(np.isnan(blowingSnowL)):
-            bx.fill_between(
-                blowingSnowL,
-                [ylim[0]] * len(blowingSnowL),
-                [ylim[1]] * len(blowingSnowL),
-                color="orange",
-                alpha=0.25,
-                label="blow. snow leader",
-                hatch="///",
-            )
-
-        bx.set_ylim(ylim)
-
+    lBlocked = lBlocked.file_starttime.values[lBlocked.values]
     eventDatF = xr.open_dataset(ff.listFiles("metaEvents")[0])
-    for event in eventDatF.event:
-        if str(event.values).startswith("start") or str(event.values).startswith(
-            "launch"
-        ):
-            for bx in ax:
-                bx.axvline(event.file_starttime.values, color="blue")
     fBlocked = (
         eventDatF.blocking.sel(blockingThreshold=50) > config.quality.blockedPixThresh
     )
-    fBlocked = fBlocked.file_starttime.where(fBlocked).values
+    fBlocked = fBlocked.file_starttime.values[fBlocked.values]
+
+    fileStep = _timeStep(eventDatL.file_starttime.values)
+    resampleStep = np.timedelta64(5, "m")
+    handles = [
+        _shadeSpans(
+            ax,
+            obervationsDiffer,
+            resampleStep,
+            "magenta",
+            "observed # of particles differ",
+        ),
+        _shadeSpans(ax, lBlocked, fileStep, _LEADER_COLOR, "blocked leader"),
+        _shadeSpans(
+            ax,
+            blowingSnowL,
+            resampleStep,
+            "orange",
+            "blow. snow leader",
+            hatch="///",
+        ),
+        _shadeSpans(ax, fBlocked, fileStep, _FOLLOWER_COLOR, "blocked follower"),
+        _shadeSpans(
+            ax,
+            blowingSnowF,
+            resampleStep,
+            "gold",
+            "blow. snow follower",
+            hatch="///",
+        ),
+        _markRestarts(
+            ax, _restartTimes(eventDatL), "leader restarted", _LEADER_COLOR, ls="-"
+        ),
+        _markRestarts(
+            ax,
+            _restartTimes(eventDatF),
+            "follower restarted",
+            _FOLLOWER_COLOR,
+            ls="-",
+        ),
+    ]
     for bx in ax:
-        ylim = bx.get_ylim()
-        if not np.all(np.isnan(fBlocked)):
-            bx.fill_between(
-                fBlocked,
-                [ylim[0]] * len(fBlocked),
-                [ylim[1]] * len(fBlocked),
-                color="blue",
-                alpha=0.25,
-                label="blocked follower",
-            )
-        if not np.all(np.isnan(blowingSnowF)):
-            bx.fill_between(
-                blowingSnowF,
-                [ylim[0]] * len(blowingSnowF),
-                [ylim[1]] * len(blowingSnowF),
-                color="purple",
-                alpha=0.25,
-                label="blow. snow follower",
-                hatch="///",
-            )
-
-        bx.set_ylim(ylim)
-
-    ax[1].legend()
-
-    for ii in range(8):
-        ax[ii].set_xticklabels([])
-    for ii in range(9):
-        if ii > 0:
-            ax[ii - 1].sharex(ax[ii])
-        ax[ii].grid(True)
-
-    ax[8].set_xlim(
-        np.datetime64(f"{fl.year}-{fl.month}-{fl.day}T00:00"),
-        np.datetime64(f"{fl.year}-{fl.month}-{fl.day}T00:00") + np.timedelta64(1, "D"),
-    )
+        bx.set_title("")
+    # short two-line labels fit into the small panels; plain tick labels
+    # instead of an offset ("1e-8+4.7e-1") in the corner of each panel
+    for bx, label in zip(
+        ax[3:],
+        ["z diff.\n[px]", "h diff.\n[px]", "t diff.\n[s]"]
+        + ["theta\n[°]", "phi\n[°]", "Ofz\n[px]"],
+    ):
+        bx.set_ylabel(label)
+        bx.ticklabel_format(axis="y", useOffset=False)
+    _formatDayAxes(ax, fl)
+    _legendAbove(ax[0], [h for h in handles if h is not None], ncol=3)
+    fig.align_ylabels(ax)
 
     print("DONE", fOut)
-    tools.savefig(fig, config, fOut, fnames=fnames1M, w_pad=0.05, h_pad=0.005)
+    tools.savefig(fig, config, fOut, fnames=fnames1M)
     if returnFig:
         return fOut, fig
     else:
         return fOut
 
 
+@_styled
 def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=True):
     """
     Create yearly meta rotation quicklook for a given year.
@@ -1919,132 +2167,83 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
         print(f"{year} skip exisiting {fOut}")
         return None, None
 
-    rotDat = []
-    # open_mfdataset does not work due to duplicate file_starttimes...
-    for rotFile in rotFiles:
-        rotDat.append(xr.open_dataset(rotFile))
-    if len(rotDat) == 0:
+    rotDat = _concatRotationFiles(rotFiles)
+    if rotDat is None:
         log.error(f"{fPattern} not found")
         return None, None
-    rotDat = xr.concat(rotDat, "file_starttime")
-    rotDat = rotDat.isel(
-        file_starttime=np.unique(rotDat.file_starttime, return_index=True)[1]
-    ).sortby("file_starttime")
 
-    # handle current year a bit differently
+    # handle current year a bit differently: show the last 365 days
     if int(year) == int(datetime.datetime.utcnow().year):
         rotFiles1 = ff1.fnamesPattern.metaRotation.replace("0101.nc", "*.nc")
         rotFiles1 = sorted(glob.glob(rotFiles1))
-        rotDat1 = []
-        # open_mfdataset does not work due to duplicate file_starttimes...
-        for rotFile in rotFiles:
-            rotDat1.append(xr.open_dataset(rotFile))
-        if len(rotDat1) == 0:
-            log.error(f"{fPattern} not found")
-            return None, None
-        rotDat1 = xr.concat(rotDat1, "file_starttime")
-        rotDat1 = rotDat1.isel(
-            file_starttime=np.unique(rotDat1.file_starttime, return_index=True)[1]
-        ).sortby("file_starttime")
-        rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
+        rotDat1 = _concatRotationFiles(rotFiles1)
+        if rotDat1 is None:
+            log.warning(f"{rotFiles1} not found, plotting the current year only")
+        else:
+            rotDat = xr.concat((rotDat1, rotDat), dim="file_starttime")
         lastYear = np.datetime64(
             datetime.datetime.utcnow() - datetime.timedelta(days=365)
         )
         rotDat = rotDat.isel(file_starttime=(rotDat.file_starttime > lastYear))
         rotDat = rotDat.sortby("file_starttime")
-    fig, (ax1, ax2, ax3) = plt.subplots(
-        3, figsize=(20, 15), gridspec_kw={"hspace": 0.0}, sharex=True
-    )
 
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    plt.suptitle(
-        "VISSS rotation \n" + f"{year}" + ", " + config["name"] + "",
-        fontsize=25,
-        y=0.995,
+    import matplotlib.dates as mdates
+
+    fig, axs, _ = _stackedFigure([1, 1, 1], figsize=(13, 9), cbar=False, hspace=0.08)
+    ax1, ax2, ax3 = axs
+    fig.suptitle(
+        f"VISSS rotation  ·  {year}  ·  {config['name']}",
+        fontsize=15,
         fontweight="bold",
-        x=mid,
     )
 
-    rotDat.camera_phi.sel(camera_rotation="mean").plot(ax=ax1)
-    rotDat.camera_theta.sel(camera_rotation="mean").plot(ax=ax2)
-    rotDat.camera_Ofz.sel(camera_rotation="mean").plot(ax=ax3)
+    for var, ax, color, ylabel in [
+        ("camera_phi", ax1, "C0", "phi rotation [°]"),
+        ("camera_theta", ax2, "C1", "theta rotation [°]"),
+        ("camera_Ofz", ax3, "C2", "z offset [px]"),
+    ]:
+        mean = rotDat[var].sel(camera_rotation="mean")
+        err = rotDat[var].sel(camera_rotation="err")
+        ax.plot(mean.file_starttime.values, mean.values, color=color, lw=1)
+        ax.fill_between(
+            mean.file_starttime.values,
+            (mean - err).values,
+            (mean + err).values,
+            color=color,
+            alpha=0.3,
+            lw=0,
+        )
+        ax.set_ylabel(ylabel)
 
-    ax1.fill_between(
-        rotDat.file_starttime,
-        rotDat.camera_phi.sel(camera_rotation="mean")
-        - rotDat.camera_phi.sel(camera_rotation="err"),
-        rotDat.camera_phi.sel(camera_rotation="mean")
-        + rotDat.camera_phi.sel(camera_rotation="err"),
-        alpha=0.5,
+    handles = []
+    ofz = rotDat.camera_Ofz.sel(camera_rotation="mean")
+    handles.append(
+        _shadeSpans(
+            axs,
+            rotDat.file_starttime.values[np.isnan(ofz.values)],
+            _timeStep(rotDat.file_starttime.values, default=np.timedelta64(1, "D")),
+            "red",
+            "rotation failed",
+            alpha=0.25,
+        )
     )
-
-    ax2.fill_between(
-        rotDat.file_starttime,
-        rotDat.camera_theta.sel(camera_rotation="mean")
-        - rotDat.camera_theta.sel(camera_rotation="err"),
-        rotDat.camera_theta.sel(camera_rotation="mean")
-        + rotDat.camera_theta.sel(camera_rotation="err"),
-        alpha=0.5,
-    )
-    ax3.fill_between(
-        rotDat.file_starttime,
-        rotDat.camera_Ofz.sel(camera_rotation="mean")
-        - rotDat.camera_Ofz.sel(camera_rotation="err"),
-        rotDat.camera_Ofz.sel(camera_rotation="mean")
-        + rotDat.camera_Ofz.sel(camera_rotation="err"),
-        alpha=0.5,
-    )
-
     resets = [
-        np.datetime64(
-            datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S")
-        ).astype(rotDat.file_starttime.dtype)
+        np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
         for d in config.rotate.keys()
     ]
+    handles.append(
+        _markRestarts(axs, resets, "rotation from config", color="k", ls="-")
+    )
 
-    ofz = rotDat.camera_Ofz.sel(camera_rotation="mean")
-    cond = ofz.where(np.isnan(ofz))
-    for ax in [ax1, ax2, ax3]:
-        ylim = ax.get_ylim()
-        if cond.notnull().any():
-            ax.fill_between(
-                cond,
-                [ylim[0]] * len(rotDat.file_starttime),
-                [ylim[1]] * len(rotDat.file_starttime),
-                color="pink",
-                alpha=0.25,
-                label="rotation failed",
-            )
-
-        firstReset = True
-        for reset in resets:
-            print(reset)
-            if firstReset:
-                ax.axvline(reset, color="k", label="rotation from config", alpha=0.5)
-            else:
-                ax.axvline(reset, color="k", alpha=0.5)
-            firstReset = False
-
-    ax1.set_xlim(rotDat.file_starttime.min(), rotDat.file_starttime.max())
-
-    ax1.legend(fontsize=15, bbox_to_anchor=(1, 1.4))
-
-    ax1.grid()
-    ax1.set_title(None)
-    ax1.set_ylabel("phi rotation [°]", fontsize=20)
-    ax1.set_xlabel(None)
-
-    ax2.set_title(None)
-    ax2.set_ylabel("theta rotation [°]", fontsize=20)
-    ax2.grid()
-    ax2.set_xlabel(None)
-
-    ax3.set_title(None)
-    ax3.set_ylabel("z offset [px]", fontsize=20)
-    ax3.tick_params(axis="both", labelsize=15)
-    # ax3.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-    ax3.grid()
+    ax1.set_xlim(rotDat.file_starttime.min().values, rotDat.file_starttime.max().values)
+    locator = mdates.AutoDateLocator()
+    ax3.xaxis.set_major_locator(locator)
+    ax3.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+    for ax in axs[:-1]:
+        ax.tick_params(axis="x", labelbottom=False)
     ax3.set_xlabel("time")
+    _legendAbove(ax1, [h for h in handles if h is not None], ncol=3)
+    fig.align_ylabels(axs)
 
     # _statusText(fig, rotFiles, config)
     tools.savefig(fig, config, fOut, fnames=rotFiles)
@@ -2061,6 +2260,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
 
 
 @tools.loopify
+@_styled
 def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     """
     Create meta rotation quicklook for a given case.
@@ -2187,192 +2387,114 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 
     print("plotting")
     # plotting
-    fig, (ax1, ax2, ax3) = plt.subplots(
-        3, figsize=(20, 15), gridspec_kw={"hspace": 0.0}, sharex=True
-    )
+    fig, axs, _ = _stackedFigure([1, 1, 1], figsize=(13, 9), cbar=False, hspace=0.08)
+    ax1, ax2, ax3 = axs
+    _suptitle(fig, "rotation", ff, config)
+
+    # (variable, panel, color, label): value with its uncertainty as band
+    for var, ax, color, label in [
+        ("camera_phi", ax1, "C0", "phi"),
+        ("camera_theta", ax1, "C1", "theta"),
+        ("camera_Ofz", ax2, "C2", "z offset"),
+    ]:
+        mean = rotDat[var].sel(camera_rotation="mean")
+        err = rotDat[var].sel(camera_rotation="err")
+        ax.plot(
+            mean.file_starttime.values,
+            mean.values,
+            marker="x",
+            color=color,
+            label=label,
+        )
+        ax.fill_between(
+            mean.file_starttime.values,
+            (mean - err).values,
+            (mean + err).values,
+            color=color,
+            alpha=0.3,
+            lw=0,
+        )
+    ax1.set_ylabel("angular rotation [°]")
+    ax2.set_ylabel("z offset [px]")
+    seriesHandles = list(ax1.get_lines())
+
+    for camera, color in [("leader", _LEADER_COLOR), ("follower", _FOLLOWER_COLOR)]:
+        ax3.plot(
+            nParticles[camera].index.values,
+            nParticles[camera].values,
+            marker="x",
+            color=color,
+            label=camera,
+        )
     ax3.set_yscale("log")
+    ax3.set_ylabel("# particles in lv1detect")
+    ax3.legend(loc="upper right", ncol=2)
 
-    # plt.rcParams['text.usetex'] = False
-    # plt.rcParams['lines.linewidth'] = 1.5
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    plt.suptitle(
-        "VISSS rotation \n"
-        + f"{ff.year}-{ff.month}-{ff.day}"
-        + ", "
-        + config["name"]
-        + "",
-        fontsize=25,
-        y=0.995,
-        fontweight="bold",
-        x=mid,
-    )
-
-    rotDat.camera_phi.sel(camera_rotation="mean").plot(ax=ax1, marker="x", label="phi")
-    rotDat.camera_theta.sel(camera_rotation="mean").plot(
-        ax=ax1, marker="x", label="theta"
-    )
-    rotDat.camera_Ofz.sel(camera_rotation="mean").plot(ax=ax2, marker="x")
-
-    for camera in nParticles.keys():
-        try:
-            xr.DataArray(nParticles[camera]).plot(ax=ax3, marker="x", label=camera)
-        except TypeError:
-            pass
+    handles = seriesHandles
 
     ofz = rotDat.camera_Ofz.sel(camera_rotation="mean")
-    cond = ofz.file_starttime.where(np.isnan(ofz))
-    for ax in [ax1, ax2, ax3]:
-        ylim = ax.get_ylim()
-        if cond.notnull().any():
-            ax.fill_between(
-                cond,
-                [ylim[0]] * len(rotDat.file_starttime),
-                [ylim[1]] * len(rotDat.file_starttime),
-                color="red",
-                label="rotation failed",
+    handle = _shadeSpans(
+        axs,
+        rotDat.file_starttime.values[np.isnan(ofz.values)],
+        _timeStep(rotDat.file_starttime.values),
+        "red",
+        "rotation failed",
+        alpha=0.3,
+    )
+    handles.append(handle)
+
+    for ev, color, name in [
+        (events, _LEADER_COLOR, "leader"),
+        (events2, _FOLLOWER_COLOR, "follower"),
+    ]:
+        width = _timeStep(ev.file_starttime.values)
+        blocked = ev.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
+        handles.append(
+            _shadeSpans(
+                axs,
+                blocked.file_starttime.values[blocked.values],
+                width,
+                color,
+                f"{name} blocked",
+                alpha=0.25,
             )
-
-    ax1.fill_between(
-        rotDat.file_starttime,
-        rotDat.camera_phi.sel(camera_rotation="mean")
-        - rotDat.camera_phi.sel(camera_rotation="err"),
-        rotDat.camera_phi.sel(camera_rotation="mean")
-        + rotDat.camera_phi.sel(camera_rotation="err"),
-        alpha=0.5,
-    )
-
-    ax2.fill_between(
-        rotDat.file_starttime,
-        rotDat.camera_theta.sel(camera_rotation="mean")
-        - rotDat.camera_theta.sel(camera_rotation="err"),
-        rotDat.camera_theta.sel(camera_rotation="mean")
-        + rotDat.camera_theta.sel(camera_rotation="err"),
-        alpha=0.5,
-    )
-    ax2.fill_between(
-        rotDat.file_starttime,
-        rotDat.camera_Ofz.sel(camera_rotation="mean")
-        - rotDat.camera_Ofz.sel(camera_rotation="err"),
-        rotDat.camera_Ofz.sel(camera_rotation="mean")
-        + rotDat.camera_Ofz.sel(camera_rotation="err"),
-        alpha=0.5,
-    )
-    isBlocked = events.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
-    isBlocked = isBlocked.file_starttime.where(isBlocked).values
-    isBlocked2 = (
-        events2.blocking.dropna("file_starttime").sel(blockingThreshold=50) > 0.1
-    )
-    isBlocked2 = isBlocked2.file_starttime.where(isBlocked2).values
+        )
+        isIdle = ((ev.event == "sleep-trigger") | (ev.event == "stop-trigger")).values
+        handles.append(
+            _shadeSpans(
+                axs,
+                ev.file_starttime.values[isIdle],
+                width,
+                "orange",
+                f"{name} idle",
+                alpha=0.35,
+            )
+        )
 
     resets = [
-        np.datetime64(
-            datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S")
-        ).astype(rotDat.file_starttime.dtype)
+        np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
         for d in config.rotate.keys()
     ]
-
-    for ax in [ax1, ax2, ax3]:
-        ylim = ax.get_ylim()
-        if isBlocked.any():
-            ax.fill_between(
-                isBlocked,
-                [ylim[0]] * len(isBlocked),
-                [ylim[1]] * len(isBlocked),
-                color="red",
-                alpha=0.25,
-                label="leader blocked",
-            )
-        if isBlocked2.any():
-            ax.fill_between(
-                isBlocked,
-                [ylim[0]] * len(isBlocked),
-                [ylim[1]] * len(isBlocked),
-                color="blue",
-                alpha=0.25,
-                label="follower blocked",
-            )
-        if ts.notnull().sum() > 0:
-            ax.fill_between(
-                ts,
-                [ylim[0]] * len(ts),
-                [ylim[1]] * len(ts),
-                color="orange",
-                alpha=0.5,
-                label="idle",
-            )
-        if ts2.notnull().sum() > 0:
-            ax.fill_between(
-                ts2,
-                [ylim[0]] * len(ts2),
-                [ylim[1]] * len(ts2),
-                color="orange",
-                alpha=0.5,
-                label="idle",
-            )
-        firstReset = True
-        for reset in resets:
-            if firstReset:
-                ax.axvline(reset, color="k", label="rotation from config")
-            else:
-                ax.axvline(reset, color="k")
-            firstReset = False
-        ax.set_ylim(ylim)
-
-        ax.grid()
-
-    ax1.set_title(None)
-    ax1.set_ylabel("angular rotation [°]", fontsize=20)
-    ax1.set_xlabel(None)
-
-    ax2.set_title(None)
-    ax2.set_ylabel("z offset [px]", fontsize=20)
-    ax2.set_xlabel(None)
-
-    ax3.set_xlim(
-        np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-        np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-        + np.timedelta64(1, "D"),
+    handles.append(
+        _markRestarts(axs, resets, "rotation from config", color="k", ls="-")
     )
-    ax3.set_title(None)
-    ax3.set_ylabel("# particles in lv1detect", fontsize=20)
-    ax3.tick_params(axis="both", labelsize=15)
-    ax3.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-    ax3.set_xlabel("time")
+    handles.append(
+        _markRestarts(
+            axs, _restartTimes(events), "leader restarted", _LEADER_COLOR, ls=":"
+        )
+    )
+    handles.append(
+        _markRestarts(
+            axs, _restartTimes(events2), "follower restarted", _FOLLOWER_COLOR, ls="--"
+        )
+    )
 
-    firstEvent = True
-    for event in events.event:
-        if str(event.values).startswith("start") or str(event.values).startswith(
-            "launch"
-        ):
-            for bx in [ax1, ax2, ax3]:
-                if firstEvent:
-                    label = "leader restarted"
-                    firstEvent = False
-                else:
-                    label = None
-                bx.axvline(
-                    event.file_starttime.values, color="red", ls=":", label=label
-                )
-    firstEvent = True
-    for event in events2.event:
-        if str(event.values).startswith("start") or str(event.values).startswith(
-            "launch"
-        ):
-            for bx in [ax1, ax2, ax3]:
-                if firstEvent:
-                    label = "follower restarted"
-                    firstEvent = False
-                else:
-                    label = None
-                bx.axvline(
-                    event.file_starttime.values, color="red", ls="--", label=label
-                )
-
-    ax1.legend(fontsize=15)
-    ax3.legend(fontsize=15)
+    _formatDayAxes(axs, ff)
+    _legendAbove(ax1, [h for h in handles if h is not None], ncol=6)
+    fig.align_ylabels(axs)
 
     # _statusText(fig, ff.listFiles("metaRotation"), config)
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaRotation"))
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaRotation"), h_pad=1.2)
     rotDat.close()
     events.close()
 
@@ -2380,6 +2502,7 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
 
 
 @tools.loopify_with_camera(endYesterday=False)
+@_styled
 def createLevel2detectQuicklook(
     case, camera, config, version=__version__, skipExisting=True, returnFig=True
 ):
@@ -2407,9 +2530,6 @@ def createLevel2detectQuicklook(
         (output_file_path, matplotlib.figure.Figure) if returnFig=True,
         otherwise (output_file_path, None)
     """
-    import matplotlib as mpl
-    import matplotlib.pyplot as plt
-
     version = __version__
 
     nodata = False
@@ -2448,37 +2568,13 @@ def createLevel2detectQuicklook(
 
     log.info(f"running {case} {fOut}")
 
-    fig, axs = plt.subplots(
-        nrows=4,
-        ncols=2,
-        figsize=(20, 20),
-        gridspec_kw={
-            "width_ratios": [1, 0.01],
-            "height_ratios": [2.5, 1, 1, 1],
-            "hspace": 0.02,
-            "wspace": 0.1,
-        },
-    )
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    fig.suptitle(
-        f"VISSS level2detect {camera.split('_')[0]}\n"
-        + f"{ff.year}-{ff.month}-{ff.day}"
-        + ", "
-        + config["name"]
-        + "",
-        fontsize=25,
-        y=0.995,
-        fontweight="bold",
-        x=mid,
-    )
+    what = f"level2detect {camera.split('_')[0]}"
     if noRawData:
-        axs[0, 0].set_title("no raw data")
+        fig = _placeholderFigure(what, ff, config, "no raw data")
     elif nodata:
-        axs[0, 0].set_title("no data")
+        fig = _placeholderFigure(what, ff, config, "no data")
     else:
         dat2 = xr.open_dataset(lv2)
-        # dat2 = dat2.where(dat2.qualityFlags == 0)
-        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
         fEvents1 = ff.listFiles("metaEvents")[0]
 
         try:
@@ -2487,149 +2583,25 @@ def createLevel2detectQuicklook(
             print(f"{fEvents1} broken")
             return None, None
 
-        (ax1, ax2, ax3, ax4) = axs[:, 0]
-        (bx1, bx2, bx3, bx4) = axs[:, 1]
+        fig, axs, caxs = _stackedFigure([2.5, 1, 1, 1], figsize=(13, 12))
+        _suptitle(fig, what, ff, config)
+        _plotLevel2Core(axs[0], caxs[0], axs[1], axs[2], axs[3], dat2, sel={})
 
-        ax1a = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
-
-        (dat2.PSD.sel(size_definition="Dmax")).T.plot(
-            ax=ax1,
-            norm=mpl.colors.LogNorm(vmin=1, vmax=dat2.PSD.max()),
-            cbar_kwargs={"label": "Particle Size Distribution [1/m^4]"},
-            cbar_ax=bx1,
+        handles = _shadeQualityFlags(
+            axs,
+            dat2,
+            config,
+            ["recordingFailed", "obervationsDiffer", "processingFailed"]
+            + ["cameraBlocked", "blowingSnow", "sunGlint"],
         )
-        ax1.set_ylabel("Dmax [m]")
+        handle = _markRestarts(axs, _restartTimes(events))
+        if handle is not None:
+            handles.append(handle)
+        _formatDayAxes(axs, ff)
+        _legendAbove(axs[0], handles)
+        fig.align_ylabels(axs)
 
-        lns3 = dat2.Ntot.sel(size_definition="Dmax").plot(
-            ax=ax1a, label="N_tot", color="k", alpha=0.7
-        )
-        ax1a.set_ylabel("N_tot [1/m3]")
-        ax1a.set_yscale("log")
-        ax1a.set_ylim(1e0, 1e11)
-        ax1a.set_title("")
-
-        # (dat2.aspectRatio_dist.sel(size_definition="Dmax", fitMethod="cv2.fitEllipseDirect")).T.plot(ax=ax2, vmin=0,vmax=1, cbar_kwargs={"label":"aspect ratio [-]"})
-        dat2.Dmax_mean.plot(ax=ax2, label="mean Dmax")
-        dat2.D32.sel(size_definition="Dmax").plot(ax=ax2, label="D32")
-        dat2.D43.sel(size_definition="Dmax").plot(ax=ax2, label="D43")
-        ax2.set_ylabel("Size [m]")
-        ax2.legend()
-
-        lns1 = (
-            dat2.normalizedRimeMass_dist.sel(size_definition="Dmax")
-            .mean("D_bins")
-            .plot(ax=ax3, label="normalized rime mass [-]")
-        )
-        lns2 = dat2.aspectRatio_mean.sel(fitMethod="cv2.fitEllipseDirect").plot(
-            ax=ax3, label="aspect ratio [-]"
-        )
-        ax3.set_ylabel("Shape [-]")
-        ax3.legend()
-
-        dat2.counts.sel(size_definition="Dmax").sum("D_bins").plot(
-            label="observed particles [1/min]", ax=ax4
-        )
-        ax4.set_yscale("log")
-        ax4.set_ylabel("Performance")
-        ax4.legend()
-
-        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
-        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
-        processingFailed = quality.sel(flag="processingFailed", drop=True)
-        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
-        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
-
-        for ax in axs[:, 0]:
-            ax.set_title(None)
-
-            ylim = ax.get_ylim()
-            cond = quality.time.where(recordingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="pink",
-                    alpha=0.25,
-                    label="cameras off",
-                )
-            cond = quality.time.where(obervationsDiffer)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="magenta",
-                    alpha=0.25,
-                    label="observed # of particles differ",
-                )
-
-            cond = quality.time.where(processingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="purple",
-                    alpha=0.25,
-                    label="processing failed",
-                )
-            cond = quality.time.where(cameraBlocked)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="red",
-                    alpha=0.25,
-                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
-                )
-            cond = quality.time.where(blowingSnow)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="orange",
-                    alpha=0.25,
-                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
-                )  # , hatch='///')
-            ax.set_ylim(ylim)
-
-            ax.tick_params(axis="both", labelsize=15)
-            ax.grid()
-            ax.set_xlim(
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-                + np.timedelta64(1, "D"),
-            )
-
-        for ax in axs[:-1, 0]:
-            ax.set_xticklabels([])
-
-        # mark relaunch
-        firstEvent = True
-        for event in events.event:
-            if str(event.values).startswith("start") or str(event.values).startswith(
-                "launch"
-            ):
-                for ax in axs[:, 0]:
-                    if firstEvent:
-                        label = "restarted"
-                        firstEvent = False
-                    else:
-                        label = None
-                    ax.axvline(
-                        event.file_starttime.values, color="red", ls=":", label=label
-                    )
-
-        ax1.legend()
-        ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-
-        for bx in axs[1:, 1]:
-            bx.axis("off")
-
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2detect"))
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2detect"), h_pad=1.2)
     if returnFig:
         return fOut, fig
     else:
@@ -2637,6 +2609,7 @@ def createLevel2detectQuicklook(
 
 
 @tools.loopify
+@_styled
 def createLevel2matchQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
@@ -2662,9 +2635,6 @@ def createLevel2matchQuicklook(
         (output_file_path, matplotlib.figure.Figure) if returnFig=True,
         otherwise (output_file_path, None)
     """
-    import matplotlib as mpl
-    import matplotlib.pyplot as plt
-
     camera = config.leader
     nodata = False
     noRawData = False
@@ -2701,37 +2671,13 @@ def createLevel2matchQuicklook(
 
     log.info(f"running {case} {fOut}")
 
-    fig, axs = plt.subplots(
-        nrows=4,
-        ncols=2,
-        figsize=(20, 20),
-        gridspec_kw={
-            "width_ratios": [1, 0.01],
-            "height_ratios": [2.5, 1, 1, 1],
-            "hspace": 0.02,
-            "wspace": 0.1,
-        },
-    )
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    fig.suptitle(
-        "VISSS level2match \n"
-        + f"{ff.year}-{ff.month}-{ff.day}"
-        + ", "
-        + config["name"]
-        + "",
-        fontsize=25,
-        y=0.995,
-        fontweight="bold",
-        x=mid,
-    )
+    what = "level2match"
     if noRawData:
-        axs[0, 0].set_title("no raw data")
+        fig = _placeholderFigure(what, ff, config, "no raw data")
     elif nodata:
-        axs[0, 0].set_title("no data")
+        fig = _placeholderFigure(what, ff, config, "no data")
     else:
         dat2 = xr.open_dataset(lv2match)
-        # dat2 = dat2.where(dat2.qualityFlags == 0)
-        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
         fEvents1 = ff.listFiles("metaEvents")[0]
         fEvents2 = files.FilenamesFromLevel(fEvents1, config).filenamesOtherCamera(
             level="metaEvents"
@@ -2750,157 +2696,34 @@ def createLevel2matchQuicklook(
 
         events = xr.concat((events1, events2), dim="file_starttime")
 
-        (ax1, ax2, ax3, ax4) = axs[:, 0]
-        (bx1, bx2, bx3, bx4) = axs[:, 1]
-        ax1a = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
-
-        (dat2.PSD.sel(camera="max", size_definition="Dmax")).T.plot(
-            ax=ax1,
-            norm=mpl.colors.LogNorm(vmin=1, vmax=dat2.PSD.max()),
-            cbar_kwargs={"label": "Particle Size Distribution [1/m^4]"},
-            cbar_ax=bx1,
+        fig, axs, caxs = _stackedFigure([2.5, 1, 1, 1], figsize=(13, 12))
+        _suptitle(fig, what, ff, config)
+        _plotLevel2Core(
+            axs[0],
+            caxs[0],
+            axs[1],
+            axs[2],
+            axs[3],
+            dat2,
+            sel=dict(camera="max"),
+            matchScore=True,
         )
-        ax1.set_ylabel("Dmax [m]")
 
-        lns3 = dat2.Ntot.sel(camera="max", size_definition="Dmax").plot(
-            ax=ax1a, label="N_tot", color="k", alpha=0.7
+        handles = _shadeQualityFlags(
+            axs,
+            dat2,
+            config,
+            ["recordingFailed", "obervationsDiffer", "processingFailed"]
+            + ["cameraBlocked", "blowingSnow", "sunGlint", "zResidualTooWide"],
         )
-        ax1a.set_ylabel("N_tot [1/m3]")
-        ax1a.set_yscale("log")
-        ax1a.set_ylim(1e0, 1e11)
-        ax1a.set_title("")
+        handle = _markRestarts(axs, _restartTimes(events))
+        if handle is not None:
+            handles.append(handle)
+        _formatDayAxes(axs, ff)
+        _legendAbove(axs[0], handles)
+        fig.align_ylabels(axs)
 
-        # (dat2.aspectRatio_dist.sel(camera="max", size_definition="Dmax", fitMethod="cv2.fitEllipseDirect")).T.plot(ax=ax2, vmin=0,vmax=1, cbar_kwargs={"label":"aspect ratio [-]"})
-        dat2.Dmax_mean.sel(camera="max").plot(ax=ax2, label="mean Dmax")
-        dat2.D32.sel(camera="max", size_definition="Dmax").plot(ax=ax2, label="D32")
-        dat2.D43.sel(camera="max", size_definition="Dmax").plot(ax=ax2, label="D43")
-        ax2.set_ylabel("Size [m]")
-        ax2.legend()
-
-        dat2.normalizedRimeMass_dist.sel(camera="max", size_definition="Dmax").mean(
-            "D_bins"
-        ).plot(ax=ax3, label="normalized rime mass [-]")
-        dat2.aspectRatio_mean.sel(camera="max", fitMethod="cv2.fitEllipseDirect").plot(
-            ax=ax3, label="aspect ratio [-]"
-        )
-        ax3.set_ylabel("Shape [-]")
-        ax3.legend()
-
-        dat2.counts.sel(camera="max", size_definition="Dmax").sum("D_bins").plot(
-            label="observed particles [1/min]", ax=ax4
-        )
-        dat2.matchScore_mean.sel(camera="max").plot(label="match score [-]", ax=ax4)
-        ax4.set_yscale("log")
-        ax4.set_ylabel("Performance")
-        ax4.legend()
-
-        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
-        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
-        processingFailed = quality.sel(flag="processingFailed", drop=True)
-        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
-        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
-        zResidualTooWide = quality.sel(flag="zResidualTooWide", drop=True)
-
-        for ax in axs[:, 0]:
-            ax.set_title(None)
-
-            ylim = ax.get_ylim()
-            cond = quality.time.where(obervationsDiffer)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="magenta",
-                    alpha=0.25,
-                    label="observed # of particles differ",
-                )
-            cond = quality.time.where(recordingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="pink",
-                    alpha=0.25,
-                    label="cameras off",
-                )
-            cond = quality.time.where(processingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="purple",
-                    alpha=0.25,
-                    label="processing failed",
-                )
-            cond = quality.time.where(cameraBlocked)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="red",
-                    alpha=0.25,
-                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
-                )
-            cond = quality.time.where(blowingSnow)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="orange",
-                    alpha=0.25,
-                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
-                )  # , hatch='///')
-            cond = quality.time.where(zResidualTooWide)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="cyan",
-                    alpha=0.2,
-                    label=f"Z-residual sigma > {config.quality.maxZSigma} px",
-                )
-            ax.set_ylim(ylim)
-
-            ax.tick_params(axis="both", labelsize=15)
-            ax.grid()
-            ax.set_xlim(
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-                + np.timedelta64(1, "D"),
-            )
-
-        for ax in axs[:-1, 0]:
-            ax.set_xticklabels([])
-
-        # mark relaunch
-        firstEvent = True
-        for event in events.event:
-            if str(event.values).startswith("start") or str(event.values).startswith(
-                "launch"
-            ):
-                for ax in axs[:, 0]:
-                    if firstEvent:
-                        label = "restarted"
-                        firstEvent = False
-                    else:
-                        label = None
-                    ax.axvline(
-                        event.file_starttime.values, color="red", ls=":", label=label
-                    )
-
-        ax1.legend()
-        ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-
-        for bx in axs[1:, 1]:
-            bx.axis("off")
-
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2match"))
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2match"), h_pad=1.2)
     if returnFig:
         return fOut, fig
     else:
@@ -2908,6 +2731,7 @@ def createLevel2matchQuicklook(
 
 
 @tools.loopify
+@_styled
 def createLevel2trackQuicklook(
     case, config, version=__version__, skipExisting=True, returnFig=True
 ):
@@ -2933,9 +2757,6 @@ def createLevel2trackQuicklook(
         (output_file_path, matplotlib.figure.Figure) if returnFig=True,
         otherwise (output_file_path, None)
     """
-    import matplotlib as mpl
-    import matplotlib.pyplot as plt
-
     camera = config.leader
     nodata = False
     noRawData = False
@@ -2969,39 +2790,13 @@ def createLevel2trackQuicklook(
 
     log.info(f"running {case} {fOut}")
 
-    fig, axs = plt.subplots(
-        nrows=5,
-        ncols=2,
-        figsize=(20, 20),
-        gridspec_kw={
-            "width_ratios": [1, 0.01],
-            "height_ratios": [1.25, 1.25, 1, 1, 1],
-            "hspace": 0.02,
-            "wspace": 0.1,
-        },
-    )
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    fig.suptitle(
-        "VISSS level2track \n"
-        + f"{ff.year}-{ff.month}-{ff.day}"
-        + ", "
-        + config["name"]
-        + "",
-        fontsize=25,
-        y=0.995,
-        fontweight="bold",
-        x=mid,
-    )
+    what = "level2track"
     if noRawData:
-        axs[0, 0].set_title("VISSS did not operate, no raw data")
+        fig = _placeholderFigure(what, ff, config, "VISSS did not operate, no raw data")
     elif nodata:
-        axs[0, 0].set_title("no data")
+        fig = _placeholderFigure(what, ff, config, "no data")
     else:
         dat2 = xr.open_dataset(lv2track)
-        # dat2 = dat2.where(dat2.qualityFlags == 0)
-        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
-
-        print(lv2track)
 
         fEvents1 = ff.listFiles("metaEvents")[0]
         fEvents2 = files.FilenamesFromLevel(fEvents1, config).filenamesOtherCamera(
@@ -3021,196 +2816,50 @@ def createLevel2trackQuicklook(
 
         events = xr.concat((events1, events2), dim="file_starttime")
 
-        (ax1, ax1a, ax2, ax3, ax4) = axs[:, 0]
-        (bx1, bx1a, bx2, bx3, bx4) = axs[:, 1]
-        ax1b = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
+        fig, axs, caxs = _stackedFigure([1.25, 1.25, 1, 1, 1], figsize=(13, 13.5))
+        _suptitle(fig, what, ff, config)
 
-        lns3 = dat2.Ntot.sel(cameratrack="max", size_definition="Dmax").plot(
-            ax=ax1b, label="N_tot", color="k", alpha=0.7
+        # PSD / N_tot, sizes, shape and performance as for level2match; the
+        # velocity distribution takes the second panel
+        _plotLevel2Core(
+            axs[0],
+            caxs[0],
+            axs[2],
+            axs[3],
+            axs[4],
+            dat2,
+            sel=dict(cameratrack="max"),
+            aspectSel=dict(cameratrack="min"),
+            matchScore=True,
         )
-        ax1b.set_ylabel("N_tot [1/m3]")
-        ax1b.set_yscale("log")
-        ax1b.set_ylim(1e0, 1e11)
-        ax1b.set_title("")
-
-        plotDat = (dat2.PSD.sel(cameratrack="max", size_definition="Dmax")).T
-        if np.any(plotDat.notnull()):
-            plotDat.plot(
-                ax=ax1,
-                norm=mpl.colors.LogNorm(vmin=1, vmax=dat2.PSD.max()),
-                cbar_kwargs={"label": "Particle Size Distribution [1/m^4]"},
-                cbar_ax=bx1,
-            )
-
-        ax1.set_ylabel("Dmax [m]")
-
-        plotDat = (
+        _plotSizeDist(
+            axs[1],
+            caxs[1],
             dat2.velocity_dist.sel(
                 cameratrack="mean", size_definition="Dmax", dim3D="z"
-            )
-        ).T
-        if np.any(plotDat.notnull()):
-            plotDat.plot(
-                ax=ax1a,
-                cbar_kwargs={"label": "Particle Sedimentation velocity [m/s]"},
-                cbar_ax=bx1a,
-                vmin=0,
-                vmax=3,
-            )
-
-        ax1a.set_ylabel("Dmax [m]")
-
-        # (dat2.aspectRatio_dist.sel(cameratrack="max", size_definition="Dmax", fitMethod="cv2.fitEllipseDirect")).T.plot(ax=ax2, vmin=0,vmax=1, cbar_kwargs={"label":"aspect ratio [-]"})
-        dat2.Dmax_mean.sel(cameratrack="max").plot(ax=ax2, label="mean Dmax")
-        dat2.D32.sel(cameratrack="max", size_definition="Dmax").plot(
-            ax=ax2, label="D32"
+            ),
+            "Sedimentation velocity [m/s]",
+            vmin=0,
+            vmax=3,
         )
-        dat2.D43.sel(cameratrack="max", size_definition="Dmax").plot(
-            ax=ax2, label="D34"
+        axs[1].set_ylabel("Dmax [mm]")
+
+        handles = _shadeQualityFlags(
+            axs,
+            dat2,
+            config,
+            ["recordingFailed", "obervationsDiffer", "processingFailed"]
+            + ["cameraBlocked", "blowingSnow", "sunGlint"]
+            + ["trackingIncomplete", "zResidualTooWide"],
         )
-        ax2.set_ylabel("Size [m]")
-        ax2.legend()
+        handle = _markRestarts(axs, _restartTimes(events))
+        if handle is not None:
+            handles.append(handle)
+        _formatDayAxes(axs, ff)
+        _legendAbove(axs[0], handles)
+        fig.align_ylabels(axs)
 
-        dat2.normalizedRimeMass_dist.sel(
-            cameratrack="max", size_definition="Dmax"
-        ).mean("D_bins").plot(ax=ax3, label="normalized rime mass [-]")
-        dat2.aspectRatio_mean.sel(
-            cameratrack="min", fitMethod="cv2.fitEllipseDirect"
-        ).plot(ax=ax3, label="aspect ratio [-]")
-        ax3.set_ylabel("Shape [-]")
-        ax3.legend()
-
-        dat2.counts.sel(cameratrack="max", size_definition="Dmax").sum("D_bins").plot(
-            label="observed particles [1/min]", ax=ax4
-        )
-        dat2.matchScore_mean.sel(cameratrack="max").plot(
-            label="match score [-]", ax=ax4
-        )
-        ax4.set_yscale("log")
-        ax4.set_ylabel("Performance")
-        ax4.legend()
-
-        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
-        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
-        processingFailed = quality.sel(flag="processingFailed", drop=True)
-        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
-        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
-        trackingIncomplete = quality.sel(flag="trackingIncomplete", drop=True)
-        zResidualTooWide = quality.sel(flag="zResidualTooWide", drop=True)
-
-        for ax in axs[:, 0]:
-            ax.set_title(None)
-
-            ylim = ax.get_ylim()
-            cond = quality.time.where(recordingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="pink",
-                    alpha=0.25,
-                    label="cameras off",
-                )
-            cond = quality.time.where(obervationsDiffer)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="magenta",
-                    alpha=0.25,
-                    label="observed # of particles differ",
-                )
-
-            cond = quality.time.where(processingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="purple",
-                    alpha=0.25,
-                    label="processing failed",
-                )
-            cond = quality.time.where(cameraBlocked)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="red",
-                    alpha=0.25,
-                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
-                )
-            cond = quality.time.where(blowingSnow)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="orange",
-                    alpha=0.25,
-                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
-                )  # , hatch='///')
-            cond = quality.time.where(trackingIncomplete)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="blue",
-                    alpha=0.2,
-                    label=f"tracking completeness < {config.quality.minTrackCompleteness}",
-                    # hatch="X",
-                )
-            cond = quality.time.where(zResidualTooWide)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="cyan",
-                    alpha=0.2,
-                    label=f"Z-residual sigma > {config.quality.maxZSigma} px",
-                )
-
-            ax.set_ylim(ylim)
-
-            ax.tick_params(axis="both", labelsize=15)
-            ax.grid()
-            ax.set_xlim(
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-                + np.timedelta64(1, "D"),
-            )
-
-        for ax in axs[:-1, 0]:
-            ax.set_xticklabels([])
-
-        # mark relaunch
-        firstEvent = True
-        for event in events.event:
-            if str(event.values).startswith("start") or str(event.values).startswith(
-                "launch"
-            ):
-                for ax in axs[:, 0]:
-                    if firstEvent:
-                        label = "restarted"
-                        firstEvent = False
-                    else:
-                        label = None
-                    ax.axvline(
-                        event.file_starttime.values, color="red", ls=":", label=label
-                    )
-
-        ax1.legend()
-        ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
-
-        for bx in axs[2:, 1]:
-            bx.axis("off")
-
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2track"))
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2track"), h_pad=1.2)
     if returnFig:
         return fOut, fig
     else:
@@ -3732,6 +3381,7 @@ def createLevel1matchParticlesQuicklook(
 
 
 @tools.loopify
+@_styled
 def createLevel3RimingQuicklook(
     case,
     config,
@@ -3760,9 +3410,6 @@ def createLevel3RimingQuicklook(
     matplotlib.figure.Figure
         The generated figure
     """
-    import matplotlib as mpl
-    import matplotlib.pyplot as plt
-
     camera = config.leader
     nodata = False
     noRawData = False
@@ -3799,41 +3446,17 @@ def createLevel3RimingQuicklook(
 
     log.info(f"running {case} {fOut}")
 
-    fig, axs = plt.subplots(
-        nrows=4,
-        ncols=1,
-        figsize=(20, 20),
-        gridspec_kw={
-            # "width_ratios": [1, 0.01],
-            "height_ratios": [1, 1, 1, 1],
-            "hspace": 0.02,
-            "wspace": 0.1,
-        },
-    )
-    mid = (fig.subplotpars.right + fig.subplotpars.left) / 2
-    fig.suptitle(
-        f"VISSS level3combinedRiming {config.level3.combinedRiming.extraFileStr}\n"
-        + f"{ff.year}-{ff.month}-{ff.day}"
-        + ", "
-        + config["name"]
-        + "",
-        fontsize=25,
-        y=0.995,
-        fontweight="bold",
-        x=mid,
-    )
+    what = f"level3combinedRiming {config.level3.combinedRiming.extraFileStr}"
     if noRawData:
-        axs[0].set_title("no raw data")
+        fig = _placeholderFigure(what, ff, config, "no raw data")
     elif nodata:
-        axs[0].set_title("no data")
+        fig = _placeholderFigure(what, ff, config, "no data")
     else:
         dat3 = xr.open_dataset(lv3)  # .sel(size_definition="Dmax", drop=True)
 
         dat2 = xr.open_dataset(ff.listFiles("level2track")[0]).sel(
             size_definition="Dmax", cameratrack="max", drop=True
         )
-
-        quality = tools.unpackQualityFlags(dat2.qualityFlags, doubleTimestamps=True)
 
         fEvents1 = ff.listFiles("metaEvents")[0]
         fEvents2 = files.FilenamesFromLevel(fEvents1, config).filenamesOtherCamera(
@@ -3853,163 +3476,107 @@ def createLevel3RimingQuicklook(
 
         events = xr.concat((events1, events2), dim="file_starttime")
 
-        (ax1, ax2, ax3, ax4) = axs
+        fig, axs, _ = _stackedFigure([1, 1, 1, 1], figsize=(13, 12), cbar=False)
+        _suptitle(fig, what, ff, config)
+        ax1, ax2, ax3, ax4 = axs
 
-        dat3.Ze_0.plot(ax=ax1, label="Ze_0")
-        dat3.Ze_ground.plot(ax=ax1, label="Ze_ground")
-        dat3.Ze_combinedRetrieval.sel(shape="mean").plot(
-            ax=ax1, label="Ze_combinedRetrieval"
-        )
-        dat3.Ze_ground_fitResidual.where(dat3.Ze_0 > -10).plot(
-            ax=ax1, label="Ze_ground_fitResidual"
-        )
-        dat3.Ze_std.where(dat3.Ze_0 > -10).plot(ax=ax1, label="Ze_std")
+        shapes = ["column", "dendrite", "needle", "plate", "rosette"]
 
-        ax1.set_ylabel("Ze [dBz]")
-        ax1.legend()
+        _line(ax1, dat3.Ze_0, label="Ze_0")
+        _line(ax1, dat3.Ze_ground, label="Ze_ground")
+        _line(
+            ax1,
+            dat3.Ze_combinedRetrieval.sel(shape="mean"),
+            label="Ze_combinedRetrieval",
+        )
+        _line(
+            ax1,
+            dat3.Ze_ground_fitResidual.where(dat3.Ze_0 > -10),
+            label="Ze_ground_fitResidual",
+        )
+        _line(ax1, dat3.Ze_std.where(dat3.Ze_0 > -10), label="Ze_std")
+        ax1.set_ylabel("Ze [dBZ]")
         ax1.set_ylim(-20, 40)
+        ax1.add_artist(
+            ax1.legend(loc="upper left", ncol=3)
+        )  # kept next to the flag legend
 
-        dat3.combinedNormalizedRimeMass.sel(shape="mean").plot(
-            ax=ax2, label="M (combined, shape: mean)"
+        _line(
+            ax2,
+            dat3.combinedNormalizedRimeMass.sel(shape="mean"),
+            label="M (combined, shape: mean)",
         )
-        for shape in ["column", "dendrite", "needle", "plate", "rosette"]:
-            dat3.combinedNormalizedRimeMass.sel(shape=shape).plot(
-                ax=ax2, c="C0", alpha=0.3
+        for ii, shape in enumerate(shapes):
+            _line(
+                ax2,
+                dat3.combinedNormalizedRimeMass.sel(shape=shape),
+                c="C0",
+                alpha=0.3,
+                lw=1,
+                label="M (combined, individual shapes)" if ii == 0 else None,
             )
-        dat2.normalizedRimeMass_mean.plot(ax=ax2, label="M (in situ weighted mean)")
-        dat2.normalizedRimeMass_dist.quantile(0.9, dim="D_bins").plot(
-            ax=ax2, label="M (in situ 90th percentile)"
+        _line(ax2, dat2.normalizedRimeMass_mean, label="M (in situ weighted mean)")
+        _line(
+            ax2,
+            dat2.normalizedRimeMass_dist.quantile(0.9, dim="D_bins"),
+            label="M (in situ 90th percentile)",
         )
-
         ax2.set_ylabel("M [-]")
         ax2.set_yscale("log")
-        ax2.legend()
         ax2.set_ylim(1e-3, 10)
+        ax2.legend(loc="upper left", ncol=2)
 
-        dat3.IWC.sel(shape="mean").plot(ax=ax3, label="IWC (combined, shape: mean)")
-        for shape in ["column", "dendrite", "needle", "plate", "rosette"]:
-            dat3.IWC.sel(shape=shape).plot(ax=ax3, c="C0", alpha=0.3)
-        ax3.set_ylabel("IWC [kg/m$^3$]")
-        ax3.set_yscale("log")
-        ax3.legend()
-
-        dat3.SR_M.sel(shape="mean").plot(
-            ax=ax4, label="SR (combined with meas. fall vel., shape: mean)"
-        )
-        dat3.SR_M_heymsfield10.sel(shape="mean").plot(
-            ax=ax4, label="SR (combined with param. fall vel., shape: mean)"
-        )
-        for shape in ["column", "dendrite", "needle", "plate", "rosette"]:
-            dat3.SR_M.sel(shape=shape).plot(ax=ax4, c="C0", alpha=0.3)
-            dat3.SR_M_heymsfield10.sel(shape=shape).plot(ax=ax4, c="C1", alpha=0.3)
-        ax4.set_ylabel("SR [mm/h w.e.]")
-        ax4.set_yscale("log")
-        ax4.legend()
-
-        obervationsDiffer = quality.sel(flag="obervationsDiffer", drop=True)
-        recordingFailed = quality.sel(flag="recordingFailed", drop=True)
-        processingFailed = quality.sel(flag="processingFailed", drop=True)
-        blowingSnow = quality.sel(flag="blowingSnow", drop=True)
-        cameraBlocked = quality.sel(flag="cameraBlocked", drop=True)
-        trackingIncomplete = quality.sel(flag="trackingIncomplete", drop=True)
-
-        for ax in axs:
-            ax.set_title(None)
-
-            ylim = ax.get_ylim()
-            cond = quality.time.where(recordingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="pink",
-                    alpha=0.25,
-                    label="cameras off",
-                )
-            cond = quality.time.where(obervationsDiffer)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="magenta",
-                    alpha=0.25,
-                    label="observed # of particles differ",
-                )
-
-            cond = quality.time.where(processingFailed)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="purple",
-                    alpha=0.25,
-                    label="processing failed",
-                )
-            cond = quality.time.where(cameraBlocked)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="red",
-                    alpha=0.25,
-                    label=f"camera blocked > {config.quality.blockedPixThresh*100}%",
-                )
-            cond = quality.time.where(blowingSnow)
-            if cond.notnull().any():
-                ax.fill_between(
-                    cond,
-                    [ylim[0]] * len(quality.time),
-                    [ylim[1]] * len(quality.time),
-                    color="orange",
-                    alpha=0.25,
-                    label=f"blowing snow > {config.quality.blowingSnowFrameThresh*100}%",
-                )  # , hatch='///')
-            if trackingIncomplete.sum() > 0:
-                ax.fill_between(
-                    quality.time.values,
-                    ylim[0],
-                    ylim[1],
-                    where=trackingIncomplete.values,
-                    color="blue",
-                    alpha=0.2,
-                    label=f"tracking completeness < {config.quality.minTrackCompleteness}",
-                )
-
-            ax.set_ylim(ylim)
-
-            ax.tick_params(axis="both", labelsize=15)
-            ax.grid()
-            ax.set_xlim(
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00"),
-                np.datetime64(f"{ff.year}-{ff.month}-{ff.day}" + "T00:00")
-                + np.timedelta64(1, "D"),
+        _line(ax3, dat3.IWC.sel(shape="mean"), label="IWC (combined, shape: mean)")
+        for ii, shape in enumerate(shapes):
+            _line(
+                ax3,
+                dat3.IWC.sel(shape=shape),
+                c="C0",
+                alpha=0.3,
+                lw=1,
+                label="individual shapes" if ii == 0 else None,
             )
+        ax3.set_ylabel("IWC [kg m$^{-3}$]")
+        ax3.set_yscale("log")
+        ax3.legend(loc="upper left", ncol=2)
 
-        for ax in axs[:-1]:
-            ax.set_xticklabels([])
+        _line(
+            ax4,
+            dat3.SR_M.sel(shape="mean"),
+            label="SR (combined with meas. fall vel., shape: mean)",
+        )
+        _line(
+            ax4,
+            dat3.SR_M_heymsfield10.sel(shape="mean"),
+            label="SR (combined with param. fall vel., shape: mean)",
+        )
+        for ii, shape in enumerate(shapes):
+            _line(
+                ax4,
+                dat3.SR_M.sel(shape=shape),
+                c="C0",
+                alpha=0.3,
+                lw=1,
+                label="individual shapes" if ii == 0 else None,
+            )
+            _line(ax4, dat3.SR_M_heymsfield10.sel(shape=shape), c="C1", alpha=0.3, lw=1)
+        ax4.set_ylabel("SR [mm h$^{-1}$ w.e.]")
+        ax4.set_yscale("log")
+        ax4.legend(loc="upper left", ncol=1)
 
-        # mark relaunch
-        firstEvent = True
-        for event in events.event:
-            if str(event.values).startswith("start") or str(event.values).startswith(
-                "launch"
-            ):
-                for ax in axs[:]:
-                    if firstEvent:
-                        label = "restarted"
-                        firstEvent = False
-                    else:
-                        label = None
-                    ax.axvline(
-                        event.file_starttime.values, color="red", ls=":", label=label
-                    )
-
-        ax1.legend()
-        ax4.xaxis.set_major_formatter(mpl.dates.DateFormatter("%H:%M"))
+        handles = _shadeQualityFlags(
+            axs,
+            dat2,
+            config,
+            ["recordingFailed", "obervationsDiffer", "processingFailed"]
+            + ["cameraBlocked", "blowingSnow", "sunGlint", "trackingIncomplete"],
+        )
+        handle = _markRestarts(axs, _restartTimes(events))
+        if handle is not None:
+            handles.append(handle)
+        _formatDayAxes(axs, ff)
+        _legendAbove(ax1, handles)
+        fig.align_ylabels(axs)
         dat2.close()
         dat3.close()
     tools.savefig(fig, config, fOut, fnames=ff.listFiles("level3combinedRiming"))

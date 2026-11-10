@@ -212,3 +212,90 @@ class TestTrackParticles(object):
             createLevel1trackParticlesSingle(
                 "20260110", trackId, self.config, fOut=fOut
             )  # block start time missing
+
+
+class TestQuicklookHelpers(object):
+    """Unit tests of the shared plotting helpers (synthetic data)."""
+
+    @pytest.mark.unit
+    def test_timeStep(self):
+        from VISSSlib import quicklooks
+
+        t = np.datetime64("2026-01-10T00:00") + np.arange(5) * np.timedelta64(5, "m")
+        assert quicklooks._timeStep(t) == np.timedelta64(300, "s")
+        # not defined for fewer than two stamps
+        default = np.timedelta64(7, "m")
+        assert quicklooks._timeStep(t[:1], default=default) == default
+
+    @pytest.mark.unit
+    def test_shadeSpansShowsIsolatedStepsAndKeepsLimits(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from VISSSlib import quicklooks
+
+        fig, ax = plt.subplots()
+        t0 = np.datetime64("2026-01-10T00:00")
+        ax.plot([t0, t0 + np.timedelta64(1, "h")], [3, 5])
+        ylim = ax.get_ylim()
+        starts = np.array([t0 + np.timedelta64(10, "m"), np.datetime64("NaT")])
+        handle = quicklooks._shadeSpans(
+            ax, starts, np.timedelta64(5, "m"), "red", "flagged"
+        )
+        assert handle.get_label() == "flagged"
+        # NaT is ignored, the one isolated step is drawn with a width
+        assert len(ax.collections) == 1
+        assert len(ax.collections[0].get_paths()) == 1
+        assert ax.get_ylim() == ylim
+        # nothing to shade, nothing drawn
+        assert (
+            quicklooks._shadeSpans(
+                ax, np.array([np.datetime64("NaT")]), np.timedelta64(5, "m"), "r", "x"
+            )
+            is None
+        )
+        assert len(ax.collections) == 1
+        plt.close(fig)
+
+    @pytest.mark.unit
+    def test_formatDayAxes(self, tmp_path):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from helpers import makeSyntheticConfig
+        from VISSSlib import files, quicklooks
+
+        config = makeSyntheticConfig(tmp_path)
+        ff = files.FindFiles("20260110", config.leader, config)
+        fig, axs, caxs = quicklooks._stackedFigure([1, 1], (6, 4))
+        assert len(caxs) == 2
+        quicklooks._formatDayAxes(axs, ff)
+        fig.canvas.draw()
+        labels = [t.get_text() for t in axs[-1].get_xticklabels()]
+        assert labels[0] == "00:00" and labels[-1] == "24:00"
+        # shared time axis: labels only below the lowest panel
+        assert not axs[0].xaxis.get_tick_params()["labelbottom"]
+        assert axs[-1].get_xlabel() == "time"
+        plt.close(fig)
+
+    @pytest.mark.unit
+    def test_generateDispatchesLevel2track(self, tmp_path, monkeypatch):
+        from helpers import makeSyntheticConfig
+        from VISSSlib import quicklooks
+
+        config = makeSyntheticConfig(tmp_path)
+        called = []
+        monkeypatch.setattr(
+            quicklooks,
+            "createLevel2trackQuicklook",
+            lambda *args, **kwargs: called.append("track"),
+        )
+        monkeypatch.setattr(
+            quicklooks,
+            "createLevel2matchQuicklook",
+            lambda *args, **kwargs: called.append("match"),
+        )
+        quicklooks.generate("20260110", config, "level2track")
+        assert called == ["track"]

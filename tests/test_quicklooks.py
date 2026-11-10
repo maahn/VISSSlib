@@ -299,3 +299,81 @@ class TestQuicklookHelpers(object):
         )
         quicklooks.generate("20260110", config, "level2track")
         assert called == ["track"]
+
+
+class TestSourceVersion(object):
+    """oldestSourceVersion: version of the source files for the status line."""
+
+    @staticmethod
+    def _write(path, **attrs):
+        import xarray as xr
+
+        xr.Dataset({"a": ("x", [1.0])}, attrs=attrs).to_netcdf(path)
+        return str(path)
+
+    @pytest.mark.unit
+    def test_oldestOfSeveralSources(self, tmp_path):
+        from VISSSlib import tools
+
+        f1 = self._write(
+            tmp_path / "a.nc",
+            level2track_version="1.2.2",
+            level1detect_versions="1.0.1,1.2.0",
+            history="2026-01-01: created with VISSSlib 1.2.2 and OpenCV 4.9",
+        )
+        # only known from the history (file predates the *_version attrs)
+        f2 = self._write(
+            tmp_path / "b.nc",
+            history="2024-01-01: created with VISSSlib 1.0.10 and OpenCV 4.9",
+        )
+        # "1.0.10" is older than "1.2" and newer than "1.0.1"
+        assert tools.oldestSourceVersion([f2, f1]) == "1.0.1"
+        assert tools.oldestSourceVersion(f2) == "1.0.10"
+        assert (
+            tools.oldestSourceVersion(
+                [f2, self._write(tmp_path / "c.nc", x_version="1.2")]
+            )
+            == "1.0.10"
+        )
+
+    @pytest.mark.unit
+    def test_noInformation(self, tmp_path):
+        from VISSSlib import tools
+
+        assert tools.oldestSourceVersion(None) is None
+        assert tools.oldestSourceVersion([]) is None
+        # missing, not netCDF and without version metadata
+        plain = self._write(tmp_path / "d.nc", title="no version here")
+        txt = tmp_path / "e.txt"
+        txt.write_text("1.0.0")
+        assert (
+            tools.oldestSourceVersion([plain, str(txt), str(tmp_path / "x.nc")]) is None
+        )
+
+
+class TestSaveFigLogo(object):
+    @pytest.mark.unit
+    def test_logoAnchoredAtPlotAndConstrainedLayoutKept(self, tmp_path):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from helpers import makeSyntheticConfig
+        from PIL import Image
+        from VISSSlib import quicklooks, tools
+
+        logo = tmp_path / "logo.png"
+        Image.new("RGBA", (30, 30), (255, 0, 0, 255)).save(logo)
+        config = makeSyntheticConfig(tmp_path, logo=str(logo))
+
+        fig, axs, _ = quicklooks._stackedFigure([1, 1], (6, 4))
+        axs[0].plot([0, 1], [0, 1])
+        tools.savefig(fig, config, str(tmp_path / "out.png"), logoAnchor=axs[0])
+        # the constrained layout of the figure is not replaced by tight_layout
+        assert type(fig.get_layout_engine()).__name__ == "ConstrainedLayoutEngine"
+        assert len(fig.images) == 1
+        # logo sits on top of the upper left corner of the plot
+        box = axs[0].get_window_extent()
+        x0, x1, y0, y1 = fig.images[0].get_extent()
+        assert np.isclose(x0, box.x0, atol=1) and y0 >= box.y1
+        plt.close(fig)

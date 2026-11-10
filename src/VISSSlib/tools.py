@@ -2041,7 +2041,15 @@ def createParentDir(file, mode=None):
 
 
 def savefig(
-    fig, config, filename, fnames=None, addLogo=True, w_pad=None, h_pad=None, **kwargs
+    fig,
+    config,
+    filename,
+    fnames=None,
+    addLogo=True,
+    w_pad=None,
+    h_pad=None,
+    logoAnchor=None,
+    **kwargs,
 ):
     r"""
     Save a matplotlib Figure to `filename` with proper permissions.
@@ -2067,6 +2075,9 @@ def savefig(
         Width padding for tight layout. Default is None.
     h_pad : float, optional
         Height padding for tight layout. Default is None.
+    logoAnchor : matplotlib.axes.Axes, optional
+        Place the logo at the upper left corner of this axes instead of the
+        upper left corner of the figure. Default is None.
     \*\*kwargs : dict
         Additional keyword arguments passed to matplotlib's savefig function.
 
@@ -2093,8 +2104,10 @@ def savefig(
     """
 
     # Add status text to the figure
-    _statusText(fig, fnames, config, addLogo=addLogo)
-    fig.tight_layout(w_pad=w_pad, h_pad=h_pad)
+    # figures that came with their own layout engine (e.g. constrained) keep it
+    if getattr(fig, "get_layout_engine", lambda: None)() is None:
+        fig.tight_layout(w_pad=w_pad, h_pad=h_pad)
+    _statusText(fig, fnames, config, addLogo=addLogo, logoAnchor=logoAnchor)
 
     # Ensure parent directory exists
     createParentDir(filename, config.dirMode)
@@ -2116,7 +2129,7 @@ def savefig(
     return fig
 
 
-def _statusText(fig, fnames, config, addLogo=True):
+def _statusText(fig, fnames, config, addLogo=True, logoAnchor=None):
     """
     Add status text to a matplotlib figure.
 
@@ -2130,6 +2143,9 @@ def _statusText(fig, fnames, config, addLogo=True):
         Configuration dictionary containing metadata
     addLogo : bool, optional
         Whether to add logo to the figure, by default True
+    logoAnchor : matplotlib.axes.Axes, optional
+        Put the logo on top of the upper left corner of this axes (the layout
+        has to be final), by default the upper left corner of the figure.
 
     Returns
     -------
@@ -2153,6 +2169,9 @@ def _statusText(fig, fnames, config, addLogo=True):
     string = f"VISSSlib {__version__}, created  "
     string += f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
     string += f"from files created at {thisDate} "
+    sourceVersion = oldestSourceVersion(fnames)
+    if sourceVersion is not None:
+        string += f"with VISSSlib {sourceVersion} "
     fig.text(
         0,
         0,
@@ -2169,12 +2188,72 @@ def _statusText(fig, fnames, config, addLogo=True):
         except FileNotFoundError:
             log.error(f"Did not find {config.logo}")
         else:
-            fig.figimage(np.asarray(im), 0, fig.bbox.ymax - im.height, zorder=10)
+            if logoAnchor is None:
+                fig.figimage(np.asarray(im), 0, fig.bbox.ymax - im.height, zorder=10)
+            else:
+                fig.canvas.draw()  # finalize the layout
+                box = logoAnchor.get_window_extent()
+                room = int(fig.bbox.ymax - box.y1) - 2
+                if im.height > room > 0:
+                    # scale down to the space above the plot
+                    im = im.resize((round(im.width * room / im.height), room))
+                fig.figimage(np.asarray(im), box.x0, box.y1 + 2, zorder=10)
 
     return fig
 
 
 _HISTORY_VERSION_RE = re.compile(r"created with VISSSlib (\S+)")
+
+
+def _versionKey(version):
+    """Sort key of a version string such as "1.2.2" ("1.2" < "1.2.2")."""
+    return tuple(int(n) for n in re.findall(r"\d+", version))
+
+
+def oldestSourceVersion(fnames):
+    """
+    Oldest VISSSlib version that touched the given netCDF files.
+
+    Looks at the version provenance in the metadata of each file: the
+    ``*_version``/``*_versions`` attrs written by `collectVersionAttrs`
+    (which also cover the ancestors of the product) and the version in the
+    "history" attr (the only information of files that predate those
+    attrs). Files that are not netCDF, do not exist or are unreadable are
+    skipped.
+
+    Parameters
+    ----------
+    fnames : str or list of str
+        File names, e.g. the files a quicklook is based on.
+
+    Returns
+    -------
+    str or None
+        The oldest version found, None if the files do not tell.
+    """
+    if fnames is None:
+        return None
+    if not isinstance(fnames, (list, tuple)):
+        fnames = [fnames]
+    versions = set()
+    for f in fnames:
+        if not str(f).endswith(".nc"):
+            continue
+        try:
+            with xr.open_dataset(f, decode_cf=False) as ds:
+                attrs = dict(ds.attrs)
+        except Exception:
+            continue
+        for k, v in attrs.items():
+            if k.endswith("_versions") or k.endswith("_version"):
+                versions.update(str(v).split(","))
+        m = _HISTORY_VERSION_RE.search(str(attrs.get("history", "")))
+        if m:
+            versions.add(m.group(1))
+    versions = {v for v in versions if re.search(r"\d", v)}
+    if len(versions) == 0:
+        return None
+    return min(versions, key=_versionKey)
 
 
 def collectVersionAttrs(level, parentFiles):

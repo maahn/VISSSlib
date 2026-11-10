@@ -56,6 +56,13 @@ few helpers at the top of ``quicklooks.py``:
   and collected in **one legend above the top panel** (``_legendAbove``)
   instead of a legend in every panel. Every flagged time step is drawn, also
   isolated ones, and the shading does not change the y-limits.
+* The stacks use matplotlib's constrained layout (``_stackedFigure``), so there is
+  no empty margin around the panels, legends above and twin axes are accounted for
+  and :func:`VISSSlib.tools.savefig` does not call ``tight_layout`` for them. With
+  ``logoAnchor`` the logo is put on top of the upper left corner of the plot (scaled
+  to the space available) instead of the corner of the figure.
+* The status line at the bottom also names the oldest VISSSlib version recorded in
+  the metadata of the source files (:func:`VISSSlib.tools.oldestSourceVersion`).
 * Sizes are shown in mm, camera colors are consistent (leader red, follower
   purple), and days without data or without raw data get a small placeholder
   figure (``_placeholderFigure``) with the same title.

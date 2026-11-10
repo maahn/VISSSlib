@@ -400,7 +400,7 @@ def _placeholderFigure(what, ff, config, message):
     """Small figure for days without (raw) data, so the gallery has no gaps."""
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(13, 3))
+    fig, ax = plt.subplots(figsize=(13, 3), layout="constrained")
     ax.axis("off")
     ax.text(
         0.5,
@@ -573,10 +573,11 @@ def _line(ax, da, **kwargs):
     return ax.plot(da[da.dims[0]].values, da.values, **kwargs)
 
 
-def _stackedFigure(heights, figsize, cbar=True, hspace=0.12):
+def _stackedFigure(heights, figsize, cbar=True, hspace=0.04):
     """
-    Panels sharing the time axis; with `cbar` a narrow second column holds
-    the color bars (unused ones are switched off by the caller).
+    Panels sharing the time axis in a constrained layout; with `cbar` a
+    narrow second column holds the color bars (unused ones are switched off
+    by the caller).
 
     Returns
     -------
@@ -585,32 +586,26 @@ def _stackedFigure(heights, figsize, cbar=True, hspace=0.12):
     """
     import matplotlib.pyplot as plt
 
+    fig = plt.figure(figsize=figsize, layout="constrained")
+    fig.get_layout_engine().set(
+        h_pad=0.08,
+        w_pad=0.05,
+        hspace=hspace,
+        wspace=0.02,
+        rect=(0, 0.015, 1, 0.985),  # keep the status line at the bottom free
+    )
     if cbar:
-        fig, axcax = plt.subplots(
-            nrows=len(heights),
-            ncols=3,
-            figsize=figsize,
-            gridspec_kw={
-                # the middle column leaves room for the labels of twin axes
-                "width_ratios": [1, 0.08, 0.015],
-                "height_ratios": heights,
-                "wspace": 0.0,
-                "hspace": hspace,
-            },
+        gs = fig.add_gridspec(
+            len(heights), 2, width_ratios=[1, 0.015], height_ratios=heights
         )
-        axs, caxs = list(axcax[:, 0]), list(axcax[:, 2])
+        axs = [fig.add_subplot(gs[ii, 0]) for ii in range(len(heights))]
+        caxs = [fig.add_subplot(gs[ii, 1]) for ii in range(len(heights))]
         for cax in caxs:
             cax.axis("off")
-        for spacer in axcax[:, 1]:
-            spacer.axis("off")
     else:
-        fig, axs = plt.subplots(
-            nrows=len(heights),
-            ncols=1,
-            figsize=figsize,
-            gridspec_kw={"height_ratios": heights, "hspace": hspace},
-        )
-        axs, caxs = list(axs), None
+        gs = fig.add_gridspec(len(heights), 1, height_ratios=heights)
+        axs = [fig.add_subplot(gs[ii, 0]) for ii in range(len(heights))]
+        caxs = None
     for ax in axs[1:]:
         ax.sharex(axs[0])
     return fig, axs, caxs
@@ -716,11 +711,14 @@ def _plotLevel2Core(
         axM.spines["right"].set_visible(True)
         axM.grid(False)
         _line(axM, dat2.matchScore_mean.sel(**sel), color="C1", label="match score [-]")
+        axM.margins(y=0.2)
         axM.set_ylabel("Match score [-]", color="C1")
         axM.tick_params(axis="y", colors="C1")
         handles += list(axM.get_lines())
     axPerf.legend(handles=handles, loc="upper right", ncol=2)
 
+    for ax in [axSize, axShape, axPerf]:
+        ax.margins(y=0.2)  # room for the legend above the curves
     for ax in [axPSD, axN, axSize, axShape, axPerf]:
         ax.set_title("")
         ax.set_xlabel("")
@@ -1743,7 +1741,7 @@ def metaFramesQuicklook(
     fig.align_ylabels(axs)
 
     # _statusText(fig, ff.listFiles("metaFrames"), config)
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaFrames"), h_pad=1.8)
+    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaFrames"), logoAnchor=ax1)
     tools.copyCurrentQuicklook("metaFrames", ff)
 
     if metaDats is not None:
@@ -1931,6 +1929,7 @@ def createLevel1matchQuicklook(
         resample=resample,
     )
     ax[0].set_yscale("log")
+    ax[0].margins(y=0.2)
     ax[0].add_artist(ax[0].legend(loc="upper left", ncol=3))
 
     bins = np.logspace(0, 2.5, 21)
@@ -2113,9 +2112,12 @@ def createLevel1matchQuicklook(
     _formatDayAxes(ax, fl)
     _legendAbove(ax[0], [h for h in handles if h is not None], ncol=3)
     fig.align_ylabels(ax)
+    # do not keep the files open: they are re-opened for the status line
+    eventDatL.close()
+    eventDatF.close()
 
     print("DONE", fOut)
-    tools.savefig(fig, config, fOut, fnames=fnames1M)
+    tools.savefig(fig, config, fOut, fnames=fnames1M, logoAnchor=ax[0])
     if returnFig:
         return fOut, fig
     else:
@@ -2231,6 +2233,11 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
         np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
         for d in config.rotate.keys()
     ]
+    resets = [
+        r
+        for r in resets
+        if rotDat.file_starttime.min().values <= r <= rotDat.file_starttime.max().values
+    ]
     handles.append(
         _markRestarts(axs, resets, "rotation from config", color="k", ls="-")
     )
@@ -2246,7 +2253,7 @@ def metaRotationYearlyQuicklook(year, config, version=__version__, skipExisting=
     fig.align_ylabels(axs)
 
     # _statusText(fig, rotFiles, config)
-    tools.savefig(fig, config, fOut, fnames=rotFiles)
+    tools.savefig(fig, config, fOut, fnames=rotFiles, logoAnchor=ax1)
 
     rotDat.close()
 
@@ -2471,10 +2478,12 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
             )
         )
 
+    t0, t1 = _dayLimits(ff)
     resets = [
         np.datetime64(datetime.datetime.strptime(d.ljust(15, "0"), "%Y%m%d-%H%M%S"))
         for d in config.rotate.keys()
     ]
+    resets = [r for r in resets if t0 <= r <= t1]
     handles.append(
         _markRestarts(axs, resets, "rotation from config", color="k", ls="-")
     )
@@ -2492,9 +2501,13 @@ def metaRotationQuicklook(case, config, version=__version__, skipExisting=True):
     _formatDayAxes(axs, ff)
     _legendAbove(ax1, [h for h in handles if h is not None], ncol=6)
     fig.align_ylabels(axs)
+    # do not keep the files open: they are re-opened for the status line
+    events2.close()
 
     # _statusText(fig, ff.listFiles("metaRotation"), config)
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("metaRotation"), h_pad=1.2)
+    tools.savefig(
+        fig, config, fOut, fnames=ff.listFiles("metaRotation"), logoAnchor=ax1
+    )
     rotDat.close()
     events.close()
 
@@ -2569,6 +2582,7 @@ def createLevel2detectQuicklook(
     log.info(f"running {case} {fOut}")
 
     what = f"level2detect {camera.split('_')[0]}"
+    logoAnchor = None
     if noRawData:
         fig = _placeholderFigure(what, ff, config, "no raw data")
     elif nodata:
@@ -2585,6 +2599,7 @@ def createLevel2detectQuicklook(
 
         fig, axs, caxs = _stackedFigure([2.5, 1, 1, 1], figsize=(13, 12))
         _suptitle(fig, what, ff, config)
+        logoAnchor = axs[0]
         _plotLevel2Core(axs[0], caxs[0], axs[1], axs[2], axs[3], dat2, sel={})
 
         handles = _shadeQualityFlags(
@@ -2600,8 +2615,17 @@ def createLevel2detectQuicklook(
         _formatDayAxes(axs, ff)
         _legendAbove(axs[0], handles)
         fig.align_ylabels(axs)
+        # do not keep the files open: they are re-opened for the status line
+        dat2.close()
+        events.close()
 
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2detect"), h_pad=1.2)
+    tools.savefig(
+        fig,
+        config,
+        fOut,
+        fnames=ff.listFiles("level2detect"),
+        logoAnchor=logoAnchor,
+    )
     if returnFig:
         return fOut, fig
     else:
@@ -2672,6 +2696,7 @@ def createLevel2matchQuicklook(
     log.info(f"running {case} {fOut}")
 
     what = "level2match"
+    logoAnchor = None
     if noRawData:
         fig = _placeholderFigure(what, ff, config, "no raw data")
     elif nodata:
@@ -2698,6 +2723,7 @@ def createLevel2matchQuicklook(
 
         fig, axs, caxs = _stackedFigure([2.5, 1, 1, 1], figsize=(13, 12))
         _suptitle(fig, what, ff, config)
+        logoAnchor = axs[0]
         _plotLevel2Core(
             axs[0],
             caxs[0],
@@ -2722,8 +2748,18 @@ def createLevel2matchQuicklook(
         _formatDayAxes(axs, ff)
         _legendAbove(axs[0], handles)
         fig.align_ylabels(axs)
+        # do not keep the files open: they are re-opened for the status line
+        dat2.close()
+        events1.close()
+        events2.close()
 
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2match"), h_pad=1.2)
+    tools.savefig(
+        fig,
+        config,
+        fOut,
+        fnames=ff.listFiles("level2match"),
+        logoAnchor=logoAnchor,
+    )
     if returnFig:
         return fOut, fig
     else:
@@ -2791,6 +2827,7 @@ def createLevel2trackQuicklook(
     log.info(f"running {case} {fOut}")
 
     what = "level2track"
+    logoAnchor = None
     if noRawData:
         fig = _placeholderFigure(what, ff, config, "VISSS did not operate, no raw data")
     elif nodata:
@@ -2818,6 +2855,7 @@ def createLevel2trackQuicklook(
 
         fig, axs, caxs = _stackedFigure([1.25, 1.25, 1, 1, 1], figsize=(13, 13.5))
         _suptitle(fig, what, ff, config)
+        logoAnchor = axs[0]
 
         # PSD / N_tot, sizes, shape and performance as for level2match; the
         # velocity distribution takes the second panel
@@ -2858,8 +2896,18 @@ def createLevel2trackQuicklook(
         _formatDayAxes(axs, ff)
         _legendAbove(axs[0], handles)
         fig.align_ylabels(axs)
+        # do not keep the files open: they are re-opened for the status line
+        dat2.close()
+        events1.close()
+        events2.close()
 
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level2track"), h_pad=1.2)
+    tools.savefig(
+        fig,
+        config,
+        fOut,
+        fnames=ff.listFiles("level2track"),
+        logoAnchor=logoAnchor,
+    )
     if returnFig:
         return fOut, fig
     else:
@@ -3447,6 +3495,7 @@ def createLevel3RimingQuicklook(
     log.info(f"running {case} {fOut}")
 
     what = f"level3combinedRiming {config.level3.combinedRiming.extraFileStr}"
+    logoAnchor = None
     if noRawData:
         fig = _placeholderFigure(what, ff, config, "no raw data")
     elif nodata:
@@ -3478,6 +3527,7 @@ def createLevel3RimingQuicklook(
 
         fig, axs, _ = _stackedFigure([1, 1, 1, 1], figsize=(13, 12), cbar=False)
         _suptitle(fig, what, ff, config)
+        logoAnchor = axs[0]
         ax1, ax2, ax3, ax4 = axs
 
         shapes = ["column", "dendrite", "needle", "plate", "rosette"]
@@ -3522,6 +3572,7 @@ def createLevel3RimingQuicklook(
             label="M (in situ 90th percentile)",
         )
         ax2.set_ylabel("M [-]")
+        ax2.margins(y=0.2)
         ax2.set_yscale("log")
         ax2.set_ylim(1e-3, 10)
         ax2.legend(loc="upper left", ncol=2)
@@ -3537,6 +3588,7 @@ def createLevel3RimingQuicklook(
                 label="individual shapes" if ii == 0 else None,
             )
         ax3.set_ylabel("IWC [kg m$^{-3}$]")
+        ax3.margins(y=0.2)
         ax3.set_yscale("log")
         ax3.legend(loc="upper left", ncol=2)
 
@@ -3561,6 +3613,7 @@ def createLevel3RimingQuicklook(
             )
             _line(ax4, dat3.SR_M_heymsfield10.sel(shape=shape), c="C1", alpha=0.3, lw=1)
         ax4.set_ylabel("SR [mm h$^{-1}$ w.e.]")
+        ax4.margins(y=0.2)
         ax4.set_yscale("log")
         ax4.legend(loc="upper left", ncol=1)
 
@@ -3577,9 +3630,18 @@ def createLevel3RimingQuicklook(
         _formatDayAxes(axs, ff)
         _legendAbove(ax1, handles)
         fig.align_ylabels(axs)
+        # do not keep the files open: they are re-opened for the status line
+        events1.close()
+        events2.close()
         dat2.close()
         dat3.close()
-    tools.savefig(fig, config, fOut, fnames=ff.listFiles("level3combinedRiming"))
+    tools.savefig(
+        fig,
+        config,
+        fOut,
+        fnames=ff.listFiles("level3combinedRiming"),
+        logoAnchor=logoAnchor,
+    )
     return fig
 
 

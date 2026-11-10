@@ -735,7 +735,13 @@ def isBadPeriod(case, config, product=None):
         if not inRange:
             continue
         # Period matches time range - check product
-        if (period.products is None) or (product is None) or (product in period.products):
+        # product may carry a camera prefix ("leader_level1detect")
+        if (
+            (period.products is None)
+            or (product is None)
+            or (product in period.products)
+            or (product.split("_")[-1] in period.products)
+        ):
             return True, period.reason
     
     return False, ""

@@ -3,6 +3,7 @@ import glob
 import json
 import os
 import random
+import shlex
 import string
 import sys
 from functools import cached_property, partial
@@ -163,6 +164,72 @@ class DataProduct(object):
         )
         return reprstr
 
+    # levels that are never marked via badData (raw input and the final marker)
+    _badDataSkipLevels = ("level0", "level0txt", "allDone")
+
+    @cached_property
+    def _badDataApplies(self):
+        """Whether any ``badData`` entry of the settings includes this level."""
+        if self.level in self._badDataSkipLevels or not self.config.badData:
+            return False
+        for period in self.config.badData:
+            if (
+                period.products is None
+                or self.level in period.products
+                or f"{self.camera}_{self.level}" in period.products
+            ):
+                return True
+        return False
+
+    def _badDataReason(self, case):
+        """
+        Reason if ``case`` (a day, or a day-time of a per-file level) lies in a
+        ``badData`` window of the settings that includes this level, else None.
+
+        The check is central here, so every level listed in ``products`` of a
+        ``badData`` entry (or all levels, if ``products`` is null) is
+        handled the same way, without every processing routine having to
+        know about it.
+        """
+        if not self._badDataApplies:
+            return None
+        isBad, reason = tools.isBadPeriod(str(case), self.config, product=self.level)
+        return (reason or "badData") if isBad else None
+
+    def _badDataCommand(self, reason, outFile, bin=None):
+        """
+        Command that fails with ``reason``. runCommandInQueue then removes any
+        existing output (and .nodata) and writes ``outFile``.broken.txt with the
+        message, so a product inside a badData window ends up as a broken
+        sentinel, whether or not it was processed before the window was added.
+        """
+        msg = f"data marked as broken by badData in {self.config.filename}: {reason}"
+        # the trailing comment lets runCommandInQueue find the settings file
+        # (same pattern as the processing commands) to update the freshness marker
+        return (
+            f"echo {shlex.quote(msg)} >&2; exit 1  # -m VISSSlib badData {self.config.filename}",
+            outFile,
+        )
+
+    @cached_property
+    def _badDataPending(self):
+        """
+        True if real (not yet broken) outputs of this product lie in a
+        ``badData`` window and still have to be replaced by broken sentinels.
+        """
+        if not self._badDataApplies:
+            return False
+        if self.level in files.dailyLevels:
+            return self._badDataReason(self.case) is not None and len(self.listFiles()) > 0
+        for f in self.listFiles():
+            try:
+                case = files.FilenamesFromLevel(f, self.config).case
+            except Exception:
+                continue
+            if self._badDataReason(case) is not None:
+                return True
+        return False
+
     @log.catch(reraise=True)
     def generateAllCommands(self, skipExisting=True, withParents=True):
         """
@@ -188,6 +255,23 @@ class DataProduct(object):
                 f"{self.case} {self.relatives}: no data found (yet?) in {self.fn.fnamesPattern.level0txt}"
             )
             return []
+
+        if self._badDataPending:
+            # real outputs inside a badData window: replace them by broken
+            # sentinels (the parents are irrelevant for that)
+            commands = self.generateCommands(skipExisting=skipExisting)
+            log.warning(
+                f"{self.case} {self.relatives} badData: {len(commands)} outputs "
+                "will be marked as broken"
+            )
+            if withParents:
+                for parent in self.parents.keys():
+                    commands = commands + self.parents[parent].generateAllCommands(
+                        skipExisting=True,
+                        withParents=False,
+                    )
+            self.commands = list(set(commands))
+            return self.commands
 
         if (
             skipExisting
@@ -400,6 +484,15 @@ class DataProduct(object):
             outFile = f1.fname[self.level]
             exisiting = glob.glob(f"{outFile}*")
 
+            badReason = self._badDataReason(f1.case)
+            if badReason is not None:
+                if len(exisiting) >= 1 and all(
+                    e.endswith(".broken.txt") for e in exisiting
+                ):
+                    continue  # already marked
+                commands.append(self._badDataCommand(badReason, outFile))
+                continue
+
             if (len(exisiting) >= 1) and (extraOrigin is not None):
                 extraOlder = os.path.getmtime(
                     self.fn.listFilesExt(extraOrigin)[0]
@@ -472,6 +565,13 @@ class DataProduct(object):
         if self.level in files.dailyLevels:
             outFile = self.fn.fnamesDaily[self.level]
             exisiting = glob.glob(f"{outFile}*")
+            badReason = self._badDataReason(self.case)
+            if badReason is not None:
+                if len(exisiting) >= 1 and all(
+                    e.endswith(".broken.txt") for e in exisiting
+                ):
+                    return []  # already marked
+                return [self._badDataCommand(badReason, outFile)]
             if skipExisting and (len(exisiting) >= 1) and (self._upToDateWithParents):
                 log.info(f"{self.relatives} skip exisiting {exisiting[0]}")
                 return []

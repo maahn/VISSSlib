@@ -68,6 +68,42 @@ also be possible... using a threshold based on particle blur to define the
 observation volume, similar to the PIP" — it exists, and is size-dependent
 rather than a single global blur cutoff.
 
+The tables of the VISSS generations are tied to the camera pair they were
+derived with. Cameras with a different image contrast need their own table:
+``level2.blurTable`` selects one from :mod:`VISSSlib.blurTables` (so far
+``hyytiala2_v3``, ``hyytiala2_v4``, ``hyytiala2_v5``). They are derived in the
+same way: the ratio of volume corrected ``level1detect`` and ``level1match``
+size distributions gives, per size, the fraction of detected particles that
+are sharp enough to be matched, and the threshold is that percentile of the
+detected blur. Leader and follower are averaged, smoothed and made
+non-increasing; the module docstring lists the days used and the hold-out
+check. Because the table is a stand-in for the observation volume, a
+too-low threshold gives an excess of the single-camera over the matched
+distribution and a too-high one a deficit.
+
+With ``level2.blurScaleFromOtherCamera`` the threshold of the camera that
+sees the particles fainter is scaled down by an hourly factor (75th percentile
+of the blur of 8-16 px particles of this camera relative to the other one,
+at most 1, at least 0.2, 1 if fewer than 300 particles). It was developed for
+the Ny-Alesund VISSS2 and tested there only.
+
+Known limitations
+~~~~~~~~~~~~~~~~~
+
+Leader and follower ``level2detect`` PSDs can disagree despite these
+corrections in some periods; they should be compared before the
+single-camera product is used quantitatively:
+
+* Ny-Alesund v4 Aug-Sep 2024, v6 Oct-Nov 2026, Hyytiala v5 from late Oct 2026:
+  one camera is out of focus or loses detections.
+* Hyytiala VISSS3 v3 May 2024: leader excess up to about 30 %.
+* Remaining Ny-Alesund leader deficit of 7-13 %, of which about 7 % does not
+  depend on size and is not related to blur.
+* Missed frames: the PSD uses the nominal frame rate, so frames that were not
+  recorded bias it low and the cameras miss different frames. This is the
+  reason for the ``badData`` period at Ny-Alesund 12 Aug - 11 Sep 2025
+  (about 159 instead of 250 fps).
+
 Binning
 --------
 

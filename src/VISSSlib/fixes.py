@@ -305,7 +305,11 @@ def removeGhostFrames(metaDat, config, intOverflow=True, idOffset=0, fixIteratio
             metaDat["capture_id"][lastI:] = metaDat["capture_id"][lastI:] - 1
 
         # remove all fishy frames
-        metaDat = metaDat.drop_isel(capture_time=jumpsII)
+        # drop by position: drop_isel looks the frames up by label, which
+        # raises on a non-unique capture_time index
+        keep = np.ones(len(metaDat.capture_time), dtype=bool)
+        keep[jumpsII] = False
+        metaDat = metaDat.isel(capture_time=keep)
         droppedFrames += len(jumpsII)
 
         if nGroups > 0:
@@ -846,7 +850,12 @@ def removeFlippedCaptureTimeFrames(metaDat1, fname):
             droppedIndices.extend(group.tolist())
             droppedIndices.append(group[-1] + 1)
         droppedIndices = np.unique(droppedIndices)
-        metaDat1 = metaDat1.drop_isel(capture_time=droppedIndices)
+        # drop by position: drop_isel looks the frames up by label, which
+        # raises on a non-unique capture_time index (two frames can end up
+        # with the same microsecond after a flip)
+        keep = np.ones(len(metaDat1.capture_time), dtype=bool)
+        keep[droppedIndices] = False
+        metaDat1 = metaDat1.isel(capture_time=keep)
 
     return metaDat1, len(droppedIndices)
 

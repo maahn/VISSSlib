@@ -126,7 +126,14 @@ fraction of the particles is matched fell from 6558 to 4550 (sail) and from
 from 1305 to 1192 and from 1447 to 961. Some days stay partly unmatched, e.g.
 sail 20230415 in the evening (a few frames of the lag still move inside a file)
 and dense-snow periods in which no lag can be determined (hyytiala 20220405
-06:20-07:00).
+06:20-07:00). Candidate lags of unresolved segments also include the lag
+congruent (modulo the capture_id period) to the lags of the neighbouring
+resolved segments, which resolved most of the dense-snow segments of hyytiala
+(20220405: 171 of 172 segments). Rebuilding 146 mappings with it changed 28 of
+them: hyytiala gained 4% pairs (313.2M to 325.8M) with fewer broken files and
+fallbacks, sail was neutral (-0.1%). Four days got worse and keep the previous
+mapping (sail 20230107, hyytiala 20211230, 20220112 and 20220221, 2-5% fewer
+pairs and about twice the low-match minutes).
 
 ``VISSSlib.fixes`` API
 --------------------------

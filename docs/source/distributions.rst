@@ -87,6 +87,40 @@ of the blur of 8-16 px particles of this camera relative to the other one,
 at most 1, at least 0.2, 1 if fewer than 300 particles). It was developed for
 the Ny-Alesund VISSS2 and tested there only.
 
+Creating a blur table
+~~~~~~~~~~~~~~~~~~~~~
+
+A table is needed for a new camera pair (or if leader and follower
+``level2detect`` PSDs disagree systematically, with the sign pointing to the
+blur threshold: single-camera excess = threshold too low). It is derived with
+``scripts/derive_blur_table.py`` in two steps:
+
+1. Select 10-15 snowfall days spread over the deployment, with complete
+   ``level1detect``, ``level1match`` and ``level2match`` and without known
+   problems (``badData``, missed frames, out-of-focus periods).
+2. ``collect``: per group of about 3 days (slow, about 1 h per day; run the groups
+   in parallel) the script stores per camera the volume corrected 2D histogram of
+   detected particles (``Dmax`` in pixels x log10 blur) and the size distribution
+   of the matched particles::
+
+     python scripts/derive_blur_table.py collect settings.yaml \
+         20240122,20240214,20240322 calib_b0.pkl
+
+3. ``derive``: pools the pickles, computes per size the factor by which the volume
+   corrected detections exceed the matches, takes the blur percentile
+   ``1 - 1/factor`` of the detected particles as threshold, averages leader and
+   follower, smooths (median over +-2 sizes) and makes the table non-increasing.
+   Each pickle is left out in turn as a hold-out check; ``R_pass`` (detections
+   above the threshold / matches, 8-40 px) should be 0.8-1.2::
+
+     python scripts/derive_blur_table.py derive hyytiala2_v3 calib_b*.pkl -o table.txt
+
+4. Paste the text into ``blurTables.BLUR_TABLES``, list the days and the hold-out
+   result in the docstring of ``blurTables.py``, set ``level2.blurTable`` in the
+   settings file and rebuild ``level2detect`` (``scripts/reprocess_levels.py
+   --levels level2detect --skip-existing false``). Afterwards compare the leader
+   and follower PSDs: the ratio of their total concentrations should scatter around 1.
+
 Known limitations
 ~~~~~~~~~~~~~~~~~
 

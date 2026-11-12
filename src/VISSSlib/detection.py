@@ -2003,6 +2003,9 @@ def detectParticles(
     # just in case we have now too many frames by adding older files
     trainingFrames = trainingFrames[-config.level1detect.trainingSize :]
 
+    # the KNN background subtraction samples randomly; a fixed seed makes the
+    # detection reproducible (otherwise repeated runs differ by a few particles)
+    cv2.setRNGSeed(0)
     snowParticles = detectedParticles(
         config,
         verbosity=verbosity,

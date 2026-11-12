@@ -82,6 +82,10 @@ class detectedParticles(object):
         Background subtractor instance
     """
 
+    # class used for every accepted particle. Subclasses can set their own
+    # singleParticle subclass here (None means singleParticle)
+    singleParticleClass = None
+
     def __init__(
         self,
         config,
@@ -301,22 +305,7 @@ class detectedParticles(object):
             print("SHOWING", "fgMaskWithHoles")
             tools.displayImage(self.fgMask)
 
-        # avoids that blowing snow detection is falsely removing data for blury particles
-        # larger conoturs are later corrected by canny filter
-        if self.config.level1detect.dilateFgMask4Contours:
-            fgMask4Contours = self._cv2.dilate(self.fgMask, None, iterations=2)
-            # tools.displayImage(fgMask4Contours)
-        else:
-            fgMask4Contours = self.fgMask
-        cnts, _ = self._cv2.findContours(
-            fgMask4Contours, self._cv2.RETR_EXTERNAL, self._cv2.CHAIN_APPROX_NONE
-        )
-
-        self.cnts = list()
-        for cc, cnt in enumerate(cnts):
-            if cnt.shape[0] >= minCntSize:
-                # skip very small particles
-                self.cnts.append(cnt)
+        self.cnts = self.findContours(self.fgMask)
 
         self.nParticle = len(self.cnts)
         if self.verbosity > 0:
@@ -351,7 +340,37 @@ class detectedParticles(object):
 
         return True, self.nParticle
 
-    def applyCannyFilter(self, frame, fgMask, threshold1=0, threshold2=25):
+    def findContours(self, fgMask):
+        """
+        Find the contours of the moving objects in the foreground mask.
+
+        Subclasses can override this to change how moving pixels are grouped
+        into objects (e.g. to join the wings and body of an insect).
+
+        Parameters
+        ----------
+        fgMask : array
+            Foreground mask from background subtraction
+
+        Returns
+        -------
+        list
+            Contours with at least minCntSize points
+        """
+        # avoids that blowing snow detection is falsely removing data for blury particles
+        # larger conoturs are later corrected by canny filter
+        if self.config.level1detect.dilateFgMask4Contours:
+            fgMask4Contours = self._cv2.dilate(fgMask, None, iterations=2)
+            # tools.displayImage(fgMask4Contours)
+        else:
+            fgMask4Contours = fgMask
+        cnts, _ = self._cv2.findContours(
+            fgMask4Contours, self._cv2.RETR_EXTERNAL, self._cv2.CHAIN_APPROX_NONE
+        )
+        # skip very small particles
+        return [cnt for cnt in cnts if cnt.shape[0] >= minCntSize]
+
+    def applyCannyFilter(self, frame, fgMask, threshold1=0, threshold2=None):
         """
         Apply Canny edge detection filter to enhance particle detection.
 
@@ -364,7 +383,8 @@ class detectedParticles(object):
         threshold1 : int, optional
             Lower threshold for Canny edge detection, default is 0
         threshold2 : int, optional
-            Upper threshold for Canny edge detection, default is 25
+            Upper threshold for Canny edge detection, default (None) is
+            config.level1detect.cannyThreshold2
 
         Returns
         -------
@@ -372,6 +392,9 @@ class detectedParticles(object):
             Filtered foreground mask
         """
         import cv2
+
+        if threshold2 is None:
+            threshold2 = self.config.level1detect.cannyThreshold2
 
         log.trace(
             tools.concat(
@@ -482,7 +505,7 @@ class detectedParticles(object):
             roi[1] == 0,
             (roi[1] + roi[3]) == frameHeight,
         ]
-        if np.any(touchesBorder):
+        if np.any(touchesBorder) and self.config.level1detect.rejectBorderParticles:
             if self.verbosity > 2:
                 print("particles.add", "PID", "n/a", "touches border", touchesBorder)
                 print("particles.update", "PID", "n/a", "Not added")
@@ -533,7 +556,7 @@ class detectedParticles(object):
             newParticle = True
 
             # try:
-            self.lastParticle = singleParticle(
+            self.lastParticle = (self.singleParticleClass or singleParticle)(
                 self,
                 self.config,
                 self.capture_id,
@@ -1723,6 +1746,7 @@ def detectParticles(
     version=__version__,
     skipExisting=True,
     verbosity=0,
+    particlesClass=None,
 ):
     """
     Detect particles in a video file.
@@ -1746,6 +1770,9 @@ def detectParticles(
         Whether to skip existing files, default is True
     verbosity : int, optional
         Verbosity level, default is 0
+    particlesClass : class, optional
+        detectedParticles subclass to use for the detection (e.g. for other
+        objects than snow particles), default (None) is detectedParticles
 
     Returns
     -------
@@ -2003,7 +2030,7 @@ def detectParticles(
     # just in case we have now too many frames by adding older files
     trainingFrames = trainingFrames[-config.level1detect.trainingSize :]
 
-    snowParticles = detectedParticles(
+    snowParticles = (particlesClass or detectedParticles)(
         config,
         verbosity=verbosity,
         testing=testing,

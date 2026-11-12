@@ -306,6 +306,7 @@ DEFAULT_SETTINGS = {
         #  this is compensated by the canny filter, but not for holes in the particles (the default is {"dist2Threshold": 400,
         #                               "detectShadows": False, "history": 100})
         "blurSigma": 1,
+        "cannyThreshold2": 25,  # upper threshold of the Canny edge detection
         "check4childCntLength": True,  # discard short child contours instead of dilate/erose
         "cropImage": None,  # (offsetX, offsetY)
         "cv2NumThreads": None,  # cv2's own thread pool is not covered by the OMP_NUM_THREADS/
@@ -319,6 +320,7 @@ DEFAULT_SETTINGS = {
         # both and force a specific value regardless of environment -- including -1, which
         # cv2 itself defines as "reset to system default", i.e. the escape hatch to force
         # cv2 back to using all cores even when OMP_NUM_THREADS is set for everything else.
+        "rejectBorderParticles": True,  # discard objects touching the image border (they are cut off)
         "dilateErodeFgMask": False,  # turns out to be not so smart because it makes holes insides particles smaller
         "dilateFgMask4Contours": True,
         "dilateIterations": 1,  # to close gaps in canny edges (the default is 1 whic is sufficient)

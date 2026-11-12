@@ -2614,6 +2614,7 @@ def _matchParticlesImpl(
             "Dmax",
             "blur",
             "position_upperLeft",
+            "position_centroid",  # addPosition in the matchScore self-heal refit
             "Droi",
             "nThread",
             "file_starttime",

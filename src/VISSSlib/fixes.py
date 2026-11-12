@@ -1526,6 +1526,36 @@ def _mosaicBlocksToRows(blocks, r, P, fineMinutes=1.0, maxInterpStep=4):
     return rows
 
 
+def _mosaicNeighbourCandidates(row, candidates, resolvedRows, P, nSide=2, half=3):
+    """
+    Add the lags of the nearest resolved segments of the day to the candidates
+    of an unresolved segment. The record time guess can be off by more than
+    the search window of a few frames (hyytiala_v1 20220405: 11 frames), while
+    the lag modulo the capture_id period is the same in the neighbouring
+    segments (the cameras lose frames only rarely). Only the value
+    congruent to the neighbour's lag modulo P that is closest to the
+    candidates is added.
+    """
+    if len(candidates) == 0 or len(resolvedRows) == 0:
+        return candidates
+    center = int(np.median(candidates))
+    t = row["rt_start"]
+    before = sorted(
+        (r for r in resolvedRows if r["rt_start"] <= t),
+        key=lambda r: t - r["rt_start"],
+    )[:nSide]
+    after = sorted(
+        (r for r in resolvedRows if r["rt_start"] > t),
+        key=lambda r: r["rt_start"] - t,
+    )[:nSide]
+    out = set(candidates)
+    for r in before + after:
+        lagMod = int(r["lag_mod"])
+        congruent = lagMod + P * int(round((center - lagMod) / P))
+        out |= set(range(congruent - half, congruent + half + 1))
+    return sorted(out)
+
+
 def _mosaicDenseBlockLags(
     lPart,
     lSeg,
@@ -1619,7 +1649,9 @@ def _mosaicDenseBlockLags(
                         pass
                     gap = abs(i - lastI)
                     expect = lastLag + lastSlope * (i - lastI)
-                    found, ok = test(i, int(round(expect)), halfRange + min(gap, 6))
+                    found, ok = test(
+                        i, int(round(expect)), halfRange + min(2 * gap, 24)
+                    )
                     res[i] = (found, ok)
                     if ok:
                         newLag = int(found["lag"])
@@ -1653,27 +1685,32 @@ def _mosaicRefineRowLags(
     frameWidth,
     stepMinutes=1.0,
     windowMinutes=3.0,
-    halfRange=1,
+    halfRange=6,
     minZ=8.0,
-    minRatio=1.5,
+    minRatio=2.0,
     minExcess=100,
     maxDzDiff=10.0,
+    maxFillMinutes=10,
     cache=None,
 ):
     """
-    Minute-level check of the lag of resolved rows. The lag found per 10 min
-    block and interpolated between the block centres puts the single-frame
-    steps of the (drifting) lag a few minutes off; in the minutes in between
-    the lag is a frame wrong and almost no particles match (SAIL 20230104:
-    87% of the minutes with little matching lie within 3 min of a step).
+    Minute-level check of the lag of resolved rows. The lag of a row is one
+    number per block (10 min) or even per run (2 h, found with single
+    particles), but the lag drifts by a frame every few minutes, so for part
+    of a row the lag is a few frames wrong and almost nothing matches (SAIL
+    20230104: 10% of the minutes, in runs of up to 50 min).
 
     Every stepMinutes piece of each resolved row is tested with the dense lag
     test (windowMinutes of follower capture_time around the piece, candidates
-    lag +- halfRange, rotation of the row if it has one). The lag of a piece
-    is replaced if the best candidate is decisive (z >= minZ, minRatio times
-    the second best, at least minExcess pairs in the peak, vertical offset within maxDzDiff of the rows without
-    rotation); otherwise the lag stays. Neighbouring pieces with the same lag
-    are merged.
+    lag +- halfRange, rotation of the row if it has one). A piece takes the
+    best candidate if it is decisive (z >= minZ, minRatio times the second
+    best, at least minExcess pairs in the peak, vertical offset within
+    maxDzDiff of the rows without rotation). A change of more than one frame
+    additionally needs a neighbouring piece (+-2) that found the same lag, so
+    an isolated outlier cannot move the lag far. Pieces without a decisive
+    result (little snow) take the change of the nearest decided pieces
+    (interpolated if there is one on each side, at most maxFillMinutes away).
+    Neighbouring pieces with the same lag are merged.
     """
     P = MOSAIC_CAPTURE_ID_PERIOD
     step = int(stepMinutes * 60_000_000)
@@ -1706,9 +1743,10 @@ def _mosaicRefineRowLags(
             )
         edges = np.arange(int(r["fct_start"]), int(r["fct_end"]) + 1, step)
         edges = np.append(edges, int(r["fct_end"]) + 1)
-        cur = None
-        for e0, e1 in zip(edges[:-1], edges[1:]):
-            lag = int(r["lag"])
+        n = len(edges) - 1
+        lag0 = int(r["lag"])
+        change = [None] * n  # decisive change of the lag per piece
+        for k, (e0, e1) in enumerate(zip(edges[:-1], edges[1:])):
             tc = (int(e0) + int(e1)) // 2
             found = _mosaicDenseLagTest(
                 lPart,
@@ -1719,7 +1757,7 @@ def _mosaicRefineRowLags(
                 fPSeg,
                 fPU,
                 r["fsegment"],
-                list(range(lag - halfRange, lag + halfRange + 1)),
+                list(range(lag0 - halfRange, lag0 + halfRange + 1)),
                 rotate=rotate,
                 frameWidth=frameWidth,
                 cache=cache,
@@ -1736,7 +1774,47 @@ def _mosaicRefineRowLags(
                     or (abs(found["dz"] - dzRef) < maxDzDiff)
                 )
             ):
-                lag = int(found["lag"])
+                change[k] = int(found["lag"]) - lag0
+        # a change of more than a frame needs company
+        for k in range(n):
+            c = change[k]
+            if (c is not None) and (abs(c) > 1):
+                nb = [
+                    change[j]
+                    for j in range(max(k - 2, 0), min(k + 3, n))
+                    if j != k
+                ]
+                if c not in nb:
+                    change[k] = None
+        # pieces without a decisive result: nearest decided pieces
+        decided = [k for k in range(n) if change[k] is not None]
+        filled = list(change)
+        if len(decided) > 0:
+            maxFill = int(round(maxFillMinutes * 60_000_000 / step))
+            for k in range(n):
+                if change[k] is not None:
+                    continue
+                before = [d for d in decided if d < k]
+                after = [d for d in decided if d > k]
+                b = before[-1] if (before and k - before[-1] <= maxFill) else None
+                a = after[0] if (after and after[0] - k <= maxFill) else None
+                if (b is not None) and (a is not None):
+                    filled[k] = int(
+                        np.round(
+                            np.interp(k, [b, a], [change[b], change[a]])
+                        )
+                    )
+                elif b is not None:
+                    filled[k] = change[b]
+                elif a is not None:
+                    filled[k] = change[a]
+                else:
+                    filled[k] = 0
+        else:
+            filled = [0] * n
+        cur = None
+        for k, (e0, e1) in enumerate(zip(edges[:-1], edges[1:])):
+            lag = lag0 + int(filled[k])
             if (cur is not None) and (cur["lag"] == lag):
                 cur["fct_end"] = int(e1) - 1
                 continue
@@ -1929,24 +2007,22 @@ def _mosaicBlockLags(
     fct = fPart["ct"][fi]
     blockUs = int(blockMinutes * 60e6)
     edges = np.arange(tStart, tEnd + blockUs, blockUs)
-    out = []
-    for t0, t1 in zip(edges[:-1], edges[1:]):
+
+    def evaluate(t0, t1, center, half):
         sel = (fct >= t0) & (fct < t1)
         if sel.sum() < minPairs:
-            out.append((int(t0), int(t1), None, int(sel.sum()), np.nan))
-            continue
+            return (int(t0), int(t1), None, int(sel.sum()), np.nan)
         fIdx = fi[sel]
         fUb = fUsAll[sel]
         order = np.argsort(fUb)
         fIdx, fUb = fIdx[order], fUb[order]
-        lo = np.searchsorted(lUs, fUb.min() - lagCenter - halfRange - 5)
-        hi = np.searchsorted(lUs, fUb.max() - lagCenter + halfRange + 5)
+        lo = np.searchsorted(lUs, fUb.min() - center - half - 5)
+        hi = np.searchsorted(lUs, fUb.max() - center + half + 5)
         if hi - lo < minPairs:
-            out.append((int(t0), int(t1), None, int(hi - lo), np.nan))
-            continue
+            return (int(t0), int(t1), None, int(hi - lo), np.nan)
         lUb, lxb, lzb = lUs[lo:hi], lx[lo:hi], lz[lo:hi]
         scores = []
-        for lag in range(lagCenter - halfRange, lagCenter + halfRange + 1):
+        for lag in range(center - half, center + half + 1):
             tgt = lUb + lag
             jj = np.clip(np.searchsorted(fUb, tgt), 0, len(fUb) - 1)
             hit = fUb[jj] == tgt
@@ -1963,14 +2039,30 @@ def _mosaicBlockLags(
             cnt = int((np.abs(d - np.median(d)) < 3).sum())
             scores.append((cnt / n, cnt, n, lag))
         if len(scores) < 2:
-            out.append((int(t0), int(t1), None, 0, np.nan))
-            continue
+            return (int(t0), int(t1), None, 0, np.nan)
         scores.sort(reverse=True)
         best, second = scores[0], scores[1]
         if (best[0] >= minFrac) and (best[0] >= minRatio * second[0]):
-            out.append((int(t0), int(t1), int(best[3]), int(best[2]), float(best[0])))
-        else:
-            out.append((int(t0), int(t1), None, int(best[2]), float(best[0])))
+            return (int(t0), int(t1), int(best[3]), int(best[2]), float(best[0]))
+        return (int(t0), int(t1), None, int(best[2]), float(best[0]))
+
+    out = [evaluate(t0, t1, lagCenter, halfRange) for t0, t1 in zip(edges[:-1], edges[1:])]
+    # The lag can drift out of the window around lagCenter (SAIL 20230415:
+    # -5 at 00 UTC, -101 at 16 UTC, below -160 at 19 UTC; the window ended at
+    # -101 and the blocks after it were filled with that value). Blocks
+    # without a decisive lag, or with a lag at the edge of the window, are
+    # tested again with a window around the lag of the previous block.
+    last = None
+    for i, (t0, t1) in enumerate(zip(edges[:-1], edges[1:])):
+        lag = out[i][2]
+        atEdge = (lag is not None) and (abs(lag - lagCenter) >= halfRange - 2)
+        if ((lag is None) or atEdge) and (last is not None) and (last != lagCenter):
+            again = evaluate(t0, t1, last, halfRange)
+            if again[2] is not None:
+                out[i] = again
+                lag = again[2]
+        if lag is not None:
+            last = lag
     return out
 
 
@@ -2006,10 +2098,10 @@ def _mosaicDayRotation(case, config):
 
 def mosaicMappingActive(config, case):
     """
-    True if the dataFix mosaicFrameMapping applies to this case.
+    True if the dataFix frameMapping applies to this case.
 
-    The fix is switched on deployment-wide by "mosaicFrameMapping" in
-    dataFixes; the setting mosaicFrameMappingExclude (list of YYYYMMDD or
+    The fix is switched on deployment-wide by "frameMapping" in
+    dataFixes; the setting frameMappingExclude (list of YYYYMMDD or
     "YYYYMMDD-YYYYMMDD" ranges, inclusive) takes days out again, e.g. days
     that were processed well before the fix existed and get worse with it
     (sail_v1: light-snow days).
@@ -2025,9 +2117,9 @@ def mosaicMappingActive(config, case):
     import os
     import re
 
-    if "mosaicFrameMapping" not in config.dataFixes:
+    if "frameMapping" not in config.dataFixes:
         return False
-    exclude = config.mosaicFrameMappingExclude
+    exclude = config.frameMappingExclude
     if not exclude:
         return True
     dates = re.findall(r"(?<!\d)(\d{8})(?!\d)", os.path.basename(str(case)))
@@ -2422,10 +2514,13 @@ def createMosaicFrameMapping(
             ]
             dzDay = float(np.median(dzDay)) if len(dzDay) > 0 else None
             denseDrift = {}
+            resolvedRows = [r for r in rows if r["resolved"]]
             for r in rows:
                 if r["resolved"] or (id(r) not in candidateSets):
                     continue
                 ls, fs, cc = candidateSets[id(r)]
+                cc = _mosaicNeighbourCandidates(r, cc, resolvedRows, P)
+                candidateSets[id(r)] = (ls, fs, cc)
                 found = _mosaicDenseLagTest(
                     lPart, lPSeg, lPU, ls, fPart, fPSeg, fPU, fs, cc, cache=cache
                 )
@@ -3079,7 +3174,7 @@ def mosaicUnmappedTimes(case, config, timeIndex, maxUnmappedS=10):
         ends = np.concatenate(ends)
     # files processed without the frame mapping (fallback) are not unmapped
     fStart, fEnd = [], []
-    if bool(config.mosaicFrameMappingFallback):
+    if bool(config.frameMappingFallback):
         from . import files as _files
 
         try:

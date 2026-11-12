@@ -991,7 +991,7 @@ def _createLevel2(
     return lv2Dat, lv2File
 
 
-def _blurThreshold(visssGen):
+def _blurThreshold(visssGen, table=None):
     """
     Empirically-derived per-Dmax-pixel blur threshold lookup table used by
     _applyBlurThreshold, one per VISSS generation. Index i of the returned
@@ -1008,12 +1008,26 @@ def _blurThreshold(visssGen):
     ----------
     visssGen : str
         VISSS hardware generation ("visss", "visss2", or "visss3").
+    table : str, optional
+        Name of a deployment specific table in ``blurTables.BLUR_TABLES``
+        (settings: ``level2.blurTable``) that replaces the table of the
+        generation. Needed when the image contrast of a camera pair differs from
+        the cameras the generation's table was derived from.
 
     Returns
     -------
     numpy.ndarray
         Blur threshold lookup table indexed by rounded Dmax (pixels).
     """
+    if table is not None:
+        from .blurTables import BLUR_TABLES
+
+        if table not in BLUR_TABLES:
+            raise ValueError(
+                f"level2.blurTable {table} unknown, available: {list(BLUR_TABLES)}"
+            )
+        return np.array(BLUR_TABLES[table], dtype=float)
+
     if visssGen == "visss":
         # coefficients developed from winer 2021/22 in Hyytiälä
         blurThresh = np.array(
@@ -1511,7 +1525,7 @@ def _applyBlurThreshold(level1dat, config, lv2File, blurScale=1.0):
     level1dat : xarray.Dataset
         Level1detect data with Dmax and blur variables, indexed by pair_id.
     config : dict
-        Configuration dictionary; only visssGen is used here.
+        Configuration dictionary; only visssGen and level2.blurTable are used here.
     lv2File : str
         Output filename, used only for the diagnostic log message when no
         data remains.
@@ -1525,7 +1539,7 @@ def _applyBlurThreshold(level1dat, config, lv2File, blurScale=1.0):
         Filtered level1dat with the blur variable removed, or None if no
         particles remain after filtering.
     """
-    blurThresh = _blurThreshold(config.visssGen)
+    blurThresh = _blurThreshold(config.visssGen, config.level2.blurTable)
 
     # discard huge ones so that the trick with the look up table works
     sizeCond = (level1dat.Dmax <= 350).values

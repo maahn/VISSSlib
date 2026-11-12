@@ -97,15 +97,15 @@ given deployment actually needs to change.
      - List of named workarounds to enable for this deployment's known raw
        data issues (e.g. ``captureIdOverflows``, ``makeCaptureTimeEven``) —
        see :doc:`fixes` for which names actually do something.
-   * - mosaicFrameMappingExclude
+   * - frameMappingExclude
      - Days (``YYYYMMDD`` or ``YYYYMMDD-YYYYMMDD``) for which the dataFix
-       ``mosaicFrameMapping`` is not applied. Default: none.
-   * - mosaicFrameMappingFallback
+       ``frameMapping`` is not applied. Default: none.
+   * - frameMappingFallback
      - ``true``: a file for which level1match fails with the frame mapping is
        processed once more without it (output attribute
        ``mosaicFrameMapping = "fallback"``). Default: ``false``. See
        :doc:`fixes`.
-   * - mosaicFallbackFixes
+   * - frameMappingFallbackFixes
      - dataFixes to use for that second attempt, e.g.
        ``makeCaptureTimeEven``. Default: none.
    * - quality
@@ -123,6 +123,15 @@ given deployment actually needs to change.
        produced at all for this deployment (e.g. skip matching entirely
        for a single-camera setup); ``level2.freq`` sets the Level 2 time
        resolution (default ``"1min"``).
+   * - level2.blurScaleFromOtherCamera, level2.blurTable
+     - Blur threshold of ``level2detect`` (see :doc:`distributions`).
+       ``blurTable`` names a deployment specific table in
+       :data:`VISSSlib.blurTables.BLUR_TABLES` (e.g. ``hyytiala2_v4``) that
+       replaces the table of the VISSS generation, needed when a camera pair
+       has a different image contrast. ``blurScaleFromOtherCamera: true``
+       scales the table of the fainter camera with the hourly sharpness of
+       the other camera; makes ``level2detect`` depend on ``level1detect`` of
+       both cameras.
    * - level3.combinedRiming
      - ``processRetrieval`` toggle, plus the quality gate for running it
        (``maxTemp``, ``minZe``, ``minNParticles``) — see :doc:`level3`.
@@ -133,9 +142,21 @@ given deployment actually needs to change.
    * - logo
      - Path to an image overlaid on quicklook figures
        (:func:`VISSSlib.tools.savefig`); omit for no logo.
-   * - movieExtension, newFileInt, dirMode, fileMode, goodFiles, badData
+   * - badData
+     - List of periods that are known to be bad, each with ``start``,
+       ``end`` (``YYYYMMDD-HHMMSS``), ``reason`` and optionally ``products``
+       (levels, e.g. ``["level1match", "level2detect"]``; default all).
+       ``products.DataProduct`` marks the listed levels as broken
+       (``.broken.txt`` containing the reason, existing outputs are
+       replaced) and children inherit this, so no check is needed in the
+       processing routines. Levels not listed are processed as usual (e.g.
+       ``level1detect``). Daily levels are flagged as whole days (the day
+       of ``end`` is not included), per-file levels by their exact time.
+       Example: the missed frames at Ny-Alesund 12 Aug - 11 Sep 2025 in
+       ``nyaalesund_v6``.
+   * - movieExtension, newFileInt, dirMode, fileMode, goodFiles
      - Lower-level knobs (raw video container format, expected seconds
        per level0 file, created-file permissions, a manual
-       known-good-files/bad-data-period override) — see the docstrings in
+       known-good-files override) — see the docstrings in
        :doc:`tools` (:data:`VISSSlib.tools.DEFAULT_SETTINGS`) for exact
        defaults and semantics.

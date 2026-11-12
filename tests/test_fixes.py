@@ -407,6 +407,35 @@ class TestMosaicBlockLags:
         )
         assert [b[2] for b in out] == lagTrue
 
+    def test_drift_beyond_initial_window_is_followed(self):
+        from VISSSlib import matching
+        from VISSSlib.fixes import _mosaicBlockLags
+
+        rng = np.random.default_rng(7)
+        rotate = dict(camera_Ofz=-25.0, camera_phi=0.4, camera_theta=0.45)
+        fw, nPer = 1280, 600
+        # the lag drifts by 3 frames per block, far out of the window of +-5
+        # around the first guess; every block lies within +-5 of the previous
+        lagTrue = [-229, -232, -235, -238, -241, -244]
+        n = nPer * len(lagTrue)
+        lx = rng.uniform(0, fw, n)
+        fx = rng.uniform(0, fw, n)
+        fz = rng.uniform(0, 1000, n)
+        lz = np.asarray(matching.calc_L_z_withOffsets(lx, fw - fx, fz, **rotate)) + rng.normal(0, 0.8, n)
+        lU = np.arange(n) * 4 + 10000
+        block = np.repeat(np.arange(len(lagTrue)), nPer)
+        fU = lU + np.array(lagTrue)[block]
+        blockUs = int(10 * 60e6)
+        fct = block * blockUs + np.tile(np.linspace(1e6, blockUs - 1e6, nPer), len(lagTrue)).astype(np.int64)
+        lPart = dict(D=np.full(n, 30.0), z=lz, xc=lx, ct=fct)
+        fPart = dict(D=np.full(n, 30.0), z=fz, xc=fx, ct=fct)
+        seg = np.zeros(n, dtype=int)
+        out = _mosaicBlockLags(
+            lPart, seg, lU, 0, fPart, seg, fU, 0, -229, rotate, fw,
+            0, blockUs * len(lagTrue), blockMinutes=10, halfRange=5, minPairs=40,
+        )
+        assert [b[2] for b in out] == lagTrue
+
     def test_block_without_pairs_has_no_lag(self):
         from VISSSlib.fixes import _mosaicBlockLags
 
@@ -595,7 +624,7 @@ class TestMosaicDenseBlockLagsDrift:
 
 
 class TestMosaicRefineRowLags:
-    def test_steps_moved_to_where_particles_show_them(self):
+    def test_drift_inside_one_row_is_followed(self):
         from VISSSlib.fixes import _mosaicRefineRowLags
 
         period, per, lag0 = 60_000, 3000, 3000  # 1000 frames = 1 min
@@ -605,34 +634,45 @@ class TestMosaicRefineRowLags:
         lPart["ct"] = lu * period
         uF = fu - lag0 - 2 * ((fu - lag0) // (per + 2))  # leader frame of the follower frame
         fPart["ct"] = uF * period
-        # true lag steps by 2 every `per` frames (3 min); the row has the
-        # steps 1000 frames (1 min) too late
-        minute = 60_000_000
         t0, t1 = int(fPart["ct"].min()), int(fPart["ct"].max())
-        base = dict(
+        row = dict(
             lsegment=0, fsegment=0, rotated=False, resolved=True, dz_median=43.0,
-            n_pairs=1000, lag=0, lag_mod=0, rot_Ofz=np.nan, rot_phi=np.nan,
-            rot_theta=np.nan,
+            n_pairs=1000, lag=lag0, lag_mod=0, rot_Ofz=np.nan, rot_phi=np.nan,
+            rot_theta=np.nan, fct_start=t0, fct_end=t1,
         )
-        rows = []
-        edges = [t0 + i * minute for i in range(int((t1 - t0) // minute) + 2)]
-        for e0, e1 in zip(edges[:-1], edges[1:]):
-            tc = (e0 + e1) / 2 / period  # approx. frame index of the minute
-            late = int(max(tc - 1000, 0) // per)
-            r = dict(base)
-            r.update(fct_start=int(e0), fct_end=int(e1) - 1, lag=lag0 + 2 * late)
-            rows.append(r)
         out = _mosaicRefineRowLags(
-            rows, lPart, np.zeros(len(lu), int), lu, fPart, np.zeros(len(fu), int),
-            fu, 1000, stepMinutes=1.0, windowMinutes=1.0, halfRange=2, minExcess=50,
+            [row], lPart, np.zeros(len(lu), int), lu, fPart, np.zeros(len(fu), int),
+            fu, 1000, windowMinutes=1.0, minExcess=50,
         )
         def truth(r):
             tc = (r["fct_start"] + r["fct_end"]) / 2 / period
             return lag0 + 2 * int(max(tc, 0) // per)
-        errBefore = np.mean([abs(r["lag"] - truth(r)) for r in rows])
-        errAfter = np.mean([abs(r["lag"] - truth(r)) for r in out])
-        assert errAfter < errBefore
+        err = [abs(r["lag"] - truth(r)) for r in out]
+        assert max(err) <= 2 and np.mean(err) < 0.3
+        assert len(out) >= 4
         assert all(b["fct_start"] == a["fct_end"] + 1 for a, b in zip(out[:-1], out[1:]))
+
+    def test_constant_lag_is_kept(self):
+        from VISSSlib.fixes import _mosaicRefineRowLags
+
+        # constant lag everywhere, but the dense test is fooled in one piece
+        # by a few pairs of a wrong lag: no change beyond one frame
+        period, lag0 = 60_000, 3000
+        lPart, lu, fPart, fu = TestMosaicDenseBlockLagsDrift._drifting(
+            nFrames=6000, K=20, lag0=lag0, per=10**9
+        )
+        lPart["ct"] = lu * period
+        fPart["ct"] = (fu - lag0) * period
+        row = dict(
+            lsegment=0, fsegment=0, rotated=False, resolved=True, dz_median=43.0,
+            n_pairs=1000, lag=lag0, lag_mod=0, rot_Ofz=np.nan, rot_phi=np.nan,
+            rot_theta=np.nan, fct_start=int(fPart["ct"].min()), fct_end=int(fPart["ct"].max()),
+        )
+        out = _mosaicRefineRowLags(
+            [row], lPart, np.zeros(len(lu), int), lu, fPart, np.zeros(len(fu), int),
+            fu, 1000, windowMinutes=1.0, minExcess=50,
+        )
+        assert [r["lag"] for r in out] == [lag0]
 
 
 class TestMosaicBlocksToRows:
@@ -665,16 +705,16 @@ class TestMosaicMappingActive:
     def _cfg(fixes_, exclude=None):
         from VISSSlib import tools
 
-        c = tools.DictNoDefault({"dataFixes": fixes_, "mosaicFrameMappingExclude": exclude})
+        c = tools.DictNoDefault({"dataFixes": fixes_, "frameMappingExclude": exclude})
         return c
 
     def test_switch_and_exclusion(self):
         from VISSSlib.fixes import mosaicMappingActive
 
         assert not mosaicMappingActive(self._cfg(["x"]), "20230325")
-        c = self._cfg(["mosaicFrameMapping"])
+        c = self._cfg(["frameMapping"])
         assert mosaicMappingActive(c, "20230325")
-        c = self._cfg(["mosaicFrameMapping"], ["20230325", "20230401-20230410"])
+        c = self._cfg(["frameMapping"], ["20230325", "20230401-20230410"])
         assert not mosaicMappingActive(c, "20230325")
         assert not mosaicMappingActive(c, "20230325-120000")
         assert not mosaicMappingActive(c, "20230405")
@@ -695,10 +735,10 @@ class TestMosaicFallbackWrapper:
 
         return tools.DictNoDefault(
             {
-                "dataFixes": ["mosaicFrameMapping", "detectTimingGlitches"],
-                "mosaicFrameMappingExclude": exclude,
-                "mosaicFrameMappingFallback": fallback,
-                "mosaicFallbackFixes": ["makeCaptureTimeEven"],
+                "dataFixes": ["frameMapping", "detectTimingGlitches"],
+                "frameMappingExclude": exclude,
+                "frameMappingFallback": fallback,
+                "frameMappingFallbackFixes": ["makeCaptureTimeEven"],
             }
         )
 
@@ -733,9 +773,9 @@ class TestMosaicFallbackWrapper:
         assert calls[0]["_canFallback"] and not calls[0]["_fallbackMode"]
         assert calls[1]["_fallbackMode"] and not calls[1]["_canFallback"]
         legacy = calls[1]["config"].dataFixes
-        assert "mosaicFrameMapping" not in legacy and "makeCaptureTimeEven" in legacy
+        assert "frameMapping" not in legacy and "makeCaptureTimeEven" in legacy
         assert "detectTimingGlitches" in legacy
-        assert "mosaicFrameMapping" in cfg.dataFixes  # original untouched
+        assert "frameMapping" in cfg.dataFixes  # original untouched
 
     def test_no_retry_if_disabled_or_excluded_or_rotation_only(self, monkeypatch):
         import pytest
@@ -752,3 +792,27 @@ class TestMosaicFallbackWrapper:
                 matching.matchParticles(self.FN, cfg, **kw)
             assert len(calls) == 1
             assert not calls[0]["_canFallback"]
+
+
+class TestMosaicNeighbourCandidates:
+    def test_adds_congruent_lag_of_resolved_neighbours(self):
+        from VISSSlib.fixes import MOSAIC_CAPTURE_ID_PERIOD as P
+        from VISSSlib.fixes import _mosaicNeighbourCandidates
+
+        # guess 11 frames off the lag of the neighbours (same lag modulo P)
+        row = dict(rt_start=100)
+        resolved = [
+            dict(rt_start=50, lag_mod=(-19) % P),
+            dict(rt_start=200, lag_mod=(-19) % P),
+        ]
+        guess = -3 * P - 8
+        out = _mosaicNeighbourCandidates(row, list(range(guess - 3, guess + 4)), resolved, P)
+        assert (-3 * P - 19) in out
+        assert (-3 * P - 8) in out  # original candidates are kept
+
+    def test_without_resolved_rows_unchanged(self):
+        from VISSSlib.fixes import MOSAIC_CAPTURE_ID_PERIOD as P
+        from VISSSlib.fixes import _mosaicNeighbourCandidates
+
+        cand = [1, 2, 3]
+        assert _mosaicNeighbourCandidates(dict(rt_start=0), cand, [], P) == cand

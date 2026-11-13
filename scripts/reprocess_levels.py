@@ -137,10 +137,14 @@ def runningWorkerJobs(queue=None):
                 m = re.search(r"StdOut=(\S+)", info)
                 # the launch script echoes "srun ... worker <queue>" first
                 head = ""
-                if m and os.path.exists(m.group(1)):
+                haveLog = bool(m and os.path.exists(m.group(1)))
+                if haveLog:
                     with open(m.group(1), errors="replace") as f:
                         head = f.read(4000)
-                if queue.rstrip("/") + "/" not in head.replace("\n", "/\n") and \
+                # a pending job has no output file yet, so its queue cannot be
+                # read; count it (we launched it) rather than resubmitting
+                # another worker at every poll while the cluster is busy
+                if haveLog and queue.rstrip("/") + "/" not in head.replace("\n", "/\n") and \
                         queue.rstrip("/") + "\n" not in head + "\n":
                     continue
             n += 1

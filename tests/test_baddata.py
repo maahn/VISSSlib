@@ -55,3 +55,29 @@ class TestBadPeriod(unittest.TestCase):
         self.assertEqual(
             tools.isBadPeriod("20250815", c, product="level2detect")[1], "missed frames"
         )
+
+
+    def test_file_level_date_only_period(self):
+        # date-only start/end used to crash per-file levels (ljust padding
+        # produced "202606280000000"); the whole end day is included
+        c = tools.DictNoDefault(
+            {
+                "badData": [
+                    {
+                        "start": "20260628",
+                        "end": "20260629",
+                        "reason": "r",
+                        "products": None,
+                    }
+                ]
+            }
+        )
+        for case, bad in [
+            ("20260627-235000", False),
+            ("20260628-000000", True),
+            ("20260629-235000", True),
+            ("20260630-000000", False),
+        ]:
+            self.assertEqual(
+                tools.isBadPeriod(case, c, product="leader_level1detect")[0], bad, case
+            )

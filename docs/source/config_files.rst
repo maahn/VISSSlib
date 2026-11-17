@@ -144,14 +144,16 @@ given deployment actually needs to change.
        (:func:`VISSSlib.tools.savefig`); omit for no logo.
    * - badData
      - List of periods that are known to be bad, each with ``start``,
-       ``end`` (``YYYYMMDD-HHMMSS``), ``reason`` and optionally ``products``
+       ``end`` (``YYYYMMDD-HHMMSS`` or ``YYYYMMDD``), ``reason`` and optionally ``products``
        (levels, e.g. ``["level1match", "level2detect"]``; default all).
        ``products.DataProduct`` marks the listed levels as broken
        (``.broken.txt`` containing the reason, existing outputs are
        replaced) and children inherit this, so no check is needed in the
        processing routines. Levels not listed are processed as usual (e.g.
        ``level1detect``). Daily levels are flagged as whole days (the day
-       of ``end`` is not included), per-file levels by their exact time.
+       of ``end`` is included), per-file levels by their exact time; a
+       date-only ``start``/``end`` covers the whole start/end day for
+       per-file levels, too.
        Example: the missed frames at Ny-Alesund 12 Aug - 11 Sep 2025 in
        ``nyaalesund_v6``.
    * - movieExtension, newFileInt, dirMode, fileMode, goodFiles

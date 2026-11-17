@@ -618,6 +618,24 @@ def readSettings(fname):
         config = flatten_dict.flatten(DEFAULT_SETTINGS)
         with open(fname, "r") as stream:
             loadedSettings = flatten_dict.flatten(yaml.load(stream, Loader=yaml.Loader))
+            dataFixesKey = ("dataFixes",)
+            # legacy names of the frame mapping fix and its settings
+            for old, new in [
+                ("mosaicFrameMappingExclude", "frameMappingExclude"),
+                ("mosaicFrameMappingFallback", "frameMappingFallback"),
+                ("mosaicFallbackFixes", "frameMappingFallbackFixes"),
+            ]:
+                if (old,) in loadedSettings:
+                    log.warning(f"setting {old} is now called {new}")
+                    loadedSettings[(new,)] = loadedSettings.pop((old,))
+            if dataFixesKey in loadedSettings and (
+                "mosaicFrameMapping" in loadedSettings[dataFixesKey]
+            ):
+                log.warning("dataFix mosaicFrameMapping is now called frameMapping")
+                loadedSettings[dataFixesKey] = [
+                    "frameMapping" if f == "mosaicFrameMapping" else f
+                    for f in loadedSettings[dataFixesKey]
+                ]
             # Check for keys in loadedSettings that are not in DEFAULT_SETTINGS
             default_keys = set(flatten_dict.flatten(DEFAULT_SETTINGS).keys())
             exception_top = {}
@@ -637,7 +655,6 @@ def readSettings(fname):
             # with the yaml's own value instead of letting the plain update()
             # below silently drop the defaults whenever a yaml declares its
             # own (even empty) dataFixes list.
-            dataFixesKey = ("dataFixes",)
             if dataFixesKey in loadedSettings:
                 merged = list(DEFAULT_SETTINGS["dataFixes"])
                 for fix in loadedSettings[dataFixesKey] or []:
@@ -672,23 +689,6 @@ def isBadPeriod(case, config, product=None):
         Case identifier (YYYYMMDD or YYYYMMDD-HHMMSS)
     config : dict
         Configuration dictionary
-            # legacy names of the frame mapping fix and its settings
-            for old, new in [
-                ("mosaicFrameMappingExclude", "frameMappingExclude"),
-                ("mosaicFrameMappingFallback", "frameMappingFallback"),
-                ("mosaicFallbackFixes", "frameMappingFallbackFixes"),
-            ]:
-                if (old,) in loadedSettings:
-                    log.warning(f"setting {old} is now called {new}")
-                    loadedSettings[(new,)] = loadedSettings.pop((old,))
-            if dataFixesKey in loadedSettings and (
-                "mosaicFrameMapping" in loadedSettings[dataFixesKey]
-            ):
-                log.warning("dataFix mosaicFrameMapping is now called frameMapping")
-                loadedSettings[dataFixesKey] = [
-                    "frameMapping" if f == "mosaicFrameMapping" else f
-                    for f in loadedSettings[dataFixesKey]
-                ]
     product : str, optional
         Product level to check. If None, returns True if case is bad for any product.
     
@@ -703,10 +703,14 @@ def isBadPeriod(case, config, product=None):
     if not hasattr(config, 'badData') or config.badData is None:
         return False, ""
     
-    #files.FindFiles(case, camera.leader, config).datetime
-    case_dt =  datetime.datetime.strptime(
-        case.ljust(15, "0"), "%Y%m%d-%H%M%S"
-    ) if '-' in case else datetime.datetime.strptime(case, "%Y%m%d")
+    def _parse(t):
+        # YYYYMMDD or YYYYMMDD-HHMMSS (time part may be shortened, e.g. HHMM)
+        t = str(t)
+        if "-" in t:
+            return datetime.datetime.strptime(t.ljust(15, "0"), "%Y%m%d-%H%M%S"), True
+        return datetime.datetime.strptime(t, "%Y%m%d"), False
+
+    case_dt = _parse(case)[0]
     
     for period in config.badData:
 
@@ -724,13 +728,14 @@ def isBadPeriod(case, config, product=None):
             ) + datetime.timedelta(days=1)
             inRange = start <= case_dt < end
         else:
-            start = datetime.datetime.strptime(
-                str(period.start).ljust(15, "0"), "%Y%m%d-%H%M%S"
-            )
-            end = datetime.datetime.strptime(
-                str(period.end).ljust(15, "0"), "%Y%m%d-%H%M%S"
-            )
-            inRange = start <= case_dt <= end
+            start = _parse(period.start)[0]
+            end, endHasTime = _parse(period.end)
+            if endHasTime:
+                inRange = start <= case_dt <= end
+            else:
+                # date-only end: the whole end day is included, consistent
+                # with the daily levels
+                inRange = start <= case_dt < end + datetime.timedelta(days=1)
 
         if not inRange:
             continue

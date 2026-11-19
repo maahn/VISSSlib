@@ -345,9 +345,7 @@ def createLevel2track(
     if doPlot:
         print(f"Running createLevel2trackQuicklook for {case}")
         quicklooks.createLevel2trackQuicklook(case, config, skipExisting=skipExisting)
-        quicklooks.createLevel1trackParticles(
-            case, config, skipExisting=skipExisting
-        )
+        quicklooks.createLevel1trackParticles(case, config, skipExisting=skipExisting)
 
     return out
 
@@ -720,7 +718,8 @@ def _createLevel2(
     lv2Dat = tools.finishNc(
         lv2Dat,
         config.site,
-        config.visssGen, config=config,
+        config.visssGen,
+        config=config,
         extra=tools.collectVersionAttrs(f"level2{sublevel}", versionParentFiles),
     )
 
@@ -1424,8 +1423,7 @@ def _readBlurStats(case, camera, config, endTime):
                         len(evTime) - 1,
                     )
                     glint.append(
-                        dat.pixMax.values[inPeriod].astype(float)
-                        > evBright[idx] + 20
+                        dat.pixMax.values[inPeriod].astype(float) > evBright[idx] + 20
                     )
         except (OSError, ValueError, KeyError) as e:
             log.warning(f"blur scale: cannot read {fname}: {e}")
@@ -1487,7 +1485,9 @@ def _estimateBlurScale(case, camera, config, endTime, minN=300, minScale=0.2):
     for name, cam in (("own", cameraName), ("other", other)):
         res = _readBlurStats(case, cam, config, endTime)
         if res is None or res[2] is None:
-            log.info(f"blur scale {case} {camera}: no usable data of {name} camera, 1.0")
+            log.info(
+                f"blur scale {case} {camera}: no usable data of {name} camera, 1.0"
+            )
             return 1.0
         stats[name] = _sharpTailBlur(res[0], res[1], minN, exclude=res[2])
 
@@ -2987,9 +2987,7 @@ def calibrateData(level2dat, level1dat_time, config, DbinsPixel, timeIndex1):
     calibDat["area_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeter_mean"] = calibDat["perimeter_mean"] / slope / 1e6
     calibDat["perimeter_std"] = calibDat["perimeter_std"] / slope / 1e6
-    calibDat["areaConsideringHoles_mean"] = (
-        calibDat["area_mean"] / slope**2 / 1e6**2
-    )
+    calibDat["areaConsideringHoles_mean"] = calibDat["area_mean"] / slope**2 / 1e6**2
     calibDat["areaConsideringHoles_std"] = calibDat["area_std"] / slope**2 / 1e6**2
     calibDat["perimeterConsideringHoles_mean"] = (
         calibDat["perimeter_mean"] / slope / 1e6
@@ -3817,6 +3815,47 @@ def _estimateVolumes(
             Ds_inter, volumes = interpolateVolumes(np.array(sizeBins), ddInter, volumes)
             assert np.all(Ds_inter == np.array(sizeBins))
     return np.array(sizeBins), np.array(volumes)
+
+
+def observationVolume(
+    D, width, height, camera_phi=0.0, camera_theta=0.0, camera_Ofz=0.0
+):
+    """
+    Common observation volume of both cameras for particles of a given size.
+
+    Public wrapper of `_estimateVolumes` (without the correction for the smallest
+    particles) for other object types than snow particles, e.g. insects that are
+    counted only if both cameras saw them.
+
+    Parameters
+    ----------
+    D : float or array-like
+        Maximum dimension of the particles [px].
+    width, height : int
+        Image size [px].
+    camera_phi, camera_theta, camera_Ofz : float, optional
+        Relative camera alignment (``config.rotate``).
+
+    Returns
+    -------
+    numpy.ndarray
+        Volume [px³] in which a particle of size D is completely seen by both cameras.
+    """
+    D = np.atleast_1d(np.asarray(D, dtype=float))
+    bins = tuple(range(0, int(np.nanmax(np.r_[D, 1.0])) + 2))
+    Ds, volumes = _estimateVolumes(
+        width,
+        height,
+        False,
+        float(camera_phi),
+        float(camera_theta),
+        float(camera_Ofz),
+        bins,
+        (),
+        (),
+        (),
+    )
+    return np.interp(D, Ds, volumes)
 
 
 def interpolateVolumes(Dfull, Dstep, volumes1):

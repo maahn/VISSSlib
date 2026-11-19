@@ -305,6 +305,11 @@ class Track(object):
         """
         assert len(velocityGuess) == 3
         self.velocityGuess = velocityGuess
+        # whether velocityGuess came from the local flow (see
+        # Tracker.getVelocityFirstGuess) and the fallback guess that would
+        # have been used without it, both set by the Tracker
+        self.localGuess = False
+        self.fallbackGuess = np.asarray(velocityGuess, dtype=float)
         self.track_id = trackIdCount  # identification of each track object
         # process noise variance
         self.q_var = q_var
@@ -514,6 +519,22 @@ class Tracker(object):
       between the velocity of kinematically clean tracks and the first-guess
       velocity they started with. It sets the first-link gates and the
       initial KF velocity uncertainty.
+    * ``velocitySigmaFallback``: typical error (per axis, px/frame) of the
+      fallback first guess (archive median horizontal velocity and
+      size-velocity fit) used when no local flow of established active tracks
+      is available. It is 1.4826 * median(|track velocity - fallback guess|)
+      over all clean tracks, i.e. the error about zero rather than the spread
+      about the median, because after a change of the wind the fallback error
+      is mostly a shared offset. The fallback guess is evaluated for every
+      track, also for those that started with the local flow
+      (counterfactual), so the statistic does not only see the tracks that
+      made it through the fallback gate. Tracks started with the fallback get
+      their own, wider confirmed first-link gate and KF velocity
+      uncertainty. With a single sigma, learned mostly from local-flow
+      guesses, the tracker could lock itself after a sudden change of the
+      flow: all established tracks break, new tracks only get the fallback
+      guess, their (correct and confirmed) first links fall outside the
+      tight gate, so no established tracks and no local flow come back.
 
     The class attributes below are dimensionless multipliers of these scales
     (or, for the defaults, the values used until enough tracks were seen).
@@ -828,6 +849,11 @@ class Tracker(object):
             archiveMaxlen, dtype=self._captureTimesSorted.dtype
         )
         self._archiveRes = _RollingArray(archiveMaxlen, dtype=np.float64, shape=(3,))
+        # residuals with respect to the fallback guess (all clean tracks)
+        self._archiveResFbTimes = _RollingArray(
+            archiveMaxlen, dtype=self._captureTimesSorted.dtype
+        )
+        self._archiveResFb = _RollingArray(archiveMaxlen, dtype=np.float64, shape=(3,))
 
         # observation volume for the look-ahead: both camera images (with the
         # retrieved follower rotation, as in
@@ -891,10 +917,16 @@ class Tracker(object):
 
         log.info(f"processing {self.nFrames} frames of {lv1match.encoding['source']}")
 
-    def _setScales(self, dvScale, velocitySigma):
+    def _setScales(self, dvScale, velocitySigma, velocitySigmaFallback=None):
         """Convert the learned scales into gate radii and cost penalties."""
         self.dvScale = float(dvScale)
         self.velocitySigma = np.asarray(velocitySigma, dtype=float)
+        if velocitySigmaFallback is None:
+            velocitySigmaFallback = self.velocitySigmaDefault
+        # the fallback guess is never assumed better than the local flow
+        self.velocitySigmaFallback = np.maximum(
+            np.asarray(velocitySigmaFallback, dtype=float), self.velocitySigma
+        )
         sigma = float(np.linalg.norm(self.velocitySigma))
         self.lookaheadRadius = max(self.lookaheadRadiusFactor * dvScale, self.minGatePx)
         self.firstLinkGate = float(
@@ -902,6 +934,14 @@ class Tracker(object):
         )
         self.wideFirstLinkGate = float(
             np.clip(self.wideFirstLinkFactor * sigma, self.firstLinkGate, 2000)
+        )
+        # confirmed first links of tracks started with the fallback guess
+        self.wideFirstLinkGateFallback = float(
+            np.clip(
+                self.wideFirstLinkFactor * np.linalg.norm(self.velocitySigmaFallback),
+                self.wideFirstLinkGate,
+                2000,
+            )
         )
         gate2 = max(self.gate2Factor * dvScale, 2 * self.minGatePx)
         gate3 = max(self.gate3Factor * dvScale, 1.5 * self.minGatePx)
@@ -1157,20 +1197,9 @@ class Tracker(object):
                 print("created tracks")
             for i in range(detections.shape[0]):
                 feat, size, velocityGuess = self.getFeatures(features, i)
-                track = Track(
-                    detections[i],
-                    feat,
-                    size,
-                    self.trackIdCount,
-                    capture_times[i],
-                    velocityGuess=velocityGuess,
-                    R_std=self.R_std,
-                    q_var=self.q_var,
-                    kfConstants=self._kfConstants,
-                    velocitySigma=self.velocitySigma,
+                track = self._startTrack(
+                    detections[i], feat, size, capture_times[i], velocityGuess
                 )
-                self.trackIdCount += 1
-                self.activeTracks.append(track)
                 # save "result"
                 if not self.training:
                     self.save(pair_ids[i], track)
@@ -1367,20 +1396,13 @@ class Tracker(object):
             feat, size, velocityGuess = self.getFeatures(
                 features, un_assigned_detects[i]
             )
-            track = Track(
+            track = self._startTrack(
                 detections[un_assigned_detects[i]],
                 feat,
                 size,
-                self.trackIdCount,
                 capture_times[un_assigned_detects[i]],
-                velocityGuess=velocityGuess,
-                R_std=self.R_std,
-                q_var=self.q_var,
-                kfConstants=self._kfConstants,
-                velocitySigma=self.velocitySigma,
+                velocityGuess,
             )
-            self.trackIdCount += 1
-            self.activeTracks.append(track)
             if not self.training and (self.verbosity > 5):
                 print("started", track)
             # save "result"
@@ -1418,6 +1440,38 @@ class Tracker(object):
             if not self.training and (self.verbosity > 5):
                 print(i, "done")
         return
+
+    def _startTrack(self, position, feat, size, startTime, velocityGuess):
+        """Create a new active track; its KF velocity uncertainty depends on
+        whether the first guess came from the local flow."""
+        localGuess = self._localFlow() is not None
+        track = Track(
+            position,
+            feat,
+            size,
+            self.trackIdCount,
+            startTime,
+            velocityGuess=velocityGuess,
+            R_std=self.R_std,
+            q_var=self.q_var,
+            kfConstants=self._kfConstants,
+            velocitySigma=(
+                self.velocitySigma if localGuess else self.velocitySigmaFallback
+            ),
+        )
+        track.localGuess = localGuess
+        # the fallback guess, also when the local flow was used, so the
+        # fallback error is learned from all tracks (see class docstring)
+        track.fallbackGuess = np.array(
+            [
+                *self.velocityGuessXY,
+                10 ** (self.velGuess_slope * np.log10(size) + self.velGuess_intercept),
+            ],
+            dtype=float,
+        )
+        self.trackIdCount += 1
+        self.activeTracks.append(track)
+        return track
 
     def _densityFirstLinkGate(self, ff):
         """
@@ -1546,11 +1600,14 @@ class Tracker(object):
                 checkable = np.zeros(len(detections), dtype=bool)
             d2 = distancesSq[k]
             feat = featureTerms[k]
+            wideGate = (
+                self.wideFirstLinkGate
+                if self.activeTracks[i].localGuess
+                else self.wideFirstLinkGateFallback
+            )
 
             confirmed = (
-                checkable
-                & (confirm <= self.lookaheadRadius)
-                & (d2 <= self.wideFirstLinkGate**2)
+                checkable & (confirm <= self.lookaheadRadius) & (d2 <= wideGate**2)
             )
             unconfirmable = ~checkable
             unconfirmed = checkable & ~confirmed
@@ -1757,18 +1814,36 @@ class Tracker(object):
         # the track started with) of kinematically clean tracks only. Tracks
         # with wrong links would inflate it, widen the gates and cause even
         # more wrong links.
-        velocitySigma = np.array(self.velocitySigmaDefault)
-        sigmaLearned = False
-        if len(self._archiveRes) > 0:
-            recent = (capture_times[0] - self._archiveResTimes.values) < maxAge
-            if recent.sum() >= self.minTracks4scales:
-                res = self._archiveRes.values[recent][-self.backSteps :]
-                mad = np.median(np.abs(res - np.median(res, axis=0)), axis=0)
-                velocitySigma = np.maximum(1.4826 * mad, self.minVelocitySigma)
-                sigmaLearned = True
+        velocitySigma, sigmaLearned = self._robustSigma(
+            self._archiveResTimes, self._archiveRes, capture_times, maxAge
+        )
+        # error of the fallback guess (about zero, a shared offset after a
+        # wind change is part of it); default until enough tracks were seen
+        velocitySigmaFallback, _ = self._robustSigma(
+            self._archiveResFbTimes,
+            self._archiveResFb,
+            capture_times,
+            maxAge,
+            aboutZero=True,
+        )
 
-        self._setScales(dvScale, velocitySigma)
+        self._setScales(dvScale, velocitySigma, velocitySigmaFallback)
         return dvLearned and sigmaLearned
+
+    def _robustSigma(
+        self, archiveTimes, archive, capture_times, maxAge, aboutZero=False
+    ):
+        """Robust per-axis spread (1.4826 * MAD) of recent first-guess
+        residuals (about zero instead of their median if aboutZero), or the
+        default if fewer than minTracks4scales."""
+        if len(archive) > 0:
+            recent = (capture_times[0] - archiveTimes.values) < maxAge
+            if recent.sum() >= self.minTracks4scales:
+                res = archive.values[recent][-self.backSteps :]
+                center = 0.0 if aboutZero else np.median(res, axis=0)
+                mad = np.median(np.abs(res - center), axis=0)
+                return np.maximum(1.4826 * mad, self.minVelocitySigma), True
+        return np.array(self.velocitySigmaDefault), False
 
     def _framesVisible(self, position, velocity, halfSize, maxFrames=1000):
         """
@@ -1835,6 +1910,7 @@ class Tracker(object):
     def _archiveScales(self, tracks):
         """Store what the learned scales need from finished tracks."""
         dvTimes, dvs, resTimes, res = [], [], [], []
+        resFbTimes, resFb = [], []
         for t in tracks:
             if t.nObserved < 4:
                 continue
@@ -1850,6 +1926,10 @@ class Tracker(object):
                 if np.all(np.isfinite(r)):
                     resTimes.append(t.startTime)
                     res.append(r)
+                rFb = t.meanVelocity - t.fallbackGuess
+                if np.all(np.isfinite(rFb)):
+                    resFbTimes.append(t.startTime)
+                    resFb.append(rFb)
         self._archiveDvTimes.extend(
             np.array(dvTimes, dtype=self._captureTimesSorted.dtype)
         )
@@ -1858,6 +1938,10 @@ class Tracker(object):
             np.array(resTimes, dtype=self._captureTimesSorted.dtype)
         )
         self._archiveRes.extend(np.array(res).reshape(-1, 3))
+        self._archiveResFbTimes.extend(
+            np.array(resFbTimes, dtype=self._captureTimesSorted.dtype)
+        )
+        self._archiveResFb.extend(np.array(resFb).reshape(-1, 3))
 
     def getVelocityFirstGuess(self, size):
         """

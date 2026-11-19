@@ -2372,7 +2372,7 @@ def collectVersionAttrs(level, parentFiles):
 # reuses what's already being stat'd). Remove an entry once the fleet has
 # caught up.
 REPROCESS_AFTER = {
-    "level1track": datetime.datetime(2026, 11, 19, 10, 15, 0),  # finite big-M (1e6) for forbidden links in the Hungarian step
+    "level1track": datetime.datetime(2026, 11, 19, 12, 10, 0),  # fallback first-guess gate (lock-up fix) + finite big-M (1e6)
     "level2detect": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
     "level2match": datetime.datetime(2026, 9, 2, 17, 0, 0),  # better QC
     "level2track": datetime.datetime(2026, 10, 7, 10, 50, 0),  # cameratrack="maxArea"

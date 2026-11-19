@@ -1279,7 +1279,14 @@ class Tracker(object):
             ]
             self.cost[coasted] += self.coastedExtraCost
 
-        self.cost[self.cost > self.dist_thresh] = 1e30
+        # forbidden links get a finite "big M": it must exceed any sum of allowed
+        # costs (each <= dist_thresh) but stay small enough that allowed costs
+        # still resolve when added to it. With 1e30, 1e30 + c == 1e30 in float64,
+        # so whenever a forbidden link is forced, the solver can no longer tell
+        # the allowed links apart and picks an arbitrary, possibly worse, one.
+        # Non-finite costs (NaN would make linear_sum_assignment raise) count
+        # as forbidden, too.
+        self.cost[~np.isfinite(self.cost) | (self.cost > self.dist_thresh)] = 1e6
 
         # Using Hungarian Algorithm assign the correct detected measurements
         # to predicted tracks
